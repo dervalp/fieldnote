@@ -17,11 +17,25 @@ export type CollectedEvidence = {
  * no schedule — those are slice 3's, which replaces this file. The call site in
  * grade-repository.ts does not move.
  */
+// The families this dispatcher knows how to collect. Kept as a literal set
+// rather than inferred from the schema so that a family added to
+// manifestSchema without a matching branch here fails loudly, by name,
+// instead of silently collecting nothing for it. Unreachable through normal
+// validation today — parseManifest's needs_mismatch invariant already
+// refuses a manifest that declares a family no check reads, and the schema
+// has no key for a third family — but this is the refusal for the day one
+// arrives.
+const HANDLED_FAMILIES = ['repo.files', 'fieldnote.metrics'] as const;
+
 export async function collectEvidence(
   manifest: GraderManifest,
   repositoryId: string,
   sha: string,
 ): Promise<CollectedEvidence> {
+  const unhandled = Object.keys(manifest.needs).find(
+    (family) => !(HANDLED_FAMILIES as readonly string[]).includes(family),
+  );
+  if (unhandled) throw new Error(`collectEvidence does not handle evidence family '${unhandled}'`);
   const filesNeed = manifest.needs['repo.files'];
   const metricsNeed = manifest.needs['fieldnote.metrics'];
   const files = filesNeed ? await collectReadiness(repositoryId, sha) : null;

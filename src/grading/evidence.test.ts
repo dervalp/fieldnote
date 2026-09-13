@@ -80,3 +80,19 @@ test('a failed file collection is reported as a collection failure', async () =>
   expect(collected.snapshot.incompleteReason).toBe(INCOMPLETE);
   expect(collected.incompleteCode).toBe('incomplete_collection');
 });
+
+// Unreachable through normal validation: parseManifest's needs_mismatch
+// invariant already refuses a manifest that declares a family no check reads,
+// and the schema itself has no key for a third family. This pins the
+// dispatcher's own refusal so it fails loudly by name if a family is ever
+// added to the schema without a matching branch here, rather than silently
+// collecting nothing for it.
+test('a family the dispatcher does not handle is refused by name', async () => {
+  const manifest = {
+    ...agentReadinessManifest,
+    needs: { ...agentReadinessManifest.needs, 'some.other.family': ['x'] },
+  } as unknown as typeof agentReadinessManifest;
+  await expect(collectEvidence(manifest, 'repo', 'abc')).rejects.toThrow(/some\.other\.family/);
+  expect(collectReadiness).not.toHaveBeenCalled();
+  expect(collectMetrics).not.toHaveBeenCalled();
+});
