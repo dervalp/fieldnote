@@ -167,8 +167,21 @@ and becomes a thin call to `repoSectionPath`.
 
 **Moved** (`git mv`, 38 files, 14 of them colocated tests): `src/app/{dashboard,
 repos,prs,settings,onboarding}` → `src/app/app/`. Every relative import inside
-those files gains one `../`. Mechanical, and `pnpm typecheck` is the proof.
+those files gains one `../` — 181 of them. The 16 relative imports that stay
+*inside* the moved tree keep their spelling, because the moved files kept their
+relationship to each other, so this is decided per-import rather than by a
+blanket replace. Mechanical, and `pnpm typecheck` is the whole proof: a
+relative import off by one level cannot compile.
 `src/app/settings/actions.integration.test.ts` moves with its subject.
+
+**Eleven imports point into the moved tree from outside it.** Components reach
+into route directories for their server actions — `repository/header.tsx` for
+`refreshImport`, `act-entry.tsx` and `grading/report.tsx` for the grading
+actions, `import-progress.tsx` and `repository-picker.tsx` for the onboarding
+actions, `workspace-switcher.tsx` for `switchWorkspace`,
+`history-interest.tsx` and `db/history-interest.integration.test.ts` for the
+history actions, plus three `vi.mock` calls naming the same modules. Each gains
+`app/` mid-path. They are listed exhaustively in the plan.
 
 **`src/app/page.tsx`** loses the redirect, the `hasCurrentSession` import, and
 the paragraph of the file comment describing the old behaviour.
