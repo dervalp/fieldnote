@@ -42,8 +42,20 @@ export function repoPath(repoId: string, query = ''): string {
   return withQuery(`${appPrefix}/repos/${encodeURIComponent(repoId)}`, query);
 }
 
+/**
+ * The static route segments directly under src/app/app/repos/[repoId]/.
+ *
+ * A closed union rather than `string`: a typo — `'ai-involvment'` — used to
+ * compile, lint and pass while producing a 404, which is the exact class of bug
+ * this module exists to prevent.
+ *
+ * `act` is deliberately absent. There is no page at .../act; only
+ * .../act/[runId], and actRunPath builds that one.
+ */
+export type RepoSection = 'grading' | 'ai-involvement' | 'delivery' | 'settings';
+
 /** `segment` is a static route segment — grading, ai-involvement, delivery, settings. */
-export function repoSectionPath(repoId: string, segment: string, query = ''): string {
+export function repoSectionPath(repoId: string, segment: RepoSection, query = ''): string {
   return withQuery(`${appPrefix}/repos/${encodeURIComponent(repoId)}/${segment}`, query);
 }
 

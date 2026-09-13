@@ -1,3 +1,5 @@
+import { readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { expect, test } from 'vitest';
 import {
   appPrefix,
@@ -26,8 +28,23 @@ test('every section sits under the prefix', () => {
   expect(workspaceSettingsPath()).toBe('/app/settings/workspace');
 });
 
+// The only test here that reads the filesystem, and the reason is the redirect
+// table: next.config.ts 308s /repos/x to /app/repos/x with `permanent: true`.
+// Rename a directory under src/app/app and fix up its callers and every other
+// test still passes — while that permanent redirect keeps sending browsers to a
+// URL that no longer exists, cached on the client and impossible to withdraw.
+// So this compares `appSections` against what is actually on disk. The path is
+// resolved from this file, not from process.cwd(), so it does not depend on
+// where vitest was invoked; the comparison is order-insensitive because
+// readdirSync order is not a guarantee worth being flaky over.
 test('appSections names exactly the five directories under src/app/app', () => {
-  expect([...appSections]).toEqual(['dashboard', 'repos', 'prs', 'settings', 'onboarding']);
+  const directories = readdirSync(join(import.meta.dirname, '..', 'app', 'app'), {
+    withFileTypes: true,
+  })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name);
+
+  expect([...directories].sort()).toEqual([...appSections].sort());
 });
 
 // Repository ids carry a colon. Encoding them exactly once, here, is the main

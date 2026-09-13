@@ -32,6 +32,13 @@ export const metadata = {
  * That <main id="main-content"> is required rather than decorative: the root
  * layout renders a skip link pointing at it, and this page supplies no
  * AppShell to provide one.
+ *
+ * Dropping that session check also dropped the last dynamic API on this page,
+ * so / is now statically prerendered at build time and served from the
+ * full-route cache. That is the behaviour we want for a landing page. But it
+ * means anything added here that depends on who is visiting — a signed-in nav
+ * state, a per-visitor greeting — has to opt back into dynamic rendering, or it
+ * will be baked once at build time and shown to everyone.
  */
 export default async function Landing() {
   return (
