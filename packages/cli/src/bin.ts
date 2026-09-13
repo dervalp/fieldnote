@@ -157,13 +157,19 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
     // typically one shared CI token: revoking it server-side would break every
     // other job on the box, and clearing a shadowed file while the variable is
     // still set would report a sign-out that did not happen.
+    //
+    // Exit 0, not 2: nothing failed. There is no stored credential here, the
+    // command says so truthfully and names where the token actually lives.
+    // On CI an environment-supplied token is the normal case, not an error,
+    // and a cleanup step should not go red for it. Printed with out.line
+    // rather than fail(), like every other line in this branch — logout has
+    // no --json rendering, and an `error` key beside exit 0 would contradict
+    // itself.
     if (auth?.source === 'env') {
-      return fail(out, json, 2, {
-        error: 'env-token',
-        message:
-          'This machine is signed in through FIELDNOTE_TOKEN. Revoke that token where it is stored — fieldnote will not revoke a token it did not store.',
-        source: 'env',
-      });
+      out.line(
+        '  This machine is signed in through FIELDNOTE_TOKEN. Revoke that token where it is stored — fieldnote will not revoke a token it did not store.',
+      );
+      return 0;
     }
 
     let revoked = false;

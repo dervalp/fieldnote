@@ -19,8 +19,13 @@ const headers = { 'Cache-Control': 'private, no-store' };
 //
 // The link is built from the request's own origin, the way the poll route
 // builds its result URL: the CLI authenticated against this origin, so that
-// is where its reader should be sent. /settings/workspace is where connected
-// repositories are listed, and where an owner finds "Connect a repository".
+// is where its reader should be sent.
+//
+// /settings/workspace deliberately, not /onboarding. Onboarding is where an
+// owner actually connects a repository, but it dead-ends for everyone else;
+// /settings/workspace lists what is connected, carries "Connect a
+// repository" for an owner, and tells a non-owner to ask one. Do not
+// "correct" this to the more specific link.
 const notConnected = (request: Request, repository: string) =>
   Response.json(
     {

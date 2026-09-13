@@ -68,7 +68,10 @@ describe('logout', () => {
       source: 'env',
     });
     const c = capture({ FIELDNOTE_TOKEN: 't' });
-    expect(await run(['logout'], c.sink, c.env)).toBe(2);
+    // Exit 0: nothing failed. There is nothing stored here to sign out of,
+    // and an environment-supplied token is the normal CI case rather than an
+    // error — a cleanup step that runs logout should not go red for it.
+    expect(await run(['logout'], c.sink, c.env)).toBe(0);
     expect(c.text()).toContain('FIELDNOTE_TOKEN');
     expect(revokeCliToken).not.toHaveBeenCalled();
     expect(clearAuth).not.toHaveBeenCalled();
