@@ -24,12 +24,20 @@ const COLOURS: Record<Line['kind'], string> = {
   url: DIM,
 };
 
-export function capabilities(stream: Stream, env: Env): Capabilities & { color: boolean } {
+export function capabilities(
+  stream: Stream,
+  env: Env,
+): Capabilities & { color: boolean; live: boolean } {
   const dumb = env.TERM === 'dumb';
+  const tty = Boolean(stream.isTTY);
   return {
     columns: stream.columns ?? 80,
     unicode: !dumb,
-    color: Boolean(stream.isTTY) && !dumb && env.NO_COLOR === undefined,
+    color: tty && !dumb && env.NO_COLOR === undefined,
+    // NO_COLOR asks for no colour, not no cursor: in-place rewriting is a
+    // question of whether the terminal can do it at all (a TTY that isn't
+    // "dumb"), independent of whether colour itself is switched off.
+    live: tty && !dumb,
   };
 }
 
@@ -71,13 +79,16 @@ export function createOutput(stream: Stream, env: Env) {
     // events worth reporting are the transitions. A TTY rewrites one line in
     // place; a pipeline gets one line per state instead of a thousand frames.
     progress() {
-      const live = caps.color;
+      const live = caps.live;
       let last: string | undefined;
       return {
         state(next: string) {
           if (next === last) return;
           last = next;
-          stream.write(live ? `\r  ${next}` : `  ${next}\n`);
+          // \x1b[K clears from the cursor to the end of the line: without it,
+          // a shorter state (e.g. "failed") rewritten over a longer one
+          // ("running") leaves that line's own trailing letters as residue.
+          stream.write(live ? `\r  ${next}\x1b[K` : `  ${next}\n`);
         },
         done() {
           if (live && last !== undefined) stream.write('\n');

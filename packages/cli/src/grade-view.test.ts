@@ -129,6 +129,14 @@ describe('gradeLines', () => {
     expect(gradeLines(base).some((line) => line.text.includes('not the commit'))).toBe(false);
   });
 
+  test('an abbreviated requested sha that is a prefix of the graded one is not a mismatch', () => {
+    // The CLI's own --sha suggestion (git.ts) is a 7-character abbreviation.
+    // A developer who follows it exactly must not be told their commit
+    // mismatches itself.
+    const lines = gradeLines({ ...base, requestedSha: sha.slice(0, 7) });
+    expect(lines.some((line) => line.text.includes('not the commit'))).toBe(false);
+  });
+
   test('a null graded sha is disclosed rather than passed off as the requested one', () => {
     const lines = gradeLines({ ...base, gradedSha: null });
     expect(joined(lines)).not.toContain(`${sha.slice(0, 7)} ·`);

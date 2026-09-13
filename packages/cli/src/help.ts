@@ -29,7 +29,7 @@ export function helpText(): string {
     '  OPTIONS',
     '    --sha <sha>         grade this commit, bypassing the work-in-progress guard',
     '    --min <score>       exit 1 if the grade scores below this threshold',
-    '    --json              machine-readable output, nothing else',
+    '    --json              one object: the result on success, or one with an "error" key',
     '    --version           print the version and exit',
     '',
     '  Exit codes: 0 success · 1 below threshold · 2 could not grade · 3 signed out',

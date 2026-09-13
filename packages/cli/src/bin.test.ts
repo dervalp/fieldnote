@@ -202,6 +202,12 @@ describe('run (the grading command)', () => {
     pollGradeRun.mockResolvedValue(completeFixture({ score: 80 }));
     const c = capture();
     expect(await run(['run', '--min', '90'], c.sink, c.env)).toBe(1);
+    // --min's own value must never be misread as the grader id positional.
+    expect(requestGradeRun).toHaveBeenCalledWith(
+      expect.any(String),
+      AUTH.token,
+      expect.objectContaining({ grader: undefined }),
+    );
   });
 
   it('exits 0 when the score meets --min', async () => {
@@ -212,6 +218,11 @@ describe('run (the grading command)', () => {
     pollGradeRun.mockResolvedValue(completeFixture({ score: 80 }));
     const c = capture();
     expect(await run(['run', '--min', '70'], c.sink, c.env)).toBe(0);
+    expect(requestGradeRun).toHaveBeenCalledWith(
+      expect.any(String),
+      AUTH.token,
+      expect.objectContaining({ grader: undefined }),
+    );
   });
 
   it('without --min, a low score is still exit 0 — the threshold is opt-in', async () => {
@@ -222,6 +233,40 @@ describe('run (the grading command)', () => {
     pollGradeRun.mockResolvedValue(completeFixture({ score: 1 }));
     const c = capture();
     expect(await run(['run'], c.sink, c.env)).toBe(0);
+  });
+
+  it('--min 0 is honoured rather than treated as absent — zero is a valid threshold', async () => {
+    readAuth.mockResolvedValue(AUTH);
+    readGitState.mockResolvedValue(CLEAN_STATE);
+    gradeBlocker.mockReturnValue(null);
+    requestGradeRun.mockResolvedValue(REQUESTED);
+    pollGradeRun.mockResolvedValue(completeFixture({ score: 50 }));
+    const c = capture();
+    // 50 is never below 0, so this must exit 0 — not error out, and not treat
+    // the falsy 0 as if --min had never been given.
+    expect(await run(['run', '--min', '0'], c.sink, c.env)).toBe(0);
+  });
+
+  it('a null score (incomplete evidence) is never "below" --min', async () => {
+    readAuth.mockResolvedValue(AUTH);
+    readGitState.mockResolvedValue(CLEAN_STATE);
+    gradeBlocker.mockReturnValue(null);
+    requestGradeRun.mockResolvedValue(REQUESTED);
+    // null < 90 is true in JavaScript — the guard must check for null first,
+    // not just compare, or an incomplete grade would wrongly fail --min.
+    pollGradeRun.mockResolvedValue(
+      completeFixture({ score: null, presentation: null, incompleteReason: 'truncated' }),
+    );
+    const c = capture();
+    expect(await run(['run', '--min', '90'], c.sink, c.env)).toBe(0);
+  });
+
+  it("exits 2 when --min is the empty string — that is not a quiet '--min 0'", async () => {
+    readAuth.mockResolvedValue(AUTH);
+    const c = capture();
+    expect(await run(['run', '--min', ''], c.sink, c.env)).toBe(2);
+    expect(c.text()).toContain('--min');
+    expect(readGitState).not.toHaveBeenCalled();
   });
 
   it('exits 2 and names the errorCode for a failed grade', async () => {
@@ -283,19 +328,40 @@ describe('run (the grading command)', () => {
     expect(() => JSON.parse(nonEmptyLines[0])).not.toThrow();
   });
 
-  it('reads the grader id positional even when a value flag follows it', async () => {
+  it('reads the grader id positional even when it follows a value flag', async () => {
+    // Ordering matters: a naive `argv.filter((a) => !a.startsWith('-'))[1]`
+    // reads 'agent-brief' correctly when it comes BEFORE --sha (the flag's
+    // own value is filtered out along with the flag), so that ordering does
+    // not distinguish the fix from the bug. Putting the grader id AFTER
+    // --sha's value is what the naive filter gets wrong: it would misread
+    // 'deadbeef' (the sha) as the grader, since it has no way to know that
+    // token belongs to --sha rather than being its own positional.
     readAuth.mockResolvedValue(AUTH);
     readGitState.mockResolvedValue(CLEAN_STATE);
     gradeBlocker.mockReturnValue(null);
     requestGradeRun.mockResolvedValue(REQUESTED);
     pollGradeRun.mockResolvedValue(completeFixture());
     const c = capture();
-    await run(['run', 'agent-brief', '--sha', 'deadbeef'], c.sink, c.env);
+    await run(['run', '--sha', 'deadbeef', 'agent-brief'], c.sink, c.env);
     expect(requestGradeRun).toHaveBeenCalledWith(expect.any(String), AUTH.token, {
       repository: CLEAN_STATE.slug,
       sha: 'deadbeef',
       grader: 'agent-brief',
     });
+  });
+
+  it('reads the command itself past a leading value flag', async () => {
+    // positionals(argv)[0] must skip --sha's own value the same way
+    // positionals(argv)[1] skips it for the grader id — otherwise
+    // `fieldnote --sha X run` reports "Unknown command: X".
+    readAuth.mockResolvedValue(AUTH);
+    readGitState.mockResolvedValue(CLEAN_STATE);
+    gradeBlocker.mockReturnValue(null);
+    requestGradeRun.mockResolvedValue(REQUESTED);
+    pollGradeRun.mockResolvedValue(completeFixture());
+    const c = capture();
+    expect(await run(['--sha', 'deadbeef', 'run'], c.sink, c.env)).toBe(0);
+    expect(c.text()).not.toContain('Unknown command');
   });
 
   it('exits 2 when --sha is given with no value', async () => {
@@ -353,6 +419,169 @@ describe('run (the grading command)', () => {
     expect(await promise).toBe(2);
     expect(c.text()).toContain('did not finish in time');
   });
+
+  it('tolerates a few consecutive transient poll failures and still grades', async () => {
+    vi.useFakeTimers();
+    readAuth.mockResolvedValue(AUTH);
+    readGitState.mockResolvedValue(CLEAN_STATE);
+    gradeBlocker.mockReturnValue(null);
+    requestGradeRun.mockResolvedValue(REQUESTED);
+    pollGradeRun
+      .mockRejectedValueOnce(new ApiError('Could not reach fieldnote. Try again.', 2))
+      .mockRejectedValueOnce(new ApiError('Could not reach fieldnote. Try again.', 2))
+      .mockResolvedValueOnce(completeFixture({ score: 92 }));
+    const c = capture();
+    const promise = run(['run'], c.sink, c.env);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(await promise).toBe(0);
+    expect(c.text()).toContain('92/100');
+  });
+
+  it('does not tolerate an exitCode 3 poll failure — the token itself was rejected', async () => {
+    readAuth.mockResolvedValue(AUTH);
+    readGitState.mockResolvedValue(CLEAN_STATE);
+    gradeBlocker.mockReturnValue(null);
+    requestGradeRun.mockResolvedValue(REQUESTED);
+    pollGradeRun.mockRejectedValue(new ApiError('Not signed in.', 3));
+    const c = capture();
+    expect(await run(['run'], c.sink, c.env)).toBe(3);
+    expect(c.text()).toContain('Not signed in.');
+    expect(pollGradeRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives up once transient poll failures exceed the retry ceiling', async () => {
+    vi.useFakeTimers();
+    readAuth.mockResolvedValue(AUTH);
+    readGitState.mockResolvedValue(CLEAN_STATE);
+    gradeBlocker.mockReturnValue(null);
+    requestGradeRun.mockResolvedValue(REQUESTED);
+    pollGradeRun.mockRejectedValue(new ApiError('Could not reach fieldnote. Try again.', 2));
+    const c = capture();
+    const promise = run(['run'], c.sink, c.env);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await promise).toBe(2);
+    expect(c.text()).toContain('Could not reach fieldnote. Try again.');
+  });
+});
+
+describe('run --json error shapes', () => {
+  it('not-signed-in', async () => {
+    readAuth.mockResolvedValue(null);
+    const c = capture();
+    expect(await run(['run', '--json'], c.sink, c.env)).toBe(3);
+    expect(JSON.parse(c.text())).toEqual({
+      error: 'not-signed-in',
+      message: 'Not signed in. Run `fieldnote login`.',
+    });
+  });
+
+  it('usage — --sha given with no value', async () => {
+    readAuth.mockResolvedValue(AUTH);
+    const c = capture();
+    expect(await run(['run', '--sha', '--json'], c.sink, c.env)).toBe(2);
+    expect(JSON.parse(c.text())).toEqual({
+      error: 'usage',
+      message: '--sha requires a value: fieldnote run --sha <sha>',
+    });
+  });
+
+  it('usage — --min not a number', async () => {
+    readAuth.mockResolvedValue(AUTH);
+    const c = capture();
+    expect(await run(['run', '--min', 'abc', '--json'], c.sink, c.env)).toBe(2);
+    expect(JSON.parse(c.text())).toEqual({
+      error: 'usage',
+      message: '--min requires a numeric value: fieldnote run --min <score>',
+    });
+  });
+
+  it('blocked — carries the reason and the blocker lines, not just the reason', async () => {
+    readAuth.mockResolvedValue(AUTH);
+    readGitState.mockResolvedValue(CLEAN_STATE);
+    gradeBlocker.mockReturnValue({ reason: 'dirty', lines: ['  3 files changed', '', '  fix it'] });
+    const c = capture();
+    expect(await run(['run', '--json'], c.sink, c.env)).toBe(2);
+    expect(JSON.parse(c.text())).toEqual({
+      error: 'blocked',
+      message: '3 files changed',
+      reason: 'dirty',
+      lines: ['  3 files changed', '', '  fix it'],
+    });
+  });
+
+  it('timeout — includes the same message the human path prints', async () => {
+    vi.useFakeTimers();
+    readAuth.mockResolvedValue(AUTH);
+    readGitState.mockResolvedValue(CLEAN_STATE);
+    gradeBlocker.mockReturnValue(null);
+    requestGradeRun.mockResolvedValue(REQUESTED);
+    pollGradeRun.mockResolvedValue({ state: 'running' });
+    const c = capture();
+    const promise = run(['run', '--json'], c.sink, c.env);
+    await vi.advanceTimersByTimeAsync(10 * 60_000 + 1_000);
+    expect(await promise).toBe(2);
+    expect(JSON.parse(c.text())).toEqual({
+      error: 'timeout',
+      message: 'The grade did not finish in time. Try again.',
+    });
+  });
+
+  it('failed — keeps errorCode alongside a human-readable message', async () => {
+    readAuth.mockResolvedValue(AUTH);
+    readGitState.mockResolvedValue(CLEAN_STATE);
+    gradeBlocker.mockReturnValue(null);
+    requestGradeRun.mockResolvedValue(REQUESTED);
+    pollGradeRun.mockResolvedValue({ state: 'failed', errorCode: 'clone-failed' });
+    const c = capture();
+    expect(await run(['run', '--json'], c.sink, c.env)).toBe(2);
+    expect(JSON.parse(c.text())).toEqual({
+      error: 'failed',
+      message: 'The grade failed: clone-failed',
+      errorCode: 'clone-failed',
+    });
+  });
+
+  it('failed with no errorCode — never invents a reason', async () => {
+    readAuth.mockResolvedValue(AUTH);
+    readGitState.mockResolvedValue(CLEAN_STATE);
+    gradeBlocker.mockReturnValue(null);
+    requestGradeRun.mockResolvedValue(REQUESTED);
+    pollGradeRun.mockResolvedValue({ state: 'failed', errorCode: null });
+    const c = capture();
+    expect(await run(['run', '--json'], c.sink, c.env)).toBe(2);
+    expect(JSON.parse(c.text())).toEqual({
+      error: 'failed',
+      message: 'The grade failed. No reason was recorded.',
+      errorCode: null,
+    });
+  });
+
+  it('no-result', async () => {
+    readAuth.mockResolvedValue(AUTH);
+    readGitState.mockResolvedValue(CLEAN_STATE);
+    gradeBlocker.mockReturnValue(null);
+    requestGradeRun.mockResolvedValue(REQUESTED);
+    pollGradeRun.mockResolvedValue({ state: 'complete' });
+    const c = capture();
+    expect(await run(['run', '--json'], c.sink, c.env)).toBe(2);
+    expect(JSON.parse(c.text())).toEqual({
+      error: 'no-result',
+      message: 'The grade finished but recorded no result.',
+    });
+  });
+
+  it('api-error — the ApiError message becomes both fields', async () => {
+    readAuth.mockResolvedValue(AUTH);
+    readGitState.mockResolvedValue(CLEAN_STATE);
+    gradeBlocker.mockReturnValue(null);
+    requestGradeRun.mockRejectedValue(new ApiError('fieldnote is not connected to a/b.', 2));
+    const c = capture();
+    expect(await run(['run', '--json'], c.sink, c.env)).toBe(2);
+    expect(JSON.parse(c.text())).toEqual({
+      error: 'api-error',
+      message: 'fieldnote is not connected to a/b.',
+    });
+  });
 });
 
 describe('graders', () => {
@@ -396,5 +625,26 @@ describe('graders', () => {
     const c = capture();
     expect(await run(['graders'], c.sink, c.env)).toBe(2);
     expect(c.text()).toContain('Could not reach fieldnote. Try again.');
+  });
+
+  it('--json not-signed-in shape matches run’s', async () => {
+    readAuth.mockResolvedValue(null);
+    const c = capture();
+    expect(await run(['graders', '--json'], c.sink, c.env)).toBe(3);
+    expect(JSON.parse(c.text())).toEqual({
+      error: 'not-signed-in',
+      message: 'Not signed in. Run `fieldnote login`.',
+    });
+  });
+
+  it('--json api-error shape matches run’s', async () => {
+    readAuth.mockResolvedValue(AUTH);
+    listGraders.mockRejectedValue(new ApiError('Could not reach fieldnote. Try again.', 2));
+    const c = capture();
+    expect(await run(['graders', '--json'], c.sink, c.env)).toBe(2);
+    expect(JSON.parse(c.text())).toEqual({
+      error: 'api-error',
+      message: 'Could not reach fieldnote. Try again.',
+    });
   });
 });

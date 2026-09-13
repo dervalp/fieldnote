@@ -138,4 +138,23 @@ describe('out.progress', () => {
     createOutput(stream, {}).progress().done();
     expect(chunks).toEqual([]);
   });
+
+  it('still rewrites in place under NO_COLOR — that turns off colour, not the cursor', () => {
+    const { chunks, stream } = fake(true);
+    const progress = createOutput(stream, { NO_COLOR: '1' }).progress();
+    progress.state('queued');
+    progress.state('running');
+    progress.done();
+    expect(chunks[0]).toContain('\r');
+    expect(chunks).toHaveLength(3);
+  });
+
+  it('clears to the end of the line on each rewrite, so a shorter state leaves no residue', () => {
+    const { chunks, stream } = fake(true);
+    const progress = createOutput(stream, {}).progress();
+    progress.state('running');
+    progress.state('failed');
+    progress.done();
+    expect(chunks[1]).toBe('\r  failed\x1b[K');
+  });
 });

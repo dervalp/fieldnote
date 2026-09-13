@@ -22,6 +22,17 @@ function kindOf(check: GradeCheck): 'pass' | 'fail' | 'partial' {
 
 const short = (sha: string) => sha.slice(0, 7);
 
+// The CLI accepts an abbreviated sha (git.ts itself suggests one, in the
+// dirty/unpushed blocker's own copy), so exact equality is the wrong test
+// for "did we grade what was requested" — a 7-character requestedSha and its
+// own 40-character expansion are the same commit, not a mismatch. Either
+// string being empty is never a match: an empty sha is missing information,
+// not a shared prefix of everything.
+function shaMatches(a: string, b: string): boolean {
+  if (a === '' || b === '') return false;
+  return a.startsWith(b) || b.startsWith(a);
+}
+
 export function gradeLines(input: GradeView): Line[] {
   const lines: Line[] = [];
   const title = (check: GradeCheck) => input.titles[check.id] ?? check.id;
@@ -41,7 +52,7 @@ export function gradeLines(input: GradeView): Line[] {
       kind: 'dim',
       text: `  This grade does not record which commit it read.`,
     });
-  else if (input.gradedSha !== input.requestedSha)
+  else if (!shaMatches(input.gradedSha, input.requestedSha))
     lines.push({
       kind: 'dim',
       text: `  Graded ${short(input.gradedSha)}, not the commit you are on (${short(input.requestedSha)}).`,

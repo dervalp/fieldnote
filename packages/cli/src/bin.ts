@@ -42,14 +42,17 @@ function positionals(argv: string[]): string[] {
   return out;
 }
 
-// `--name value`. A value that looks like another flag is not a value —
-// distinguishing "absent" from "present with nothing to read" is what lets a
-// caller tell a missing flag from a malformed one.
+// `--name value`. A value that looks like another flag, or is empty or
+// whitespace-only, is not a value — `--min ''` is not a quiet way to spell
+// `--min 0`, it is the same "nothing to read" as `--min` on its own.
+// Distinguishing that from a flag that was never given is what lets a caller
+// tell a missing flag from a malformed one.
 function flagValue(argv: string[], name: string): string | undefined {
   const i = argv.indexOf(name);
   if (i === -1) return undefined;
   const value = argv[i + 1];
-  return value !== undefined && !value.startsWith('-') ? value : undefined;
+  if (value === undefined || value.startsWith('-') || value.trim() === '') return undefined;
+  return value;
 }
 
 function flagGivenWithNoValue(argv: string[], name: string): boolean {
@@ -59,16 +62,43 @@ function flagGivenWithNoValue(argv: string[], name: string): boolean {
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+function baseUrl(env: Env): string {
+  return env.FIELDNOTE_URL ?? 'https://fieldnote.dev';
+}
+
+// Every failure this dispatch reports is one line of human text, or one JSON
+// object under --json — never both, never neither. `payload` is that JSON
+// object verbatim: it always carries `error` and a human-readable `message`,
+// plus whatever case-specific fields the caller has (an `errorCode`, a
+// blocker's `reason`). `humanLines` is for the one case whose human rendering
+// is not its message on one line — a blocker's own multi-line copy — and
+// defaults to the message, prefixed the way every other line in this file is.
+function fail(
+  out: ReturnType<typeof createOutput>,
+  json: boolean,
+  exitCode: number,
+  payload: { error: string; message: string } & Record<string, unknown>,
+  humanLines?: string[],
+): number {
+  if (json) out.line(JSON.stringify(payload));
+  else for (const line of humanLines ?? [`  ${payload.message}`]) out.line(line);
+  return exitCode;
+}
+
+function notSignedIn(out: ReturnType<typeof createOutput>, json: boolean): number {
+  return fail(out, json, 3, {
+    error: 'not-signed-in',
+    message: 'Not signed in. Run `fieldnote login`.',
+  });
+}
+
 function reportApiError(
   out: ReturnType<typeof createOutput>,
   error: unknown,
   json: boolean,
 ): number {
   if (!(error instanceof ApiError)) throw error;
-  out.line(
-    json ? JSON.stringify({ error: 'api-error', message: error.message }) : `  ${error.message}`,
-  );
-  return error.exitCode;
+  return fail(out, json, error.exitCode, { error: 'api-error', message: error.message });
 }
 
 const COMING_SOON = [
@@ -83,7 +113,7 @@ const COMING_SOON = [
 export async function run(argv: string[], stream: Stream, env: Env): Promise<number> {
   const json = argv.includes('--json');
   const out = createOutput(stream, env);
-  const [command] = argv.filter((arg) => !arg.startsWith('-'));
+  const [command] = positionals(argv);
 
   if (argv.includes('--version')) {
     out.line(cliVersion());
@@ -120,7 +150,7 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
   }
 
   if (command === 'logout') {
-    const base = env.FIELDNOTE_URL ?? 'https://fieldnote.dev';
+    const base = baseUrl(env);
     const auth = await readAuth(env);
     let revoked = false;
     if (auth) {
@@ -150,7 +180,7 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
   }
 
   if (command === 'login') {
-    const base = env.FIELDNOTE_URL ?? 'https://fieldnote.dev';
+    const base = baseUrl(env);
     const verifier = randomBytes(32).toString('base64url');
     const challenge = createHash('sha256').update(verifier).digest('base64url');
     const state = randomBytes(16).toString('base64url');
@@ -215,17 +245,9 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
 
   if (command === 'graders') {
     const auth = await readAuth(env);
-    if (!auth) {
-      out.line(
-        json
-          ? JSON.stringify({ error: 'not-signed-in' })
-          : '  Not signed in. Run `fieldnote login`.',
-      );
-      return 3;
-    }
-    const base = env.FIELDNOTE_URL ?? 'https://fieldnote.dev';
+    if (!auth) return notSignedIn(out, json);
     try {
-      const graders = await listGraders(base, auth.token);
+      const graders = await listGraders(baseUrl(env), auth.token);
       if (json) {
         out.line(JSON.stringify({ graders }));
         return 0;
@@ -245,35 +267,31 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
 
   if (command === 'run') {
     const auth = await readAuth(env);
-    if (!auth) {
-      out.line(
-        json
-          ? JSON.stringify({ error: 'not-signed-in' })
-          : '  Not signed in. Run `fieldnote login`.',
-      );
-      return 3;
-    }
+    if (!auth) return notSignedIn(out, json);
 
     if (flagGivenWithNoValue(argv, '--sha')) {
-      const message = '--sha requires a value: fieldnote run --sha <sha>';
-      out.line(json ? JSON.stringify({ error: 'usage', message }) : `  ${message}`);
-      return 2;
+      return fail(out, json, 2, {
+        error: 'usage',
+        message: '--sha requires a value: fieldnote run --sha <sha>',
+      });
     }
     const sha = flagValue(argv, '--sha');
 
     let min: number | undefined;
     if (flagGivenWithNoValue(argv, '--min')) {
-      const message = '--min requires a numeric value: fieldnote run --min <score>';
-      out.line(json ? JSON.stringify({ error: 'usage', message }) : `  ${message}`);
-      return 2;
+      return fail(out, json, 2, {
+        error: 'usage',
+        message: '--min requires a numeric value: fieldnote run --min <score>',
+      });
     }
     const minRaw = flagValue(argv, '--min');
     if (minRaw !== undefined) {
       min = Number(minRaw);
       if (!Number.isFinite(min)) {
-        const message = '--min requires a numeric value: fieldnote run --min <score>';
-        out.line(json ? JSON.stringify({ error: 'usage', message }) : `  ${message}`);
-        return 2;
+        return fail(out, json, 2, {
+          error: 'usage',
+          message: '--min requires a numeric value: fieldnote run --min <score>',
+        });
       }
     }
 
@@ -288,9 +306,18 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
     const bypassed =
       sha !== undefined && (blocker?.reason === 'dirty' || blocker?.reason === 'unpushed');
     if (blocker && !bypassed) {
-      if (json) out.line(JSON.stringify({ error: 'blocked', reason: blocker.reason }));
-      else for (const line of blocker.lines) out.line(line);
-      return 2;
+      return fail(
+        out,
+        json,
+        2,
+        {
+          error: 'blocked',
+          message: blocker.lines[0]?.trim() ?? 'Blocked.',
+          reason: blocker.reason,
+          lines: blocker.lines,
+        },
+        blocker.lines,
+      );
     }
 
     // Reachable here only because gradeBlocker already refused (and refused
@@ -300,14 +327,16 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
       throw new Error('unreachable: git state missing slug or sha past the blocker above');
     }
     const slug = state.slug;
-    const requestedSha = sha ?? state.sha;
+    // What is sent to the server: the developer's own --sha, or the git-
+    // resolved HEAD. Not what ends up in the rendered view — see below.
+    const shaToRequest = sha ?? state.sha;
 
-    const base = env.FIELDNOTE_URL ?? 'https://fieldnote.dev';
+    const base = baseUrl(env);
     let requested: Awaited<ReturnType<typeof requestGradeRun>>;
     try {
       requested = await requestGradeRun(base, auth.token, {
         repository: slug,
-        sha: requestedSha,
+        sha: shaToRequest,
         grader,
       });
     } catch (error) {
@@ -317,21 +346,45 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
     const progress = json ? null : out.progress();
     const POLL_INTERVAL_MS = 1_000;
     const POLL_TIMEOUT_MS = 10 * 60_000;
+    // A transient failure (a timeout, a dropped connection) should not cost a
+    // ten-minute run its whole result — but an exitCode 3 means the token
+    // itself was rejected mid-run, and no amount of retrying fixes that.
+    const MAX_CONSECUTIVE_POLL_FAILURES = 3;
     const deadline = Date.now() + POLL_TIMEOUT_MS;
+    let consecutiveFailures = 0;
 
     let poll: GradePoll;
     try {
       for (;;) {
-        poll = await pollGradeRun(base, auth.token, requested.runId);
+        try {
+          poll = await pollGradeRun(base, auth.token, requested.runId);
+        } catch (error) {
+          if (error instanceof ApiError && error.exitCode === 2) {
+            consecutiveFailures += 1;
+            if (consecutiveFailures > MAX_CONSECUTIVE_POLL_FAILURES) throw error;
+            if (Date.now() >= deadline) {
+              progress?.done();
+              return fail(out, json, 2, {
+                error: 'timeout',
+                message: 'The grade did not finish in time. Try again.',
+              });
+            }
+            await sleep(POLL_INTERVAL_MS);
+            continue;
+          }
+          throw error;
+        }
+        consecutiveFailures = 0;
         progress?.state(poll.state);
         if (poll.state !== 'queued' && poll.state !== 'running') break;
         // A CLI that can hang forever is a CLI people stop trusting: the poll
         // ticks once a second and gives up after a ten-minute ceiling.
         if (Date.now() >= deadline) {
           progress?.done();
-          const message = 'The grade did not finish in time. Try again.';
-          out.line(json ? JSON.stringify({ error: 'timeout' }) : `  ${message}`);
-          return 2;
+          return fail(out, json, 2, {
+            error: 'timeout',
+            message: 'The grade did not finish in time. Try again.',
+          });
         }
         await sleep(POLL_INTERVAL_MS);
       }
@@ -345,26 +398,25 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
       // The column is nullable and nothing ties it to the failed state — say
       // what is known and no more. Never invent a reason that was not
       // recorded.
-      if (json) out.line(JSON.stringify({ error: 'failed', errorCode: poll.errorCode }));
-      else
-        out.line(
-          poll.errorCode
-            ? `  The grade failed: ${poll.errorCode}`
-            : '  The grade failed. No reason was recorded.',
-        );
-      return 2;
+      const message = poll.errorCode
+        ? `The grade failed: ${poll.errorCode}`
+        : 'The grade failed. No reason was recorded.';
+      return fail(out, json, 2, { error: 'failed', message, errorCode: poll.errorCode });
     }
 
     if (!hasResult(poll)) {
-      out.line(
-        json
-          ? JSON.stringify({ error: 'no-result' })
-          : '  The grade finished but recorded no result.',
-      );
-      return 2;
+      return fail(out, json, 2, {
+        error: 'no-result',
+        message: 'The grade finished but recorded no result.',
+      });
     }
 
-    const view: GradeView = { ...poll, slug, requestedSha };
+    // slug is what only the CLI knows (git.ts); requestedSha is what the POST
+    // echoed back (api.ts) — not shaToRequest above. The server is the
+    // authority on what it received, and grade-view.ts's own mismatch
+    // disclosure only means what it says if this is the real echo rather
+    // than a client-side reconstruction of it.
+    const view: GradeView = { ...poll, slug, requestedSha: requested.requestedSha };
 
     if (json) out.line(JSON.stringify(view));
     else out.lines(gradeLines(view));
