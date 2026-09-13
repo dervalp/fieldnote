@@ -155,6 +155,81 @@ describe('GET /api/cli/grades/[runId]', () => {
     expect(JSON.stringify(body)).not.toContain('"score":0');
   });
 
+  it('surfaces the error code on a failed run', async () => {
+    loadGradeRun.mockResolvedValue({
+      id: 'gr_1',
+      repositoryId: 'r_1',
+      state: 'failed',
+      graderId: 'g',
+      sha: null,
+      result: null,
+      errorCode: 'collection_failed',
+    });
+    expect(await (await get('gr_1')).json()).toEqual({
+      state: 'failed',
+      errorCode: 'collection_failed',
+    });
+  });
+
+  it('sends nextTier as null for a valid, non-null score with nothing left to improve', async () => {
+    loadGradeRun.mockResolvedValue({
+      id: 'gr_1',
+      repositoryId: 'r_1',
+      graderId: 'fieldnote/agent-readiness',
+      state: 'complete',
+      sha: 'a'.repeat(40),
+      result: {
+        score: 100,
+        checks: [
+          {
+            id: 'root-readme',
+            points: 20,
+            maxPoints: 20,
+            status: 'pass',
+            paths: ['README.md'],
+            lineRanges: [],
+            explanation: 'README exists.',
+          },
+        ],
+        rubricVersion: '0.1.0',
+        evaluatorVersion: 'eval-1',
+      },
+    });
+
+    const body = await (await get('gr_1')).json();
+
+    expect(body.score).toBe(100);
+    expect(body.presentation).toEqual({ label: 'Excellent', finish: 'Prismatic · Perfect score' });
+    expect(body.nextTier).toBeNull();
+  });
+
+  it('reports a bare complete state when a complete run somehow carries no result', async () => {
+    loadGradeRun.mockResolvedValue({
+      id: 'gr_1',
+      repositoryId: 'r_1',
+      graderId: 'fieldnote/agent-readiness',
+      state: 'complete',
+      sha: null,
+      result: null,
+    });
+    expect(await (await get('gr_1')).json()).toEqual({ state: 'complete' });
+  });
+
+  it('sets a private, no-store Cache-Control header on a success and on a 404', async () => {
+    loadGradeRun.mockResolvedValue({
+      id: 'gr_1',
+      repositoryId: 'r_1',
+      state: 'running',
+      graderId: 'g',
+      sha: null,
+      result: null,
+    });
+    expect((await get('gr_1')).headers.get('Cache-Control')).toBe('private, no-store');
+
+    loadGradeRun.mockResolvedValue(null);
+    expect((await get('gr_2')).headers.get('Cache-Control')).toBe('private, no-store');
+  });
+
   it('404s with a naming message when the run belongs to a grader that is no longer registered', async () => {
     getGrader.mockImplementation(() => {
       throw new ManifestError('unknown_grader', "No grader 'ghost/grader' is registered.");

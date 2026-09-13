@@ -30,6 +30,11 @@ export async function GET(request: Request, context: { params: Promise<{ runId: 
     const repositories = await accessibleRepositories();
     if (!repositories.some((repository) => repository.id === run.repositoryId)) return notFound();
 
+    // A failed run carries no result, but it does carry why — surface it so
+    // the CLI can say more than "it failed". queued/running stay bare: there
+    // is nothing yet to say.
+    if (run.state === 'failed')
+      return Response.json({ state: run.state, errorCode: run.errorCode }, { headers });
     if (run.state !== 'complete' || !run.result)
       return Response.json({ state: run.state }, { headers });
 
