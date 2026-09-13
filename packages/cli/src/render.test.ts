@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { capabilities, createOutput, shouldShowBanner } from './render.ts';
 
+const fake = (isTTY: boolean) => {
+  const chunks: string[] = [];
+  return { chunks, stream: { isTTY, columns: 100, write: (c: string) => chunks.push(c) } };
+};
+
 const tty = { isTTY: true, columns: 80, write: () => true };
 const pipe = { isTTY: false, columns: undefined, write: () => true };
 
@@ -79,5 +84,58 @@ describe('createOutput', () => {
     for (const line of lines) {
       expect([...line].length).toBeLessThanOrEqual(80);
     }
+  });
+});
+
+describe('out.lines', () => {
+  it('writes one line per Line, in order, with no colour when colour is off', () => {
+    const { chunks, stream } = fake(false);
+    createOutput(stream, {}).lines([
+      { kind: 'head', text: 'dervalp/fieldnote' },
+      { kind: 'blank', text: '' },
+      { kind: 'pass', text: 'An agent brief exists' },
+    ]);
+    expect(chunks.join('')).toBe('dervalp/fieldnote\n\nAn agent brief exists\n');
+  });
+
+  it('colours a pass and a fail differently when colour is on', () => {
+    const { chunks, stream } = fake(true);
+    const out = createOutput(stream, {});
+    out.lines([
+      { kind: 'pass', text: 'a' },
+      { kind: 'fail', text: 'b' },
+    ]);
+    expect(chunks[0]).not.toBe(chunks[1].replace('b', 'a'));
+    expect(chunks[0]).toContain('\x1b[');
+  });
+});
+
+describe('out.progress', () => {
+  it('appends one line per state transition when not a TTY', () => {
+    const { chunks, stream } = fake(false);
+    const progress = createOutput(stream, {}).progress();
+    progress.state('queued');
+    progress.state('queued');
+    progress.state('running');
+    progress.done();
+    expect(chunks.join('')).toBe('  queued\n  running\n');
+  });
+
+  it('rewrites one line in place in a TTY, and ends it', () => {
+    const { chunks, stream } = fake(true);
+    const progress = createOutput(stream, {}).progress();
+    progress.state('queued');
+    progress.state('running');
+    progress.done();
+    expect(chunks[0]).toContain('\r');
+    expect(chunks.join('').endsWith('\n')).toBe(true);
+    // One transition, one write, plus the terminating newline.
+    expect(chunks).toHaveLength(3);
+  });
+
+  it('writes nothing at all if no state ever arrives', () => {
+    const { chunks, stream } = fake(true);
+    createOutput(stream, {}).progress().done();
+    expect(chunks).toEqual([]);
   });
 });

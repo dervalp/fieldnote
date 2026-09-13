@@ -27,6 +27,8 @@ export function helpText(): string {
     '    mcp                 serve fieldnote over MCP       coming soon',
     '',
     '  OPTIONS',
+    '    --sha <sha>         grade this commit, bypassing the work-in-progress guard',
+    '    --min <score>       exit 1 if the grade scores below this threshold',
     '    --json              machine-readable output, nothing else',
     '    --version           print the version and exit',
     '',

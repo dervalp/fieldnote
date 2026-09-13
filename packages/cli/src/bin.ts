@@ -7,7 +7,69 @@ import { cliVersion } from './version.ts';
 import { helpText } from './help.ts';
 import { clearAuth, readAuth, writeAuth } from './config.ts';
 import { awaitCallback, openBrowser } from './login.ts';
-import { exchangeCliToken, revokeCliToken } from './api.ts';
+import {
+  ApiError,
+  exchangeCliToken,
+  hasResult,
+  listGraders,
+  pollGradeRun,
+  requestGradeRun,
+  revokeCliToken,
+  type GradePoll,
+} from './api.ts';
+import { gradeBlocker, readGitState } from './git.ts';
+import { gradeLines, type GradeView } from './grade-view.ts';
+
+// --sha and --min are the only flags this dispatch reads that take a value —
+// every other token that follows them is that value, not a positional or a
+// separate flag, so both parsing helpers below have to agree on that.
+const VALUE_FLAGS = new Set(['--sha', '--min']);
+
+// Non-flag tokens, with a value flag's own value skipped rather than read as
+// a positional. Without this, `fieldnote run --sha X` would misread X as the
+// grader id — the exact bug a value-taking flag introduces that a bare
+// boolean flag like --json never could.
+function positionals(argv: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg.startsWith('-')) {
+      if (VALUE_FLAGS.has(arg)) i++;
+      continue;
+    }
+    out.push(arg);
+  }
+  return out;
+}
+
+// `--name value`. A value that looks like another flag is not a value —
+// distinguishing "absent" from "present with nothing to read" is what lets a
+// caller tell a missing flag from a malformed one.
+function flagValue(argv: string[], name: string): string | undefined {
+  const i = argv.indexOf(name);
+  if (i === -1) return undefined;
+  const value = argv[i + 1];
+  return value !== undefined && !value.startsWith('-') ? value : undefined;
+}
+
+function flagGivenWithNoValue(argv: string[], name: string): boolean {
+  const i = argv.indexOf(name);
+  return i !== -1 && flagValue(argv, name) === undefined;
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+function reportApiError(
+  out: ReturnType<typeof createOutput>,
+  error: unknown,
+  json: boolean,
+): number {
+  if (!(error instanceof ApiError)) throw error;
+  out.line(
+    json ? JSON.stringify({ error: 'api-error', message: error.message }) : `  ${error.message}`,
+  );
+  return error.exitCode;
+}
 
 const COMING_SOON = [
   '  fieldnote over MCP — coming soon',
@@ -148,6 +210,166 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
     out.line(`  Signed in as ${body.login}`);
     out.line(`  workspace   ${body.workspace}`);
     out.line('  token       ~/.fieldnote/auth.json (0600)');
+    return 0;
+  }
+
+  if (command === 'graders') {
+    const auth = await readAuth(env);
+    if (!auth) {
+      out.line(
+        json
+          ? JSON.stringify({ error: 'not-signed-in' })
+          : '  Not signed in. Run `fieldnote login`.',
+      );
+      return 3;
+    }
+    const base = env.FIELDNOTE_URL ?? 'https://fieldnote.dev';
+    try {
+      const graders = await listGraders(base, auth.token);
+      if (json) {
+        out.line(JSON.stringify({ graders }));
+        return 0;
+      }
+      if (graders.length === 0) {
+        out.line('  No graders are available to this workspace.');
+        return 0;
+      }
+      for (const grader of graders) {
+        out.line(`  ${grader.id}  ${grader.version}  ${grader.mode}  ${grader.tagline}`);
+      }
+      return 0;
+    } catch (error) {
+      return reportApiError(out, error, json);
+    }
+  }
+
+  if (command === 'run') {
+    const auth = await readAuth(env);
+    if (!auth) {
+      out.line(
+        json
+          ? JSON.stringify({ error: 'not-signed-in' })
+          : '  Not signed in. Run `fieldnote login`.',
+      );
+      return 3;
+    }
+
+    if (flagGivenWithNoValue(argv, '--sha')) {
+      const message = '--sha requires a value: fieldnote run --sha <sha>';
+      out.line(json ? JSON.stringify({ error: 'usage', message }) : `  ${message}`);
+      return 2;
+    }
+    const sha = flagValue(argv, '--sha');
+
+    let min: number | undefined;
+    if (flagGivenWithNoValue(argv, '--min')) {
+      const message = '--min requires a numeric value: fieldnote run --min <score>';
+      out.line(json ? JSON.stringify({ error: 'usage', message }) : `  ${message}`);
+      return 2;
+    }
+    const minRaw = flagValue(argv, '--min');
+    if (minRaw !== undefined) {
+      min = Number(minRaw);
+      if (!Number.isFinite(min)) {
+        const message = '--min requires a numeric value: fieldnote run --min <score>';
+        out.line(json ? JSON.stringify({ error: 'usage', message }) : `  ${message}`);
+        return 2;
+      }
+    }
+
+    const grader = positionals(argv)[1];
+
+    // Order is the spec's: credential, git state, blocker, request, poll, render.
+    const state = await readGitState(process.cwd());
+    const blocker = gradeBlocker(state);
+    // --sha is the developer naming a commit explicitly — exactly what the
+    // dirty and unpushed refusals themselves suggest doing. It cannot
+    // conjure a slug, so not-a-repo and no-remote still refuse.
+    const bypassed =
+      sha !== undefined && (blocker?.reason === 'dirty' || blocker?.reason === 'unpushed');
+    if (blocker && !bypassed) {
+      if (json) out.line(JSON.stringify({ error: 'blocked', reason: blocker.reason }));
+      else for (const line of blocker.lines) out.line(line);
+      return 2;
+    }
+
+    // Reachable here only because gradeBlocker already refused (and refused
+    // without a bypass) whenever slug or sha could be null — not-a-repo and
+    // no-remote returned above and are never bypassed.
+    if (state.slug === null || state.sha === null) {
+      throw new Error('unreachable: git state missing slug or sha past the blocker above');
+    }
+    const slug = state.slug;
+    const requestedSha = sha ?? state.sha;
+
+    const base = env.FIELDNOTE_URL ?? 'https://fieldnote.dev';
+    let requested: Awaited<ReturnType<typeof requestGradeRun>>;
+    try {
+      requested = await requestGradeRun(base, auth.token, {
+        repository: slug,
+        sha: requestedSha,
+        grader,
+      });
+    } catch (error) {
+      return reportApiError(out, error, json);
+    }
+
+    const progress = json ? null : out.progress();
+    const POLL_INTERVAL_MS = 1_000;
+    const POLL_TIMEOUT_MS = 10 * 60_000;
+    const deadline = Date.now() + POLL_TIMEOUT_MS;
+
+    let poll: GradePoll;
+    try {
+      for (;;) {
+        poll = await pollGradeRun(base, auth.token, requested.runId);
+        progress?.state(poll.state);
+        if (poll.state !== 'queued' && poll.state !== 'running') break;
+        // A CLI that can hang forever is a CLI people stop trusting: the poll
+        // ticks once a second and gives up after a ten-minute ceiling.
+        if (Date.now() >= deadline) {
+          progress?.done();
+          const message = 'The grade did not finish in time. Try again.';
+          out.line(json ? JSON.stringify({ error: 'timeout' }) : `  ${message}`);
+          return 2;
+        }
+        await sleep(POLL_INTERVAL_MS);
+      }
+    } catch (error) {
+      progress?.done();
+      return reportApiError(out, error, json);
+    }
+    progress?.done();
+
+    if (poll.state === 'failed') {
+      // The column is nullable and nothing ties it to the failed state — say
+      // what is known and no more. Never invent a reason that was not
+      // recorded.
+      if (json) out.line(JSON.stringify({ error: 'failed', errorCode: poll.errorCode }));
+      else
+        out.line(
+          poll.errorCode
+            ? `  The grade failed: ${poll.errorCode}`
+            : '  The grade failed. No reason was recorded.',
+        );
+      return 2;
+    }
+
+    if (!hasResult(poll)) {
+      out.line(
+        json
+          ? JSON.stringify({ error: 'no-result' })
+          : '  The grade finished but recorded no result.',
+      );
+      return 2;
+    }
+
+    const view: GradeView = { ...poll, slug, requestedSha };
+
+    if (json) out.line(JSON.stringify(view));
+    else out.lines(gradeLines(view));
+
+    if (min !== undefined && view.score !== null && view.score < min) return 1;
     return 0;
   }
 
