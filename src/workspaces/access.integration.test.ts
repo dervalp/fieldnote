@@ -36,6 +36,7 @@ vi.mock('../lib/env', () => ({
 }));
 vi.mock('../github/repositories', () => ({ reconcileInstallation: async () => [] }));
 
+import { withPrincipal } from '../auth/principal';
 import { closeDb, db } from '../db';
 import {
   installations,
@@ -157,6 +158,22 @@ test('an explicit empty workspace id is rejected instead of falling back', async
 test('the demo workspace rejects an explicit empty workspace id', async () => {
   fixture.demoMode = true;
   await expect(requireWorkspace('')).rejects.toThrow('not found');
+});
+
+test('fails closed when a principal names a workspace the user is not in', async () => {
+  await expect(
+    withPrincipal({ userId: fixture.userId, workspaceId: 'w_not_a_member', source: 'cli' }, () =>
+      requireWorkspace(),
+    ),
+  ).rejects.toThrow();
+});
+
+test('still honours a principal naming a workspace the user IS in', async () => {
+  const workspace = await withPrincipal(
+    { userId: fixture.userId, workspaceId: workspaceIds[0], source: 'cli' },
+    () => requireWorkspace(),
+  );
+  expect(workspace.id).toBe(workspaceIds[0]);
 });
 
 test('concurrent first visits provision one default workspace for an existing session user', async () => {

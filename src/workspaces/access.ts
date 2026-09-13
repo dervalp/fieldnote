@@ -31,14 +31,13 @@ export async function requireWorkspace(
   await ensureDefaultWorkspace(user.id);
   const principal = currentPrincipal();
   const explicit = workspaceId !== undefined;
-  // A CLI token pins its workspace at issue. A token that followed a cookie
-  // preference would be a token whose blast radius changed without anyone
-  // touching it — and there is no cookie on a bearer request anyway.
-  const preferred = explicit
-    ? workspaceId
-    : principal
-      ? principal.workspaceId
-      : (await cookies()).get(workspaceCookie)?.value;
+  // A principal's workspace is pinned at issue, so it binds exactly the way an
+  // explicit argument does: naming a workspace this user is not in fails closed
+  // rather than quietly falling back to their default. A cookie preference may
+  // fall back — it is a convenience. A token's workspace is a boundary.
+  const pinnedId = explicit ? workspaceId : principal?.workspaceId;
+  const bound = pinnedId !== undefined;
+  const preferred = bound ? pinnedId : (await cookies()).get(workspaceCookie)?.value;
   const memberships = await db()
     .select({
       id: workspaces.id,
@@ -52,12 +51,12 @@ export async function requireWorkspace(
     .orderBy(asc(workspaces.createdAt), asc(workspaces.id));
   const fallback =
     memberships.find(({ defaultForUserId }) => defaultForUserId === user.id) ?? memberships[0];
-  const membership = explicit
-    ? memberships.find(({ id }) => id === workspaceId)
+  const membership = bound
+    ? memberships.find(({ id }) => id === pinnedId)
     : preferred
       ? memberships.find(({ id }) => id === preferred)
       : fallback;
-  if (!membership && explicit) notFound();
+  if (!membership && bound) notFound();
   const selected = membership ?? fallback;
   if (!selected || (role === 'owner' && selected.role !== 'owner')) notFound();
   return { id: selected.id, name: selected.name, role: selected.role };
