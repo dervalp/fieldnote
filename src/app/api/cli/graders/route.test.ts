@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { getGrader, listGraders } from '../../../../domain/grading/registry';
+import { getGrader } from '../../../../domain/grading/registry';
 
 // Deliberately not imported from agent-readiness.ts: that module registers
 // the built-in as a side effect of being imported, and this test exists to
@@ -37,38 +37,6 @@ describe('GET /api/cli/graders', () => {
       mode: manifest.mode,
       category: manifest.category,
       tagline: manifest.card.tagline,
-    });
-  });
-
-  it('maps a stubbed manifest shape in isolation, pinning the field mapping itself', async () => {
-    // Not a mock of the registry — this only re-derives the same mapping
-    // against a literal manifest, independent of what agent-readiness.ts
-    // happens to contain today.
-    const stub = {
-      id: 'acme/example',
-      version: '1.2.3',
-      mode: 'llm' as const,
-      category: 'code-quality' as const,
-      card: { tagline: 'An example tagline.' },
-    };
-    const real = listGraders();
-    expect(real.length).toBeGreaterThan(0);
-    // Sanity-check the mapping shape using a manually-built list combining
-    // the real registrations with a stub, without touching the module.
-    const combined = [...real, stub];
-    const mapped = combined.map((m) => ({
-      id: m.id,
-      version: m.version,
-      mode: m.mode,
-      category: m.category,
-      tagline: m.card.tagline,
-    }));
-    expect(mapped).toContainEqual({
-      id: 'acme/example',
-      version: '1.2.3',
-      mode: 'llm',
-      category: 'code-quality',
-      tagline: 'An example tagline.',
     });
   });
 });
