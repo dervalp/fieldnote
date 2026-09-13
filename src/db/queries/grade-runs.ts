@@ -27,6 +27,16 @@ export type GradeSummary = {
   latest: CompletedGrade | null;
   status: Pick<GradeRun, 'id' | 'state' | 'errorCode' | 'createdAt'> | null;
 };
+// A version freezes what a grade means, not how it is captioned. `card` is
+// title, tagline and grouping — copy a reader sees, which no score and no
+// collection depends on. Everything else is frozen, including each check's
+// `args`: rubricView keeps only { id, maxPoints }, so a moved threshold is
+// invisible to the definition hash and must be caught here.
+function withoutCard(manifest: Record<string, unknown>) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- discarded on purpose
+  const { card: _card, ...rest } = manifest;
+  return rest;
+}
 export async function registerRubric(manifest: GraderManifest) {
   const definition = rubricView(manifest);
   await db()
@@ -52,9 +62,21 @@ export async function registerRubric(manifest: GraderManifest) {
     !stored ||
     stored.evaluatorVersion !== manifest.evaluatorVersion ||
     manifestHash(stored.definition) !== manifestHash(definition) ||
-    manifestHash(stored.manifest) !== manifestHash(manifest)
+    manifestHash(withoutCard(stored.manifest)) !== manifestHash(withoutCard(manifest))
   )
     throw new Error('Rubric version definition mismatch');
+  // Copy-only drift refreshes the stored record rather than failing. Without
+  // this, adding a card title to a built-in throws on every grade request in
+  // every database that already holds the old row.
+  if (manifestHash(stored.manifest) !== manifestHash(manifest)) {
+    await db()
+      .update(gradingRubrics)
+      .set({ manifest })
+      .where(
+        and(eq(gradingRubrics.graderId, manifest.id), eq(gradingRubrics.version, manifest.version)),
+      );
+    return { ...stored, manifest };
+  }
   return stored;
 }
 export async function requestGrade(
@@ -293,7 +315,7 @@ export async function validateGradeRun(run: GradeRun) {
     rubric.evaluatorVersion !== run.evaluatorVersion ||
     // A grade must not complete against a manifest that changed after the run
     // was queued.
-    manifestHash(rubric.manifest) !== manifestHash(manifest) ||
+    manifestHash(withoutCard(rubric.manifest)) !== manifestHash(withoutCard(manifest)) ||
     manifestHash(rubric.definition) !== manifestHash(rubricView(manifest))
   )
     throw new Error('Unsupported rubric version');

@@ -83,8 +83,8 @@ test('concurrent clicks share one active run', async () => {
   expect(a.id).toBe(b.id);
 });
 
-import { eq, inArray } from 'drizzle-orm';
-import { gradeRuns } from './schema';
+import { and, eq, inArray } from 'drizzle-orm';
+import { gradeRuns, gradingRubrics } from './schema';
 import {
   beginGrade,
   pinGradeSha,
@@ -103,6 +103,7 @@ import { evaluateGradeRun, resolveGradeCommit } from '../inngest/functions/grade
 import { runDeclarative } from '../domain/grading/declarative';
 import { AGENT_READINESS, agentReadinessManifest } from '../domain/grading/graders/agent-readiness';
 import { registerGrader } from '../domain/grading/registry';
+import { rubricView } from '../domain/grading/rubric-view';
 const github = vi.hoisted(() => ({ resolve: vi.fn(), collect: vi.fn() }));
 vi.mock('../github/collect-readiness', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../github/collect-readiness')>()),
@@ -252,4 +253,61 @@ test('one active run per grader: a second grader may run alongside, the same one
   expect(second.id).not.toBe(first.id);
   expect(await gradeHistory(repo, other.id)).toEqual([]);
   expect((await loadGradeRun(second.id))?.graderId).toBe('fieldnote/second-fixture');
+});
+
+test('a version freezes the rubric, not the card copy', async () => {
+  await registerRubric(agentReadinessManifest);
+  // Presentation-only drift: the reader-facing copy changes, nothing that
+  // decides a score does.
+  const recopied = {
+    ...agentReadinessManifest,
+    card: { ...agentReadinessManifest.card, tagline: 'Reworded for the card.' },
+  };
+  const stored = await registerRubric(recopied);
+  expect((stored.manifest as typeof agentReadinessManifest).card.tagline).toBe(
+    'Reworded for the card.',
+  );
+});
+
+test('a version still freezes a threshold that would move every score', async () => {
+  await registerRubric(agentReadinessManifest);
+  // rubricView carries only { id, maxPoints }, so this change is invisible to
+  // the definition hash — and it is exactly the kind of change that must not
+  // pass silently.
+  const reweighted = {
+    ...agentReadinessManifest,
+    checks: agentReadinessManifest.checks.map((check, index) =>
+      index === 0 ? { ...check, args: { ...check.args, nonempty: false } } : check,
+    ),
+  } as typeof agentReadinessManifest;
+  await expect(registerRubric(reweighted)).rejects.toThrow('Rubric version definition mismatch');
+});
+
+test('a stored manifest from before card.title still registers', async () => {
+  // The row every existing installation holds: same rubric, no card title.
+  // An earlier test in this file already registered this exact
+  // (graderId, version) row, so it is deleted first — otherwise the primary
+  // key would reject this insert.
+  await db()
+    .delete(gradingRubrics)
+    .where(
+      and(
+        eq(gradingRubrics.graderId, agentReadinessManifest.id),
+        eq(gradingRubrics.version, agentReadinessManifest.version),
+      ),
+    );
+  const { card, ...rest } = agentReadinessManifest;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- discarded on purpose
+  const { title: _title, ...cardWithoutTitle } = card;
+  await db()
+    .insert(gradingRubrics)
+    .values({
+      graderId: agentReadinessManifest.id,
+      version: agentReadinessManifest.version,
+      evaluatorVersion: agentReadinessManifest.evaluatorVersion,
+      definition: rubricView(agentReadinessManifest),
+      manifest: { ...rest, card: cardWithoutTitle },
+    });
+  const stored = await registerRubric(agentReadinessManifest);
+  expect((stored.manifest as typeof agentReadinessManifest).card.title).toBe('Agent Readiness');
 });
