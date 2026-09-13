@@ -1,6 +1,7 @@
 import { runDeclarative } from '../domain/grading/declarative';
 import { agentReadinessManifest } from '../domain/grading/graders/agent-readiness';
-import type { SourceDocument } from '../domain/grading/types';
+import { deliveryHealthManifest } from '../domain/grading/graders/delivery-health';
+import type { MetricsWindow, SourceDocument } from '../domain/grading/types';
 import type { CiCheck, Conclusion, PullRequestFacts } from '../domain/pull-request/types';
 export const demoPolicy = {
   version: 1,
@@ -142,9 +143,6 @@ export const demoGrade = runDeclarative(agentReadinessManifest, {
   complete: true,
   documents: demoDocuments,
 });
-
-import { deliveryHealthManifest } from '../domain/grading/graders/delivery-health';
-import type { MetricsWindow } from '../domain/grading/types';
 
 // The window the demo delivery grade is scored over. It is written out rather
 // than aggregated from the seeded pull requests: the seed's dates move with

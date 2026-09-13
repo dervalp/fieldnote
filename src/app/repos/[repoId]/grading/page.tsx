@@ -23,8 +23,10 @@ export default async function Grading({
   searchParams: Promise<{ run?: string }>;
 }) {
   // The built-in is named here rather than assumed inside the queries, so the
-  // single-grader assumption is visible. What this page shows when a
-  // repository has four grades is slice 2's decision.
+  // single-grader assumption is visible. A second grader already exists and
+  // is gradeable, but is deliberately not surfaced here: turning this into a
+  // row of cards with a grader selector is on hold while another team moves
+  // every route under /app, so it stays a decision for that slice to make.
   const readinessGrader = getGrader(AGENT_READINESS);
   const checkTitles = graderCheckTitles(AGENT_READINESS);
   const repoId = pageRouteId((await params).repoId);
