@@ -8,6 +8,7 @@ import { users, sessions } from '../db/schema';
 import { integrationEnv } from '../lib/env';
 import { decrypt, encrypt, tokenHash } from './crypto';
 import { credentialsSchema, exchangeToken } from './oauth';
+import { currentPrincipal } from './principal';
 export const cookieOptions = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
@@ -33,6 +34,16 @@ export async function hasCurrentSession(): Promise<boolean> {
 }
 
 async function sessionUser() {
+  // A CLI principal short-circuits the cookie entirely. currentUser() and
+  // userClient() both funnel through here, so this one branch is the whole
+  // seam — a bearer token gets the same GitHub client and the same identity
+  // every cookie session gets, and no authorization check knows the difference.
+  const principal = currentPrincipal();
+  if (principal) {
+    const [user] = await db().select().from(users).where(eq(users.id, principal.userId));
+    if (!user) redirect('/signed-out');
+    return user;
+  }
   const token = (await cookies()).get('reliability-session')?.value;
   if (!token) redirect('/signed-out');
   const [row] = await db()
