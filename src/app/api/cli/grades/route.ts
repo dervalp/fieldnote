@@ -1,7 +1,11 @@
 import { z } from 'zod';
 import { withCliPrincipal } from '../principal';
 import { accessibleRepositories } from '../../../../workspaces/access';
-import { requestGrade } from '../../../../db/queries/grade-runs';
+import {
+  requestGrade,
+  DEMO_READ_ONLY,
+  REPOSITORY_UNAVAILABLE,
+} from '../../../../db/queries/grade-runs';
 import { dispatchGrade } from '../../../../inngest/dispatch-grade';
 import { getGrader } from '../../../../domain/grading/registry';
 import { ManifestError } from '../../../../domain/grading/manifest';
@@ -55,18 +59,19 @@ export async function POST(request: Request) {
     // requestGrade checks workspace membership, repository connection and demo
     // mode, and holds the one-live-run-per-repository-and-grader constraint.
     // It throws plain Errors for two conditions a developer can act on; the
-    // coupling to these exact messages is deliberate — they are thrown at
-    // src/db/queries/grade-runs.ts's requestGrade().
+    // two messages are imported constants from grade-runs.ts (not literals),
+    // so a reword there fails typecheck here instead of silently falling
+    // through to a 503.
     let run;
     try {
       run = await requestGrade(repository.id, graderId);
     } catch (error) {
-      if (error instanceof Error && error.message === 'Demo workspace is read-only')
+      if (error instanceof Error && error.message === DEMO_READ_ONLY)
         return Response.json(
           { error: 'The demo workspace is read-only. Sign in to a connected workspace to grade.' },
           { status: 403, headers },
         );
-      if (error instanceof Error && error.message === 'Repository unavailable')
+      if (error instanceof Error && error.message === REPOSITORY_UNAVAILABLE)
         return Response.json(
           { error: `fieldnote is not connected to ${body.data.repository}.` },
           { status: 404, headers },
@@ -76,8 +81,11 @@ export async function POST(request: Request) {
 
     try {
       await dispatchGrade(run.id);
-    } catch {
-      // A queued run is recovered by reconciliation; keep its polling identity.
+    } catch (error) {
+      // A queued run is recovered by reconciliation, so this is not fatal —
+      // but an operator debugging a dark Inngest needs evidence it happened.
+      // run.id is not sensitive; never a token.
+      console.error('POST /api/cli/grades: dispatch failed', run.id, error);
     }
 
     // requestGrade never accepts or stores a sha — grade_runs.sha is pinned

@@ -57,6 +57,13 @@ export async function registerRubric(manifest: GraderManifest) {
     throw new Error('Rubric version definition mismatch');
   return stored;
 }
+// Exported so callers (the CLI grade route) can match on these exact
+// messages to turn them into actionable HTTP refusals instead of a generic
+// 503 — a named constant makes that coupling a typecheck edge rather than a
+// comment, so rewording one of these strings cannot silently break it.
+export const DEMO_READ_ONLY = 'Demo workspace is read-only';
+export const REPOSITORY_UNAVAILABLE = 'Repository unavailable';
+
 export async function requestGrade(
   repositoryId: string,
   graderId: string,
@@ -64,7 +71,7 @@ export async function requestGrade(
   const manifest = getGrader(graderId);
   const repository = await requireRepository(repositoryId);
   const workspace = await requireWorkspace();
-  if (workspace.id === 'demo' || repository.isDemo) throw new Error('Demo workspace is read-only');
+  if (workspace.id === 'demo' || repository.isDemo) throw new Error(DEMO_READ_ONLY);
   const user = await currentUser();
   await registerRubric(manifest);
   return db().transaction(async (tx) => {
@@ -102,7 +109,7 @@ export async function requestGrade(
           eq(installations.active, true),
         ),
       );
-    if (!available) throw new Error('Repository unavailable');
+    if (!available) throw new Error(REPOSITORY_UNAVAILABLE);
     const [latest] = await tx
       .select()
       .from(runs)

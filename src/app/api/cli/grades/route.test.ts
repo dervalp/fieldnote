@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { ManifestError } from '../../../../domain/grading/manifest';
+import { DEMO_READ_ONLY, REPOSITORY_UNAVAILABLE } from '../../../../db/queries/grade-runs';
 
 const { withCliPrincipal, accessibleRepositories, requestGrade, dispatchGrade, getGrader } =
   vi.hoisted(() => ({
@@ -13,7 +14,14 @@ const { withCliPrincipal, accessibleRepositories, requestGrade, dispatchGrade, g
   }));
 vi.mock('../principal', () => ({ withCliPrincipal }));
 vi.mock('../../../../workspaces/access', () => ({ accessibleRepositories }));
-vi.mock('../../../../db/queries/grade-runs', () => ({ requestGrade }));
+// Re-exports the real DEMO_READ_ONLY / REPOSITORY_UNAVAILABLE constants
+// alongside the mocked requestGrade, so these tests throw the actual strings
+// grade-runs.ts exports rather than a copy — a reword there cannot leave
+// this test file throwing a stale literal that no longer matches route.ts.
+vi.mock('../../../../db/queries/grade-runs', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../db/queries/grade-runs')>()),
+  requestGrade,
+}));
 vi.mock('../../../../inngest/dispatch-grade', () => ({ dispatchGrade }));
 // The registry module is mocked wholesale, but agent-readiness.ts calls
 // registerGrader(...) at import time to register the built-in grader — the
@@ -95,15 +103,22 @@ describe('POST /api/cli/grades', () => {
   });
 
   it('403s a demo workspace instead of 503ing', async () => {
-    requestGrade.mockRejectedValueOnce(new Error('Demo workspace is read-only'));
+    requestGrade.mockRejectedValueOnce(new Error(DEMO_READ_ONLY));
     const response = await POST(post({ repository: 'dervalp/fieldnote', sha: 'a'.repeat(40) }));
     expect(response.status).toBe(403);
   });
 
   it('404s a repository made unavailable by post-lock re-authorization, instead of 503ing', async () => {
-    requestGrade.mockRejectedValueOnce(new Error('Repository unavailable'));
+    requestGrade.mockRejectedValueOnce(new Error(REPOSITORY_UNAVAILABLE));
     const response = await POST(post({ repository: 'dervalp/fieldnote', sha: 'a'.repeat(40) }));
     expect(response.status).toBe(404);
+  });
+
+  it('passes a caller-supplied grader id through to requestGrade', async () => {
+    await POST(
+      post({ repository: 'dervalp/fieldnote', sha: 'a'.repeat(40), grader: 'fieldnote/other' }),
+    );
+    expect(requestGrade).toHaveBeenCalledWith('r_1', 'fieldnote/other');
   });
 
   it('lets an unrelated failure fall through to withCliPrincipal (503)', async () => {
