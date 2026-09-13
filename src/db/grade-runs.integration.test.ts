@@ -97,6 +97,7 @@ import {
   gradeSummaries,
   registerRubric,
   listUndispatchedGrades,
+  validateGradeRun,
 } from './queries/grade-runs';
 import { dispatchGrade } from '../inngest/dispatch-grade';
 import { evaluateGradeRun, resolveGradeCommit } from '../inngest/functions/grade-repository';
@@ -310,4 +311,68 @@ test('a stored manifest from before card.title still registers', async () => {
     });
   const stored = await registerRubric(agentReadinessManifest);
   expect((stored.manifest as typeof agentReadinessManifest).card.title).toBe('Agent Readiness');
+});
+
+test('validateGradeRun accepts card drift but rejects frozen field changes', async () => {
+  // Register the rubric and create a run.
+  const repo = await seed();
+  await registerRubric(agentReadinessManifest);
+  const runInfo = await requestGrade(repo, AGENT_READINESS);
+  const run = await loadGradeRun(runInfo.id);
+  if (!run) throw new Error('Run not found');
+
+  // Update stored rubric card only (this is allowed drift).
+  const cardDrifted = {
+    ...agentReadinessManifest,
+    card: { ...agentReadinessManifest.card, tagline: 'Modified tagline for drift test.' },
+  };
+  await db()
+    .update(gradingRubrics)
+    .set({ manifest: cardDrifted })
+    .where(
+      and(
+        eq(gradingRubrics.graderId, agentReadinessManifest.id),
+        eq(gradingRubrics.version, agentReadinessManifest.version),
+      ),
+    );
+
+  // validateGradeRun should accept the run despite card drift.
+  await expect(validateGradeRun(run)).resolves.not.toThrow();
+
+  // Now test that frozen field changes are rejected.
+  // Create a second run.
+  const run2Info = await requestGrade(repo, AGENT_READINESS);
+  const run2 = await loadGradeRun(run2Info.id);
+  if (!run2) throw new Error('Run not found');
+
+  // Modify a frozen field in the stored rubric.
+  const frozenDrifted = {
+    ...agentReadinessManifest,
+    checks: agentReadinessManifest.checks.map((check, index) =>
+      index === 0 ? { ...check, args: { ...check.args, nonempty: false } } : check,
+    ),
+  } as typeof agentReadinessManifest;
+  await db()
+    .update(gradingRubrics)
+    .set({ manifest: frozenDrifted })
+    .where(
+      and(
+        eq(gradingRubrics.graderId, agentReadinessManifest.id),
+        eq(gradingRubrics.version, agentReadinessManifest.version),
+      ),
+    );
+
+  // validateGradeRun should reject the run.
+  await expect(validateGradeRun(run2)).rejects.toThrow('Unsupported rubric version');
+
+  // Clean up: restore the original manifest for subsequent tests.
+  await db()
+    .update(gradingRubrics)
+    .set({ manifest: agentReadinessManifest })
+    .where(
+      and(
+        eq(gradingRubrics.graderId, agentReadinessManifest.id),
+        eq(gradingRubrics.version, agentReadinessManifest.version),
+      ),
+    );
 });
