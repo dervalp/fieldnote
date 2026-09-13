@@ -165,15 +165,18 @@ test('fails closed when a principal names a workspace the user is not in', async
     withPrincipal({ userId: fixture.userId, workspaceId: 'w_not_a_member', source: 'cli' }, () =>
       requireWorkspace(),
     ),
-  ).rejects.toThrow();
+  ).rejects.toThrow('not found');
 });
 
 test('still honours a principal naming a workspace the user IS in', async () => {
+  // The cookie and the default workspace both name workspaceIds[0]; pinning
+  // workspaceIds[1] — where this user is only a member, not the default — is
+  // what makes this test fail if the withPrincipal wrapper is ever removed.
   const workspace = await withPrincipal(
-    { userId: fixture.userId, workspaceId: workspaceIds[0], source: 'cli' },
+    { userId: fixture.userId, workspaceId: workspaceIds[1], source: 'cli' },
     () => requireWorkspace(),
   );
-  expect(workspace.id).toBe(workspaceIds[0]);
+  expect(workspace).toMatchObject({ id: workspaceIds[1], role: 'member' });
 });
 
 test('concurrent first visits provision one default workspace for an existing session user', async () => {

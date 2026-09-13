@@ -37,7 +37,7 @@ export async function requireWorkspace(
   // fall back — it is a convenience. A token's workspace is a boundary.
   const pinnedId = explicit ? workspaceId : principal?.workspaceId;
   const bound = pinnedId !== undefined;
-  const preferred = bound ? pinnedId : (await cookies()).get(workspaceCookie)?.value;
+  const preferred = bound ? undefined : (await cookies()).get(workspaceCookie)?.value;
   const memberships = await db()
     .select({
       id: workspaces.id,
