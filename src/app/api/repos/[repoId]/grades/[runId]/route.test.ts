@@ -79,3 +79,17 @@ test('GitHub transport failures return safe private 503', async () => {
   expect(response.headers.get('cache-control')).toBe('private, no-store');
   expect(loadGradeRun).not.toHaveBeenCalled();
 });
+
+test('the status carries the error code, so the page can say what went wrong', async () => {
+  loadGradeRun.mockResolvedValue({
+    ...snapshot,
+    state: 'failed',
+    errorCode: 'insufficient_evidence',
+  });
+  const response = await call();
+  expect(await response.json()).toEqual({
+    id: 'run',
+    state: 'failed',
+    errorCode: 'insufficient_evidence',
+  });
+});

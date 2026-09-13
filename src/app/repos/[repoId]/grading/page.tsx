@@ -134,6 +134,8 @@ export default async function Grading({
             owner={repo.owner}
             name={repo.name}
             checkTitles={checkTitles}
+            graderTitle={readinessGrader.card.title}
+            disclaimer={readinessGrader.disclaimer}
             outdated={
               grade.rubricVersion !== readinessGrader.version ||
               grade.evaluatorVersion !== readinessGrader.evaluatorVersion

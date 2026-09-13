@@ -4,7 +4,11 @@ import { useRouter } from 'next/navigation';
 import type { CompletedGrade } from '../../db/queries/grade-runs';
 import { runGrade } from '../../app/repos/[repoId]/grading/actions';
 import './report.css';
-type Status = { id: string; state: 'queued' | 'running' | 'complete' | 'failed' };
+type Status = {
+  id: string;
+  state: 'queued' | 'running' | 'complete' | 'failed';
+  errorCode?: string | null;
+};
 export function GradeControls({
   repositoryId,
   initial,
@@ -107,7 +111,9 @@ export function GradeControls({
             : run?.state === 'running'
               ? 'Collecting and checking evidence at a pinned commit.'
               : run?.state === 'failed'
-                ? 'The grader could not finish. Your last completed report is unchanged. Try again.'
+                ? run.errorCode === 'insufficient_evidence'
+                  ? 'There is not enough record in this window to score. Try again once more work has merged.'
+                  : 'The grader could not finish. Your last completed report is unchanged. Try again.'
                 : '')}
       </p>
     </div>
@@ -119,16 +125,20 @@ export function GradeReport({
   name,
   outdated,
   checkTitles,
+  graderTitle,
+  disclaimer,
 }: {
   grade: CompletedGrade;
   owner: string;
   name: string;
   outdated: boolean;
   checkTitles: Record<string, string>;
+  graderTitle: string;
+  disclaimer: string;
 }) {
   const base = `https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/blob/${encodeURIComponent(grade.sha)}/`;
   return (
-    <section className="grading-report" aria-label="Readiness evidence">
+    <section className="grading-report" aria-label={`${graderTitle} evidence`}>
       <div className="eyebrow">Foundations / Evidence</div>
       <h2>A record you can inspect.</h2>
       {outdated && (
@@ -184,7 +194,7 @@ export function GradeReport({
       ))}
       <div className="grading-report-meta">
         <p>
-          Readiness v{grade.rubricVersion} · Evaluator {grade.evaluatorVersion}
+          {graderTitle} v{grade.rubricVersion} · Evaluator {grade.evaluatorVersion}
           <br />
           Completed{' '}
           <time dateTime={new Date(grade.computedAt).toISOString()}>
@@ -193,10 +203,7 @@ export function GradeReport({
           <br />
           Commit <code>{grade.sha}</code>
         </p>
-        <p>
-          This assessment checks files and documented commands. It does not execute repository code
-          or certify semantic quality.
-        </p>
+        <p>{disclaimer}</p>
       </div>
     </section>
   );

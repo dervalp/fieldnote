@@ -48,6 +48,8 @@ test('untrusted explanation and path are escaped, links are pinned and encoded',
       name: 'repo',
       outdated: false,
       checkTitles: titles,
+      graderTitle: agentReadinessManifest.card.title,
+      disclaimer: agentReadinessManifest.disclaimer,
     }),
   );
   expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
@@ -67,6 +69,8 @@ test('historical report displays its stored version and outdated notice', () => 
       name: 'repo',
       outdated: true,
       checkTitles: titles,
+      graderTitle: agentReadinessManifest.card.title,
+      disclaimer: agentReadinessManifest.disclaimer,
     }),
   );
   expect(html).toContain('Historical rubric');
@@ -194,6 +198,8 @@ test('actual grader checks have readable report headings', async () => {
       name: 'repo',
       outdated: false,
       checkTitles: titles,
+      graderTitle: agentReadinessManifest.card.title,
+      disclaimer: agentReadinessManifest.disclaimer,
     }),
   );
   for (const label of [
@@ -205,4 +211,52 @@ test('actual grader checks have readable report headings', async () => {
   ])
     expect(html).toContain(label);
   for (const check of evaluated.checks) expect(html).not.toContain(check.id);
+});
+
+test('the report wears its grader name and its grader disclaimer', () => {
+  const html = renderToStaticMarkup(
+    createElement(GradeReport, {
+      grade,
+      owner: 'acme',
+      name: 'checkout',
+      outdated: false,
+      checkTitles: { 'merges-land-clean': 'Merges land clean' },
+      graderTitle: deliveryHealthManifest.card.title,
+      disclaimer: deliveryHealthManifest.disclaimer,
+    }),
+  );
+  expect(html).toContain('Delivery Health v0.1.0');
+  expect(html).toContain(deliveryHealthManifest.disclaimer);
+  expect(html).not.toContain('Readiness v');
+  expect(html).not.toContain('does not execute repository code');
+});
+
+test('a metric check renders its measurement and no empty evidence block', () => {
+  const metricGrade = {
+    ...grade,
+    checks: [
+      {
+        id: 'merges-land-clean',
+        points: 40,
+        maxPoints: 40,
+        status: 'pass',
+        paths: [],
+        lineRanges: [],
+        explanation: 'Most merged pull requests passed review and CI on the first attempt.',
+      } satisfies CheckResult,
+    ],
+  };
+  const html = renderToStaticMarkup(
+    createElement(GradeReport, {
+      grade: metricGrade,
+      owner: 'acme',
+      name: 'checkout',
+      outdated: false,
+      checkTitles: { 'merges-land-clean': 'Merges land clean' },
+      graderTitle: deliveryHealthManifest.card.title,
+      disclaimer: deliveryHealthManifest.disclaimer,
+    }),
+  );
+  expect(html).toContain('Most merged pull requests passed review');
+  expect(html).not.toContain('Show pinned evidence');
 });
