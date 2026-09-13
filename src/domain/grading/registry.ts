@@ -27,3 +27,8 @@ export function getGrader(graderId: string): GraderManifest {
 export function graderCheckTitles(graderId: string): Record<string, string> {
   return Object.fromEntries(getGrader(graderId).checks.map((check) => [check.id, check.title]));
 }
+
+/** Every registered grader, in registration order. Import graders/index first. */
+export function listGraders(): GraderManifest[] {
+  return [...graders.values()];
+}
