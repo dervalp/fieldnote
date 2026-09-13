@@ -80,10 +80,18 @@ Three checks over a fixed thirty-day window:
 | 30 | CI ends green | 90% or more of CI runs finished successfully |
 | 30 | Failures get fixed | 50% or more of failed runs later went green |
 
-All three metrics are already computed for the Delivery tab, by
-`aggregatePeriod()` into `MetricTotals`: `firstPass`, `ciSuccess` and
-`ciRecovered`, each a `Rate` carrying numerator, denominator and a 0–100 value.
-Nothing new is measured. The grader reads what the product already knows.
+Two of the three are read straight off `MetricTotals`, which `aggregatePeriod()`
+already computes for the Delivery tab: `firstPass` and `ciSuccess`, each a `Rate`
+carrying numerator, denominator and a 0–100 value.
+
+The third is **not** `MetricTotals.ciRecovered`, and the difference matters.
+`ciRecovered` is `recovered / (first-pass + recovered + failed)` — the share of
+*all* runs that needed a retry, which falls as a repository gets healthier and
+would score a green repository badly. The check asks a different question: of the
+runs that went red, how many were brought back? So `ci-recovery-rate` is derived
+in the collector as `ci.recovered / (ci.recovered + ci.failed)`, from the same
+`CiOutcome` counts. Nothing new is measured; one ratio is taken over a narrower
+denominator, and the collector is where that is written down.
 
 **A repository with too little merged work gets no score rather than a bad one.**
 Below ten merged pull requests in the window the run reports no score, the way an
@@ -268,6 +276,11 @@ With no denominator:
 > CI did not finish green often enough. No CI runs completed in the 30 days
 > ending 2026-09-13. This is a delivery record, not a judgement of the code.
 
+A `Rate` carries an unrounded value. The check compares the **rounded** value to
+the bar, so the number a reader sees and the number that decided the check are
+the same number. A grade is meant to be an argument you can inspect, and 59.6%
+printed as 60% beside the word *Missing* is not one.
+
 The division of labour is the one slice 1 established: the grader writes the
 prose, fieldnote writes the sentence it is in a position to write. `paths` and
 `lineRanges` are empty arrays, and `GradeReport` renders the measurement in place
@@ -398,7 +411,9 @@ Beyond that:
   verbatim in both the measured and the no-denominator forms.
 - **The grader.** `fieldnote/delivery-health` registers, totals 100 points, and
   produces a known `GradeResult` from a fixed `MetricsWindow`.
-- **The collector.** `collectMetrics()` maps each `Rate` to its reading;
+- **The collector.** `collectMetrics()` maps `firstPass` and `ciSuccess` to their
+  readings and derives `ci-recovery-rate` over `recovered + failed`, which a
+  test pins against a fixture where it differs from `ciRecovered`;
   `coverage !== 'complete'` yields fieldnote's incomplete reason; fewer than ten
   merged pull requests yields the grader's.
 - **The dispatcher.** `collectEvidence()` calls only the collectors a manifest
