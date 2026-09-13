@@ -135,9 +135,9 @@ try {
   // Production recomputes on import, backfill and webhook sync; the seed has none
   // of those, so it calls the same function directly.
   await recomputeExecutedDetections('demo-repository');
-  console.log('Seeded 21 PRs. Demo signal: /prs/demo-pr-4');
-  console.log('AI involvement: /repos/demo-repository/ai-involvement');
-  console.log(`Readiness ${demoGrade.score}/100: /repos/demo-repository`);
+  console.log('Seeded 21 PRs. Demo signal: /app/prs/demo-pr-4');
+  console.log('AI involvement: /app/repos/demo-repository/ai-involvement');
+  console.log(`Readiness ${demoGrade.score}/100: /app/repos/demo-repository`);
 } finally {
   await closeDb();
 }

@@ -77,7 +77,10 @@ pnpm db:seed
 pnpm dev
 ```
 
-Open [http://localhost:3000/dashboard](http://localhost:3000/dashboard).
+Open [http://localhost:3000](http://localhost:3000) for the landing page. The
+product lives under `/app`, so go straight to
+[http://localhost:3000/app/dashboard](http://localhost:3000/app/dashboard) —
+demo mode signs you in as a demo visitor, so there is nothing to log into.
 
 Look at PR `demo-pr-4`: failed CI, then a change to a test file, then successful
 CI, and therefore **Clean Green = No**. That single PR is the whole thesis.

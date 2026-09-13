@@ -3,6 +3,7 @@ import type { prRows } from '../db/queries/dashboard';
 import { yesNo, duration } from './metrics';
 import { catalogue } from '../domain/ai-involvement/catalogue';
 import { UNATTRIBUTED } from '../domain/ai-involvement/attribute';
+import { prPath } from '../lib/app-routes';
 
 /**
  * Same labelling rules as the cohort table (db/queries/cohorts.ts labelFor):
@@ -64,7 +65,7 @@ export function PrTable({
           {rows.map(({ pr, metrics: m }) => (
             <tr key={pr.id}>
               <td>
-                <Link href={`/prs/${encodeURIComponent(pr.id)}`}>
+                <Link href={prPath(pr.id)}>
                   #{pr.githubPrNumber} {pr.title}
                 </Link>
               </td>

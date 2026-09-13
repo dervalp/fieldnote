@@ -19,7 +19,7 @@ const render = async (crumbs?: { label: string; href?: string }[]) =>
 
 test('the trail the layout supplies lands in the context slot', async () => {
   const html = await render([
-    { label: 'Personal workspace', href: '/dashboard' },
+    { label: 'Personal workspace', href: '/app/dashboard' },
     { label: 'fieldnote' },
   ]);
   const slot = html.indexOf('fn-topbar__context');

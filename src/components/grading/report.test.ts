@@ -4,7 +4,7 @@ import { expect, test, vi } from 'vitest';
 import type { CompletedGrade } from '../../db/queries/grade-runs';
 import type { CheckResult } from '../../domain/grading/types';
 vi.stubGlobal('React', React);
-vi.mock('../../app/repos/[repoId]/grading/actions', () => ({ runGrade: vi.fn() }));
+vi.mock('../../app/app/repos/[repoId]/grading/actions', () => ({ runGrade: vi.fn() }));
 import { GradeCard } from '@fieldnote/design-system';
 import { gradeCardProps } from './grade-presentation';
 import { GradeReport } from './report';

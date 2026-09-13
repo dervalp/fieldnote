@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { Button } from '@fieldnote/design-system';
-import { requestPlanRun } from '../../app/repos/[repoId]/grading/actions';
+import { requestPlanRun } from '../../app/app/repos/[repoId]/grading/actions';
 import type { ActAvailability } from '../../domain/act/availability';
+import { actRunPath } from '../../lib/app-routes';
 
 // Nothing is rendered when Act is unavailable: the grading page already shows
 // availabilityMessage() above, and a disabled button beside an explanation
@@ -16,7 +17,7 @@ export function ActEntry({
   latest: { id: string; state: string } | null;
 }) {
   if (!availability.available) return null;
-  const href = `/repos/${encodeURIComponent(repositoryId)}/act/${encodeURIComponent(latest?.id ?? '')}`;
+  const href = actRunPath(repositoryId, latest?.id ?? '');
   if (latest?.state === 'queued' || latest?.state === 'running')
     return <p className="muted">Planning the fixes. Reload to see the plan when it is ready.</p>;
   if (latest?.state === 'complete')

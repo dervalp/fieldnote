@@ -3,7 +3,7 @@ import { useActionState, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, Surface } from '@fieldnote/design-system';
 import type { CompletedGrade } from '../../db/queries/grade-runs';
-import { runGrade } from '../../app/repos/[repoId]/grading/actions';
+import { runGrade } from '../../app/app/repos/[repoId]/grading/actions';
 import { checkTitles } from '../../domain/grading/check-titles';
 import './report.css';
 type Status = { id: string; state: 'queued' | 'running' | 'complete' | 'failed' };

@@ -79,7 +79,7 @@ test('successful OAuth resumes only valid internal invitation; expired continuat
       ),
     );
     expect(new URL(result.headers.get('location')!).pathname).toBe(
-      expired ? '/dashboard' : `/invitations/${'a'.repeat(43)}`,
+      expired ? '/app/dashboard' : `/invitations/${'a'.repeat(43)}`,
     );
   }
 });

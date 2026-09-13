@@ -8,7 +8,7 @@ import { tokenHash } from '../auth/crypto';
 import { persistHistoryInterest, hasHistoryInterest } from './queries/history-interest';
 const { cookie } = vi.hoisted(() => ({ cookie: vi.fn() }));
 vi.mock('next/headers', () => ({ cookies: async () => ({ get: cookie }) }));
-import { registerHistoryInterest, historyInterestStatus } from '../app/dashboard/history-actions';
+import { registerHistoryInterest, historyInterestStatus } from '../app/app/dashboard/history-actions';
 const userId = `interest-${randomUUID()}`;
 const otherUserId = `${userId}-other`;
 const token = `${userId}-synthetic-session`;
