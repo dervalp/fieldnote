@@ -25,7 +25,7 @@ export function parseSlug(remoteUrl: string): string | null {
   const match = remoteUrl
     .trim()
     .match(
-      /^(?:git@github\.com:|(?:ssh:\/\/)?(?:git@)?(?:https?:\/\/)?(?:[^@/\s]+@)?github\.com\/)(.+?)(?:\.git)?$/,
+      /^(?:git@github\.com:|(?:ssh:\/\/)?(?:git@)?(?:https?:\/\/)?(?:[^@/\s]+@)?github\.com\/)(.+?)(?:\.git)?$/i,
     );
   if (!match) return null;
   const slug = match[1];
@@ -50,12 +50,16 @@ export async function readGitState(cwd: string): Promise<GitState> {
   const status = await git(cwd, ['status', '--porcelain']);
   const upstream = await git(cwd, ['rev-parse', '--abbrev-ref', '@{u}']);
   const ahead = upstream === null ? null : await git(cwd, ['rev-list', '--count', '@{u}..HEAD']);
+  // Non-numeric stdout must not become NaN in GitState: NaN is not an integer
+  // count and downstream code should never have to know that. Fall back to 0
+  // rather than let a malformed count reach a caller.
+  const aheadCount = ahead === null ? 0 : Number(ahead);
 
   return {
     slug: remote === null ? null : parseSlug(remote),
     sha,
     dirtyCount: status ? status.split('\n').filter(Boolean).length : 0,
-    unpushedCount: ahead ? Number(ahead) : 0,
+    unpushedCount: Number.isInteger(aheadCount) ? aheadCount : 0,
     hasUpstream: upstream !== null,
   };
 }
@@ -79,6 +83,11 @@ export function gradeBlocker(
     };
 
   if (!state.hasUpstream) {
+    // A bare `git push` fails here — "fatal: The current branch has no
+    // upstream branch" — unless push.autoSetupRemote is on, which it is not
+    // by default. This branch also has no pushed sha to offer with --sha,
+    // and git status --short answers a question this developer did not ask.
+    // This case gets its own tail, not the dirty/unpushed one below.
     return {
       reason: 'unpushed',
       lines: [
@@ -92,13 +101,7 @@ export function gradeBlocker(
         '  WHAT YOU PROBABLY WANT',
         '',
         '    push this branch, then grade its head',
-        '      git push && fieldnote run',
-        '',
-        '    grade a commit that is already pushed',
-        `      fieldnote run --sha ${state.sha.slice(0, 7)}`,
-        '',
-        '    see what has not been graded',
-        '      git status --short',
+        '      git push -u origin HEAD && fieldnote run',
       ],
     };
   }

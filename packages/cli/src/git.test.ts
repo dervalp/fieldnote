@@ -22,8 +22,34 @@ describe('parseSlug', () => {
       'https://x-access-token:ghs_secrettoken1234567890@github.com/dervalp/fieldnote.git';
     const slug = parseSlug(withCreds);
     expect(slug).toBe('dervalp/fieldnote');
+    // These two cannot fail on their own — toBe above already pins the exact
+    // value — so they are not a guarantee. The real guarantee is structural:
+    // GitState has no URL field, so a credential cannot reach gradeBlocker.
+    // Kept as documentation of intent for a future reader of this test.
     expect(slug).not.toContain('ghs_secrettoken1234567890');
     expect(slug).not.toContain('x-access-token');
+  });
+
+  it('rejects a host that merely starts with github.com', () => {
+    // [^@/\s]+ cannot span a '.', but this guards the literal anyway: a
+    // future loosening of the userinfo segment must not let a suffixed host
+    // slip past the github.com match.
+    expect(parseSlug('https://github.com.evil.example/owner/repo')).toBeNull();
+  });
+
+  it('rejects a userinfo segment that displaces the host with another @', () => {
+    // If [^@/\s]+ were ever loosened to something that can span '@' (e.g.
+    // '.+'), this URL would parse as owner/repo against evil.example instead
+    // of being rejected. [^@/\s]+ cannot span '@', so it is rejected today —
+    // this test pins that it stays rejected.
+    expect(parseSlug('https://github.com@evil.example/owner/repo')).toBeNull();
+  });
+
+  it('matches the host case-insensitively', () => {
+    // DNS is case-insensitive; a remote written as GitHub.com is exactly as
+    // real as github.com, and telling the developer they have no GitHub
+    // remote when they do is a lie.
+    expect(parseSlug('https://GitHub.com/dervalp/fieldnote.git')).toBe('dervalp/fieldnote');
   });
 });
 
@@ -66,7 +92,11 @@ describe('gradeBlocker', () => {
     // repository's default branch instead, silently.
     const blocker = gradeBlocker({ ...clean, hasUpstream: false });
     expect(blocker?.reason).toBe('unpushed');
-    expect(blocker?.lines.join(' ')).toContain('--sha');
+    // Not --sha or git status --short: this branch has no pushed sha to
+    // offer, and a bare `git push` fails here (no upstream configured), so
+    // the fix is -u, not the dirty/unpushed tail's three commands.
+    expect(blocker?.lines.join(' ')).toContain('-u origin HEAD');
+    expect(blocker?.lines.join(' ')).not.toContain('--sha');
   });
 
   it('names the condition by count, not by adjective', () => {
