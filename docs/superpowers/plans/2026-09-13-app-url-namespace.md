@@ -37,16 +37,16 @@
 - `src/lib/app-routes.test.ts` — unit tests for the builders.
 - `src/lib/legacy-redirects.test.ts` — drives the real `redirects()` table from `next.config.ts` against real URLs.
 
-**Moved** (`git mv`, 38 files) — `src/app/{dashboard,repos,prs,settings,onboarding}` → `src/app/app/`. Colocated tests and `src/app/settings/actions.integration.test.ts` travel with their subjects.
+**Moved** (`git mv`, 37 files) — `src/app/{dashboard,repos,prs,settings,onboarding}` → `src/app/app/`. Colocated tests and `src/app/settings/actions.integration.test.ts` travel with their subjects.
 
 **Modified**
 - `next.config.ts` — gains the six-entry redirect table.
 - `src/app/page.tsx`, `src/app/page.test.ts` — the redirect comes out.
 - `src/components/repository/tabs.ts` — `tabHref` becomes a wrapper over `repoSectionPath`.
-- 26 further files holding path literals or importing across the move boundary. Each is named in the task that touches it.
+- 27 further files holding path literals or importing across the move boundary. Each is named in the task that touches it.
 
 **Not modified, deliberately**
-- `src/components/app-shell.tsx` — its topline is `<span>{active.name} / Engineering records</span>`. Text, not a link. No path literal. If you find yourself editing it, you have the wrong file; the breadcrumb is `src/components/repository/header.tsx:33`.
+- `src/components/repository/header.tsx` — holds no path literal; its only `href` is `githubRepositoryUrl(repo)`, which is external. Task 3 touches it for its `refreshImport` import, Task 4 never does. The breadcrumb used to live here and now does not.
 - `src/components/dashboard/date-range.test.ts` — `DateRange` builds from `usePathname()` and never constructs a prefix. Its pathnames are arbitrary inputs paired with assertions that echo them. It stays green, and that is correct.
 - `src/lib/navigation-path.ts` and its test — normalises *incoming* pathnames; `app-routes` constructs *outgoing* ones. Opposite directions, no shared code. The `/repos/...` strings in its test are arbitrary inputs to a normaliser, not route assertions.
 - `src/app/{signed-out,invitations,api}` — public surfaces, unchanged.
@@ -427,7 +427,7 @@ EOF
 Pure relocation. **No path literal changes in this task** — every link still points at `/dashboard`, `/repos` and friends, so the app's links 404 at the end of this commit and Task 4 fixes them. Splitting it this way is what makes the move mechanically verifiable: `tsc` proves the imports and the existing tests prove nothing else moved.
 
 **Files:**
-- Move: 38 files, listed by the command in Step 1.
+- Move: 37 files, listed by the command in Step 1.
 - Modify: 181 relative imports inside the moved files (the codemod in Step 3), plus 11 imports from outside the moved tree (Step 5).
 
 **Interfaces:**
@@ -442,9 +442,9 @@ git mv src/app/dashboard src/app/repos src/app/prs src/app/settings src/app/onbo
 find src/app/app -type f | sort
 ```
 
-Expected: 38 files, all under `src/app/app/`. Confirm `src/app/app/settings/actions.integration.test.ts` is among them — it travels with its subject.
+Expected: 37 files, all under `src/app/app/`. Confirm `src/app/app/settings/actions.integration.test.ts` is among them — it travels with its subject.
 
-Confirm what did *not* move: `src/app/{page.tsx,page.test.ts,layout.tsx,not-found.tsx,style.css,signed-out,invitations,api}`.
+Confirm what did *not* move: `src/app/{page.tsx,page.test.ts,layout.tsx,not-found.tsx,style.css,style.test.ts,signed-out,invitations,api}`.
 
 - [ ] **Step 2: Run typecheck to see the damage**
 
@@ -453,7 +453,7 @@ Expected: FAIL, with a large number of `Cannot find module '../../...'` errors. 
 
 - [ ] **Step 3: Fix the relative imports inside the moved files**
 
-Every moved file sits exactly one level deeper. An import that resolves to somewhere *outside* the five moved directories needs one more `../`; an import that stays *inside* the moved tree keeps its spelling, because the moved files kept their relationship to each other. There are 181 of the first kind and 16 of the second, so this must be decided per-import rather than by a blanket find-and-replace.
+Every moved file sits exactly one level deeper. An import that resolves to somewhere *outside* the five moved directories needs one more `../`; an import that stays *inside* the moved tree keeps its spelling, because the moved files kept their relationship to each other. There are 181 of the first kind and 5 of the second, so this must be decided per-import rather than by a blanket find-and-replace.
 
 Write the codemod to the scratchpad (it is a one-shot tool, not project code):
 
@@ -515,13 +515,13 @@ The exact 11 sites this must fix, so you can verify the count:
 | File | Import |
 | --- | --- |
 | `src/components/repository/header.tsx:2` | `refreshImport` from `repos/[repoId]/actions` |
-| `src/components/grading/report.tsx:5` | `runGrade` from `repos/[repoId]/grading/actions` |
+| `src/components/grading/report.tsx:6` | `runGrade` from `repos/[repoId]/grading/actions` |
 | `src/components/grading/report.test.ts:7` | `vi.mock` of the same |
-| `src/components/act/act-entry.tsx:2` | `requestPlanRun` from `repos/[repoId]/grading/actions` |
+| `src/components/act/act-entry.tsx:3` | `requestPlanRun` from `repos/[repoId]/grading/actions` |
 | `src/components/act/act-entry.test.ts:5` | `vi.mock` of the same |
-| `src/components/dashboard/history-interest.tsx:7` | `dashboard/history-actions` |
-| `src/components/onboarding/import-progress.tsx:5` | `retryAnalysis` from `onboarding/actions` |
-| `src/components/onboarding/repository-picker.tsx:7` | `startFirstAnalysis`, `refreshRepositoryAccess` from `onboarding/actions` |
+| `src/components/dashboard/history-interest.tsx:8` | `dashboard/history-actions` |
+| `src/components/onboarding/import-progress.tsx:6` | `retryAnalysis` from `onboarding/actions` |
+| `src/components/onboarding/repository-picker.tsx:8` | `startFirstAnalysis`, `refreshRepositoryAccess` from `onboarding/actions` |
 | `src/components/onboarding/rendering.test.ts:4` | `vi.mock` of `onboarding/actions` |
 | `src/components/workspace-switcher.tsx:5` | `switchWorkspace` from `settings/actions` |
 | `src/db/history-interest.integration.test.ts:11` | `dashboard/history-actions` |
@@ -579,7 +579,7 @@ EOF
 
 ## Task 4: Point every link through `app-routes.ts`
 
-The links start working again here. 27 non-test files and 13 test files.
+The links start working again here. 27 non-test files and 14 test files.
 
 **Files:** listed in the steps below.
 
@@ -605,11 +605,12 @@ These are the literals that describe what the app must produce. Edit them before
 | `src/components/act/act-entry.test.ts:39` | `/repos/repo/act/run-1` | `/app/repos/repo/act/run-1` |
 | `src/app/app/dashboard/page.test.ts:43` | `rejects.toThrow('/onboarding')` | `rejects.toThrow('/app/onboarding')` |
 | `src/app/app/dashboard/page.test.ts:54` | `href="/repos?days=30"` | `href="/app/repos?days=30"` |
-| `src/app/app/repos/pages.test.ts:49` | `href="/repos/repository%3A1?days=90"` | `href="/app/repos/repository%3A1?days=90"` |
+| `src/app/app/repos/pages.test.ts:81` | `href="/repos/repository%3A1?days=90"` | `href="/app/repos/repository%3A1?days=90"` |
 | `src/app/app/repos/[repoId]/page.test.ts:110` | `href="/repos/repo/delivery?from=...&amp;to=..."` | prefix with `/app` |
 | `src/app/app/repos/[repoId]/delivery/page.test.ts:212,215` | `href="/repos/repo/delivery?..."` | prefix each with `/app` |
 | `src/app/app/onboarding/actions.test.ts:72` | `[['/dashboard'], ['/repos/repo%3A1']]` | `[['/app/dashboard'], ['/app/repos/repo%3A1']]` |
 | `src/auth/invitation-routes.test.ts:82` | `expired ? '/dashboard' : ...` | `expired ? '/app/dashboard' : ...` |
+| `src/app/invitations/[token]/actions.test.ts:47` | `rejects.toThrow('redirect:/dashboard')` | `rejects.toThrow('redirect:/app/dashboard')` |
 
 Leave the `/invitations/${'a'.repeat(43)}` half of `invitation-routes.test.ts:82` alone — invitations are a public surface and do not move.
 
@@ -618,11 +619,17 @@ Leave the `/invitations/${'a'.repeat(43)}` half of `invitation-routes.test.ts:82
 | File:line | Now | After |
 | --- | --- | --- |
 | `src/components/sidebar.test.ts:4` | `pathname: '/repos'` | `pathname: '/app/repos'` |
+| `src/components/sidebar.test.ts:31` | `navigation.pathname = '/repos'` | `navigation.pathname = '/app/repos'` |
+| `src/components/app-shell.test.ts:22` | `{ label: 'Personal workspace', href: '/dashboard' }` | `href: '/app/dashboard'` |
 | `src/app/app/dashboard/page.test.ts:12` | `usePathname: () => '/dashboard'` | `usePathname: () => '/app/dashboard'` |
 | `src/components/dashboard/dashboard.test.ts:11` | `usePathname: () => '/dashboard'` | `usePathname: () => '/app/dashboard'` |
 | `src/app/app/repos/[repoId]/delivery/page.test.ts:25` | `usePathname: () => '/repos/repo/delivery'` | `usePathname: () => '/app/repos/repo/delivery'` |
 
-`sidebar.test.ts:4` is the load-bearing one: the sidebar compares `usePathname()` against `reposPath()`, so a fixture still claiming `/repos` silently drops the `aria-current="page"` that line 22 asserts. The other three are not load-bearing, but a fixture that lies about where its page lives will mislead the next reader.
+**Both `sidebar.test.ts` fixtures are load-bearing.** The sidebar compares `usePathname()` against `reposPath()`, so a fixture still claiming `/repos` silently drops the `aria-current="page"` that lines 22 and 31's test both assert. Line 31 sits inside a separate test about selection being carried by `aria-current` alone — miss it and that test fails for a reason that looks unrelated.
+
+`app-shell.test.ts:22` is a crumb passed *into* `AppShell` as a test input, not an assertion on rendered output, so it will stay green either way. Update it anyway: it stands for what a real layout passes down, and a fixture showing the pre-move URL is the kind of thing that gets copied into the next test.
+
+`dashboard/page.test.ts:12`, `dashboard.test.ts:11` and `delivery/page.test.ts:25` are not load-bearing either, but a fixture that lies about where its page lives will mislead the next reader.
 
 **Do not touch `src/components/dashboard/date-range.test.ts`.** Its pathnames are arbitrary inputs to a component that echoes whatever pathname it is given, paired with assertions that echo them back. It is self-consistent at any prefix and stays green. That is the one place in this task where an untouched, still-passing test is correct rather than a missed edit.
 
@@ -650,7 +657,7 @@ import { dashboardPath, reposPath } from '../lib/app-routes';
 ```
 
 ```tsx
-      <Brand as={Link} href={dashboardPath()} />
+      <Brand as={Link} href={dashboardPath()} size="compact" />
 ```
 
 ```tsx
@@ -723,16 +730,20 @@ import { prPath } from '../lib/app-routes';
 
 Leave line 91 alone — `${githubUrl}/pull/...` is an external GitHub URL.
 
-`src/components/repository/header.tsx:33` — **this is the breadcrumb**:
+`src/components/app-shell.tsx:22` — **the breadcrumb's root half.** The trail is
+built in two places: `AppShell` prepends the workspace crumb, and each section
+layout supplies the rest, because only the layout knows the repository's name.
+Both halves need the prefix or the trail carries a dead link.
 
 ```tsx
-import { reposPath } from '../../lib/app-routes';
+import { dashboardPath } from '../lib/app-routes';
 ```
 ```tsx
-        <Link href={reposPath()}>All repositories</Link> <span aria-hidden="true">/</span> {repo.name}
+  const trail: Crumb[] = [{ label: active.name, href: dashboardPath() }, ...crumbs];
 ```
 
-Leave line 59 alone — `githubRepositoryUrl(repo)` is external.
+`src/components/repository/header.tsx` needs **no** edit in this task — its only
+`href` is the external `githubRepositoryUrl(repo)`.
 
 `src/components/repository/coverage-strip.tsx:67`:
 
@@ -752,7 +763,7 @@ import { repoSectionPath } from '../../lib/app-routes';
   const href = repoSectionPath(repoId, 'ai-involvement');
 ```
 
-`src/components/act/act-entry.tsx:18`:
+`src/components/act/act-entry.tsx:19`:
 
 ```tsx
 import { actRunPath } from '../../lib/app-routes';
@@ -761,7 +772,7 @@ import { actRunPath } from '../../lib/app-routes';
   const href = actRunPath(repositoryId, latest?.id ?? '');
 ```
 
-`src/components/onboarding/repository-picker.tsx:47`:
+`src/components/onboarding/repository-picker.tsx:48`:
 
 ```tsx
 import { dashboardPath } from '../../lib/app-routes';
@@ -772,7 +783,7 @@ import { dashboardPath } from '../../lib/app-routes';
 
 Leave line 118 alone — `installUrl` is a GitHub App URL.
 
-`src/components/onboarding/import-progress.tsx` — three sites, and **line 66 is one of the three silent failures**:
+`src/components/onboarding/import-progress.tsx` — lines 67, 74 and 151, and **line 67 is one of the three silent failures**:
 
 ```tsx
 import { dashboardPath, onboardingPath, repoPath } from '../../lib/app-routes';
@@ -839,23 +850,39 @@ import { dashboardPath, onboardingPath, reposPath } from '../../../lib/app-route
       <Link href={reposPath(rangeQuery(range, search))}>View repositories ↗</Link>
 ```
 
-`src/app/app/repos/page.tsx:23,35,36,42`:
+`src/app/app/repos/page.tsx:27,42,43,49`. This page wraps itself in `AppShell`
+rather than getting one from a `repos/layout.tsx`, because the list page's
+breadcrumb differs from the repository pages':
 
 ```tsx
 import { dashboardPath, onboardingPath, repoPath, reposPath } from '../../../lib/app-routes';
 ```
 ```tsx
-    return <InvalidRange message={(error as Error).message} href={reposPath()} />;
+        <InvalidRange message={(error as Error).message} href={reposPath()} />
 ```
 ```tsx
-        <Link href={dashboardPath(query)}>← Overview</Link>
-        <Link href={onboardingPath()}>Add repository ↗</Link>
+          <Link href={dashboardPath(query)}>← Overview</Link>
+          <Link href={onboardingPath()}>Add repository ↗</Link>
 ```
 ```tsx
-              <Link href={repoPath(repo.id, query)}>
+                <Link href={repoPath(repo.id, query)}>
 ```
 
-`src/app/app/repos/[repoId]/page.tsx:50,68,99`:
+Its two `<AppShell crumbs={[{ label: 'All repositories' }]}>` wrappers carry no
+`href`, so they need no edit — the label alone is the last crumb.
+
+`src/app/app/repos/[repoId]/layout.tsx:32` — **the breadcrumb's other half.**
+This is the crumb `AppShell` appends to the workspace root, and it is the one
+that actually carries a link:
+
+```tsx
+import { reposPath } from '../../../../lib/app-routes';
+```
+```tsx
+    <AppShell crumbs={[{ label: 'All repositories', href: reposPath() }, { label: repo.name }]}>
+```
+
+`src/app/app/repos/[repoId]/page.tsx:50,68,98`:
 
 ```tsx
 import { repoPath, repoSectionPath } from '../../../../lib/app-routes';
@@ -870,7 +897,7 @@ import { repoPath, repoSectionPath } from '../../../../lib/app-routes';
               <Link href={repoSectionPath(repoId, 'grading')}>Readiness</Link>.
 ```
 
-`src/app/app/repos/[repoId]/grading/page.tsx:43`:
+`src/app/app/repos/[repoId]/grading/page.tsx:38`:
 
 ```tsx
 import { repoSectionPath } from '../../../../../lib/app-routes';
@@ -891,7 +918,7 @@ import { repoSectionPath } from '../../../../../lib/app-routes';
   const basePath = repoSectionPath(repoId, 'delivery');
 ```
 
-`src/app/app/repos/[repoId]/act/[runId]/page.tsx:35`:
+`src/app/app/repos/[repoId]/act/[runId]/page.tsx:29`:
 
 ```tsx
 import { repoSectionPath } from '../../../../../../lib/app-routes';
@@ -900,7 +927,7 @@ import { repoSectionPath } from '../../../../../../lib/app-routes';
         <Link href={repoSectionPath(repoId, 'grading')}>Back to readiness</Link>
 ```
 
-`src/app/app/prs/[prId]/page.tsx:32`:
+`src/app/app/prs/[prId]/page.tsx:33`:
 
 ```tsx
 import { repoPath } from '../../../../lib/app-routes';
@@ -909,7 +936,7 @@ import { repoPath } from '../../../../lib/app-routes';
         <Link href={repoPath(repo.id)}>
 ```
 
-`src/app/app/settings/account/page.tsx:16,19`:
+`src/app/app/settings/account/page.tsx:17,20`:
 
 ```tsx
 import { accountSettingsPath, workspaceSettingsPath } from '../../../../lib/app-routes';
@@ -921,7 +948,7 @@ import { accountSettingsPath, workspaceSettingsPath } from '../../../../lib/app-
         <Link href={workspaceSettingsPath()}>Workspace</Link>
 ```
 
-`src/app/app/settings/workspace/page.tsx:71,72,108,120`:
+`src/app/app/settings/workspace/page.tsx:72,73,109,121`:
 
 ```tsx
 import {

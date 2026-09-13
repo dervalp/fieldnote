@@ -23,9 +23,9 @@ describe('repository tabs', () => {
   });
 
   it('routes the landing view to the repository root and the rest beneath it', () => {
-    expect(tabHref('repository:1', tabs[0])).toBe('/repos/repository%3A1');
-    expect(tabHref('repository:1', tabs[1])).toBe('/repos/repository%3A1/grading');
-    expect(tabHref('repository:1', tabs[4])).toBe('/repos/repository%3A1/settings');
+    expect(tabHref('repository:1', tabs[0])).toBe('/app/repos/repository%3A1');
+    expect(tabHref('repository:1', tabs[1])).toBe('/app/repos/repository%3A1/grading');
+    expect(tabHref('repository:1', tabs[4])).toBe('/app/repos/repository%3A1/settings');
   });
 
   it('carries the current query string onto every tab, landing view included', () => {
@@ -33,21 +33,21 @@ describe('repository tabs', () => {
     // body links between views; a tab that dropped it would silently reset the
     // range the reader chose.
     expect(tabHref('repository:1', tabs[0], 'from=2025-01-01&to=2025-01-07')).toBe(
-      '/repos/repository%3A1?from=2025-01-01&to=2025-01-07',
+      '/app/repos/repository%3A1?from=2025-01-01&to=2025-01-07',
     );
     expect(tabHref('repository:1', tabs[3], 'days=30')).toBe(
-      '/repos/repository%3A1/delivery?days=30',
+      '/app/repos/repository%3A1/delivery?days=30',
     );
   });
 
   it('accepts the query string with or without its leading question mark', () => {
-    expect(tabHref('repo', tabs[1], '?days=30')).toBe('/repos/repo/grading?days=30');
-    expect(tabHref('repo', tabs[1], 'days=30')).toBe('/repos/repo/grading?days=30');
+    expect(tabHref('repo', tabs[1], '?days=30')).toBe('/app/repos/repo/grading?days=30');
+    expect(tabHref('repo', tabs[1], 'days=30')).toBe('/app/repos/repo/grading?days=30');
   });
 
   it('emits a bare path when there is no query to carry', () => {
-    expect(tabHref('repo', tabs[1], '')).toBe('/repos/repo/grading');
-    expect(tabHref('repo', tabs[1])).toBe('/repos/repo/grading');
+    expect(tabHref('repo', tabs[1], '')).toBe('/app/repos/repo/grading');
+    expect(tabHref('repo', tabs[1])).toBe('/app/repos/repo/grading');
   });
 
   it('puts the tab stop on the selected tab', () => {

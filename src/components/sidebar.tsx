@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { Suspense } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { Brand } from '@fieldnote/design-system';
+import { dashboardPath, reposPath } from '../lib/app-routes';
 import { WorkspaceSwitcher } from './workspace-switcher';
 
 type Workspace = { id: string; name: string; role: 'owner' | 'member' };
@@ -37,19 +38,19 @@ function SidebarNavigation({
     <aside className="sidebar">
       {/* `as={Link}` keeps the logo a client-side navigation. The package
           cannot import next/link itself, so the app injects it. */}
-      <Brand as={Link} href="/dashboard" />
+      <Brand as={Link} href={dashboardPath()} size="compact" />
       <WorkspaceSwitcher active={active} workspaces={workspaces} demo={demo} />
       <nav aria-label="Main navigation">
         <Link
-          href={`/dashboard${query}`}
-          aria-current={pathname === '/dashboard' ? 'page' : undefined}
+          href={dashboardPath(query)}
+          aria-current={pathname === dashboardPath() ? 'page' : undefined}
         >
           <span className="nav-number">01</span> Overview
         </Link>
         <Link
-          href={`/repos${query}`}
+          href={reposPath(query)}
           aria-current={
-            pathname === '/repos' || pathname.startsWith('/repos/') ? 'page' : undefined
+            pathname === reposPath() || pathname.startsWith(`${reposPath()}/`) ? 'page' : undefined
           }
         >
           <span className="nav-number">02</span> Repositories

@@ -1,5 +1,6 @@
 'use client';
 import { useId, useState } from 'react';
+import { Surface } from '@fieldnote/design-system';
 import type { Day } from '../../domain/dashboard/types';
 type Metric = 'merged' | 'first-pass' | 'ci';
 const names: Record<Metric, string> = {
@@ -76,7 +77,7 @@ function Chart({ days, metric }: { days: Day[]; metric: Metric }) {
       : [0, Math.floor((days.length - 1) / 2), days.length - 1],
   );
   return (
-    <section className="daily-chart" aria-labelledby={`${id}-title`}>
+    <Surface className="daily-chart" aria-labelledby={`${id}-title`}>
       <div className="chart-heading">
         <h3 id={`${id}-title`}>{names[metric]}</h3>
         <p>
@@ -172,7 +173,7 @@ function Chart({ days, metric }: { days: Day[]; metric: Metric }) {
           stack.
         </p>
       )}
-    </section>
+    </Surface>
   );
 }
 export function DailyCharts({ days }: { days: Day[] }) {

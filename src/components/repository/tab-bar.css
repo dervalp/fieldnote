@@ -3,8 +3,8 @@
 .tabs {
   display: flex;
   gap: 2px;
-  margin-top: 22px;
-  border-bottom: 1px solid var(--line);
+  margin-top: var(--fn-space-3);
+  border-bottom: 1px solid var(--fn-color-border);
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -13,9 +13,9 @@
 }
 .tab {
   font-size: 13px;
-  color: var(--muted);
+  color: var(--fn-color-ink-muted);
   text-decoration: none;
-  padding: 10px 15px 11px;
+  padding: 8px 13px 9px;
   border-bottom: 2px solid transparent;
   white-space: nowrap;
   display: inline-flex;
@@ -23,14 +23,14 @@
   gap: 7px;
 }
 .tab:hover {
-  color: var(--ink);
+  color: var(--fn-color-ink);
 }
 .tab[aria-selected='true'] {
-  color: var(--ink);
+  color: var(--fn-color-ink);
   font-weight: 700;
-  border-bottom-color: var(--accent);
+  border-bottom-color: var(--fn-color-accent);
 }
 .tab:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--fn-color-accent);
   outline-offset: -2px;
 }

@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { Octokit } from 'octokit';
 import { integrationEnv } from '../../../../lib/env';
+import { dashboardPath } from '../../../../lib/app-routes';
 import { equalSecret, encrypt } from '../../../../auth/crypto';
 import { exchangeToken } from '../../../../auth/oauth';
 import { createSession } from '../../../../auth/session';
@@ -50,7 +51,10 @@ export async function GET(request: Request) {
     await ensureDefaultWorkspace(values.id);
     await createSession(values.id);
     return NextResponse.redirect(
-      new URL(invitation ? `/invitations/${invitation}` : '/dashboard', integrationEnv().APP_URL),
+      new URL(
+        invitation ? `/invitations/${invitation}` : dashboardPath(),
+        integrationEnv().APP_URL,
+      ),
     );
   } catch {
     return Response.json(

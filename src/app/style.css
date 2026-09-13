@@ -1,10 +1,10 @@
 /* App-shell rules. The palette, the reset and the element defaults now live in
    @fieldnote/design-system (imported in layout.tsx, before this file), so the
-   only colours named here are the aliases below — and Task 2 removes those
-   too, leaving this file with no colour literal at all.
+   only colours named here are the aliases below.
    The short names stay for now as aliases onto the semantic tier, so the
-   hundreds of `var(--ink)` call sites below keep working while the migration
-   happens one rule at a time rather than all at once. */
+   remaining `var(--ink)` call sites — this file's nested metrics theme, and
+   src/components/grading/report.css — keep working while the migration happens
+   one rule at a time rather than all at once. */
 :root {
   --paper: var(--fn-color-surface);
   --sidebar: var(--fn-color-ground);
@@ -22,42 +22,44 @@
   grid-template-columns: 232px minmax(0, 1fr);
 }
 .sidebar {
-  background: var(--sidebar);
-  border-right: 1px solid var(--line);
-  padding: 35px 24px;
+  background: var(--fn-color-ground);
+  border-right: 1px solid var(--fn-color-border);
+  padding: var(--fn-space-4) var(--fn-space-3);
   display: flex;
   flex-direction: column;
   position: sticky;
   top: 0;
   height: 100dvh;
 }
-nav {
+.sidebar nav {
   display: grid;
-  gap: 10px;
+  gap: var(--fn-space-1);
 }
-nav a {
+.sidebar nav a {
   display: flex;
   align-items: baseline;
-  gap: 12px;
-  border-left: 2px solid transparent;
-  padding: 13px 10px;
+  gap: var(--fn-space-2);
+  padding: 7px var(--fn-space-3);
+  border-radius: var(--fn-radius-md);
   text-decoration: none;
   font-size: 13px;
 }
-nav a[aria-current='page'] {
-  border-left-color: var(--accent);
-  font-weight: 600;
+/* At 30px rows a 2px rule is no longer enough signal on its own. */
+.sidebar nav a[aria-current='page'] {
+  background: var(--fn-color-surface-selected);
+  box-shadow: inset 2px 0 0 var(--fn-color-accent);
+  font-weight: 700;
 }
 .nav-number {
   font-size: 10px;
-  color: var(--muted);
+  color: var(--fn-color-ink-muted);
   font-variant-numeric: tabular-nums;
 }
 .sidebar-footer {
   margin-top: auto;
-  padding-top: 36px;
-  font-size: 11px;
-  color: var(--muted);
+  padding-top: var(--fn-space-5);
+  font-size: 10.5px;
+  color: var(--fn-color-ink-muted);
   line-height: 1.7;
 }
 .connection-label {
@@ -66,34 +68,22 @@ nav a[aria-current='page'] {
 .sidebar-footer p {
   margin: 4px 0 16px;
 }
-main {
+.app-shell main {
   min-width: 0;
-  padding: 34px clamp(24px, 4vw, 64px) 64px;
+  padding: 0 0 var(--fn-space-7);
   background:
-    linear-gradient(
-      90deg,
-      var(--fn-color-wash-edge) 0%,
-      var(--fn-color-wash-edge-fade) 7%,
-      var(--fn-color-wash-edge-clear) 48%
-    ),
-    radial-gradient(ellipse at 12% 38%, var(--fn-color-wash-cool) 0%, transparent 62%),
+    /* The removed first layer painted the sidebar's colour 48% of the way
+       across this column. It was most of the gutter, and no amount of padding
+       removal would have fixed it. */
+    radial-gradient(ellipse at 8% 30%, var(--fn-color-wash-cool) 0%, transparent 58%),
     radial-gradient(ellipse at 100% 78%, var(--fn-color-wash-warm) 0%, transparent 57%),
-    var(--fn-color-wash-base);
+    var(--fn-color-ground);
 }
-.page-topline {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  padding-bottom: 26px;
-  margin-bottom: 30px;
-  border-bottom: 1px solid var(--fn-color-hairline);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 1.3px;
-  color: var(--muted);
+.page-body {
+  padding: var(--fn-space-4) var(--fn-space-5) 0;
 }
 .page-intro {
-  color: var(--muted);
+  color: var(--fn-color-ink-muted);
   max-width: 640px;
   margin-bottom: 28px;
 }
@@ -134,14 +124,14 @@ main {
   display: flex;
   flex-wrap: wrap;
   gap: 12px 28px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--fn-color-border);
   padding: 0 0 22px;
   margin: 22px 0;
   font-size: 12px;
-  color: var(--muted);
+  color: var(--fn-color-ink-muted);
 }
 .summary-strip strong {
-  color: var(--ink);
+  color: var(--fn-color-ink);
   margin-right: 6px;
 }
 .repository-card {
@@ -158,37 +148,38 @@ main {
 .repository-card p {
   margin-bottom: 0;
   font-size: 12px;
-  color: var(--muted);
+  color: var(--fn-color-ink-muted);
 }
 .repository-arrow {
   font-size: 24px;
-  color: var(--accent);
+  color: var(--fn-color-accent);
 }
 .timeline {
-  border-left: 3px solid var(--accent);
+  border-left: 3px solid var(--fn-color-accent);
 }
 .skip-link {
   position: fixed;
   top: -100px;
   left: 16px;
   z-index: 10;
-  background: var(--paper);
+  background: var(--fn-color-surface);
   padding: 14px;
 }
 .skip-link:focus {
   top: 16px;
-}
-@media (min-width: 1600px) {
-  main {
-    padding-right: max(64px, calc((100vw - 1350px) / 2));
-  }
 }
 @media (max-width: 1050px) {
   .app-shell {
     grid-template-columns: 185px minmax(0, 1fr);
   }
   .sidebar {
-    padding: 28px 18px;
+    /* Narrower column (185px) than the base 232px, so the rail loses the
+       width the base padding was spending — but it keeps the base's own
+       horizontal step. Going below the desktop 12px would mean a narrower
+       viewport produced tighter chrome, which reads as cramped rather than
+       dense. Vertical is unchanged: narrowing the column does not change
+       how much top/bottom breathing room the stack needs. */
+    padding: var(--fn-space-4) var(--fn-space-3);
   }
   .cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -201,16 +192,28 @@ main {
   .sidebar {
     position: static;
     height: auto;
-    padding: 18px 20px;
+    /* The sidebar is now a full-width horizontal strip, so its left/right
+       padding IS the page's side gutter at this breakpoint (nothing else
+       supplies one) — held at the var(--fn-space-4) (16px) floor. Top/bottom
+       is a thin bar's breathing room, not a vertical stack's, so it can sit
+       below the base's 16px. */
+    padding: var(--fn-space-3) var(--fn-space-4);
     border-right: 0;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--fn-color-border);
   }
-  nav {
+  .sidebar nav {
     display: flex;
-    gap: 20px;
+    /* A flex row's gap is a different concern from the vertical stack's 4px
+       (var(--fn-space-1)) — it separates whole nav items along a single
+       line, not stacked rows, so it legitimately stays larger. Brought down
+       from the pre-density 20px to the next step on the scale. */
+    gap: var(--fn-space-4);
   }
-  nav a {
-    padding: 8px;
+  .sidebar nav a {
+    /* Stack-era uniform 8px; the base rail now uses 7px var(--fn-space-3)
+       (7px 12px), so this comes down to the space scale's smallest two
+       steps rather than staying a flat pre-density value. */
+    padding: var(--fn-space-1) var(--fn-space-2);
     font-size: 12px;
   }
   .sidebar-footer {
@@ -223,13 +226,8 @@ main {
   .sidebar-footer p {
     display: none;
   }
-  main {
-    padding: 24px 20px 48px;
-  }
-  .page-topline {
-    margin-bottom: 24px;
-    padding-bottom: 18px;
-    font-size: 8px;
+  .page-body {
+    padding: var(--fn-space-4) var(--fn-space-4) var(--fn-space-7);
   }
   .cards {
     gap: 12px;
@@ -247,7 +245,6 @@ main {
     padding: 20px;
   }
 }
-
 .onboarding-workspace {
   max-width: 760px;
   margin-top: 32px;
@@ -280,7 +277,7 @@ main {
   gap: 14px;
   padding: 18px 0;
   margin: 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--fn-color-border);
 }
 .repository-choice input {
   margin: 5px 0 0;
@@ -294,7 +291,7 @@ main {
   display: block;
 }
 .repository-access {
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--fn-color-border);
   padding-top: 24px;
   margin-top: 28px;
   font-size: 13px;
@@ -311,18 +308,18 @@ main {
   height: 8px;
   overflow: hidden;
   border-radius: 8px;
-  background: var(--line);
+  background: var(--fn-color-border);
   margin: 24px 0 12px;
 }
 .import-progress-fill {
   height: 100%;
   transition: width 250ms ease-out;
-  background: var(--ink);
+  background: var(--fn-color-ink);
 }
 .import-complete-mark {
   display: inline-block;
   animation: onboarding-enter 200ms ease-out both;
-  color: var(--accent);
+  color: var(--fn-color-accent);
   font-size: 32px;
 }
 .onboarding-sr-only {
@@ -400,10 +397,6 @@ main {
 }
 .metrics-page a {
   color: var(--ink);
-}
-.metrics-page button {
-  background: var(--ink);
-  color: var(--paper);
 }
 .metrics-page :focus-visible {
   outline: 2px solid var(--metric-rust);
@@ -837,7 +830,7 @@ main {
   width: 100%;
   max-width: 540px;
   padding: 44px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--fn-color-border);
   border-radius: 10px;
   background: var(--fn-color-surface-raised);
   box-shadow: var(--fn-elevation-panel);
@@ -858,7 +851,7 @@ main {
   letter-spacing: -0.7px;
 }
 .signin-panel p {
-  color: var(--muted);
+  color: var(--fn-color-ink-muted);
 }
 .signin-github {
   display: flex;
@@ -868,7 +861,7 @@ main {
   padding: 15px;
   margin: 28px 0 20px;
   border-radius: 5px;
-  background: var(--ink);
+  background: var(--fn-color-ink);
   color: var(--fn-color-ink-inverse);
   text-decoration: none;
   font-size: 14px;
@@ -880,29 +873,30 @@ main {
 .signin-panel hr,
 .shell-menu hr {
   border: 0;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--fn-color-border);
 }
 .signin-panel hr {
   margin: 28px 0;
 }
 .fine {
-  color: var(--muted);
+  color: var(--fn-color-ink-muted);
   font-size: 12px;
   line-height: 1.7;
 }
 .workspace-switcher {
-  margin-bottom: 22px;
+  margin-bottom: var(--fn-space-3);
 }
 .workspace-switcher > .eyebrow {
   display: block;
-  margin-bottom: 10px;
+  margin-bottom: 6px;
+  padding-left: var(--fn-space-2);
 }
 .shell-menu {
   position: relative;
 }
 .shell-menu button,
 .shell-menu a {
-  color: var(--ink);
+  color: var(--fn-color-ink);
   font:
     12px Arial,
     sans-serif;
@@ -912,11 +906,11 @@ main {
   align-items: center;
   gap: 9px;
   width: 100%;
-  min-height: 44px;
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  padding: 8px 10px;
-  background: var(--paper);
+  min-height: 36px;
+  border: 1px solid var(--fn-color-border);
+  border-radius: var(--fn-radius-md);
+  padding: 6px var(--fn-space-2);
+  background: var(--fn-color-surface);
   text-align: left;
   cursor: pointer;
 }
@@ -947,7 +941,7 @@ main {
   margin-left: auto;
 }
 .ws-check {
-  color: var(--accent);
+  color: var(--fn-color-accent);
 }
 .shell-menu-options {
   position: absolute;
@@ -957,9 +951,9 @@ main {
   width: 252px;
   max-width: calc(100vw - 40px);
   padding: 5px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--fn-color-border);
   border-radius: 7px;
-  background: var(--paper);
+  background: var(--fn-color-surface);
   box-shadow: var(--fn-elevation-menu);
   text-transform: none;
   letter-spacing: 0;
@@ -1002,7 +996,7 @@ main {
   border-radius: 50%;
   background: var(--fn-color-avatar-surface);
   font-size: 11px;
-  color: var(--ink);
+  color: var(--fn-color-ink);
 }
 .account-menu .shell-menu-options {
   left: auto;
@@ -1018,7 +1012,7 @@ main {
 .account-menu .shell-menu-options > p {
   margin: 4px 0 8px;
   padding: 0 12px 12px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--fn-color-border);
   font-size: 11px;
 }
 .owner-badge,
@@ -1030,12 +1024,12 @@ main {
   white-space: nowrap;
 }
 .owner-badge {
-  background: var(--accent);
+  background: var(--fn-color-accent);
   color: var(--fn-color-ink-inverse);
   font-weight: 600;
 }
 .member-badge {
-  border: 1px solid var(--line);
+  border: 1px solid var(--fn-color-border);
 }
 .settings-tabs {
   display: flex;
@@ -1046,13 +1040,13 @@ main {
 }
 .settings-tabs a {
   padding: 10px 16px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--fn-color-border);
   border-radius: 5px;
   text-decoration: none;
   font-size: 13px;
 }
 .settings-tabs a[aria-current='page'] {
-  background: var(--ink);
+  background: var(--fn-color-ink);
   color: var(--fn-color-ink-inverse);
 }
 .settings-tabs > span {
@@ -1065,7 +1059,7 @@ main {
   align-items: start;
 }
 .settings-panel {
-  border: 1px solid var(--line);
+  border: 1px solid var(--fn-color-border);
   border-radius: 10px;
   background: var(--fn-color-surface-raised);
   padding: 28px;
@@ -1091,28 +1085,11 @@ main {
   width: 100%;
   min-height: 42px;
   padding: 11px 12px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--fn-color-border);
   border-radius: 4px;
-  color: var(--ink);
+  color: var(--fn-color-ink);
   background: var(--fn-color-field-surface);
   min-width: 0;
-}
-.settings-form button {
-  min-height: 40px;
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  padding: 10px 15px;
-  background: var(--paper);
-  color: var(--ink);
-  cursor: pointer;
-}
-.settings-form button:hover {
-  background: var(--ink);
-  color: var(--fn-color-ink-inverse);
-}
-.settings-form button:disabled {
-  opacity: 0.6;
-  cursor: wait;
 }
 .form-error {
   width: 100%;
@@ -1124,7 +1101,7 @@ main {
 .member-row,
 .invitation-row {
   padding: 18px 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--fn-color-border);
   overflow-wrap: anywhere;
 }
 .settings-row {
@@ -1159,9 +1136,12 @@ main {
   flex: 1;
   width: auto;
 }
-.member-controls button {
+/* The button migration (3b86f87) dropped this compactness when it deleted
+   `.member-controls button { font-size: 11px; padding: 10px; }` — the Button
+   primitive has no size between md and lg for it, so it's restored here as a
+   local override on the rendered class, not a second button definition. */
+.member-controls .fn-button {
   font-size: 11px;
-  padding: 10px;
 }
 .invitation-row strong {
   font-size: 12px;
@@ -1172,7 +1152,7 @@ main {
   font-size: 10px;
   text-transform: capitalize;
   padding: 4px 7px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--fn-color-border);
   border-radius: 20px;
 }
 .status-failed,
@@ -1213,21 +1193,21 @@ main {
   height: 20px;
   flex: none;
   display: block;
-  fill: var(--ink);
+  fill: var(--fn-color-ink);
   opacity: 0.74;
 }
 .ai-strip {
   display: flex;
   flex-wrap: wrap;
   gap: 10px 26px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--fn-color-border);
   padding-bottom: 18px;
   margin: 0 0 18px;
   font-size: 12px;
-  color: var(--muted);
+  color: var(--fn-color-ink-muted);
 }
 .ai-strip b {
-  color: var(--ink);
+  color: var(--fn-color-ink);
   font-weight: 700;
   margin-right: 5px;
 }
@@ -1235,10 +1215,10 @@ main {
   border-left: 3px solid transparent;
 }
 .ai-agent-cell.is-ran {
-  border-left-color: var(--ran);
+  border-left-color: var(--fn-color-positive);
 }
 .ai-agent-cell.is-setup {
-  border-left-color: var(--setup);
+  border-left-color: var(--fn-color-caution);
 }
 .ai-agent-id {
   display: flex;
@@ -1256,7 +1236,7 @@ main {
   font-size: 9.5px;
   letter-spacing: 0.9px;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--fn-color-ink-muted);
 }
 .ai-evidence > * + * {
   margin-top: 12px;
@@ -1270,22 +1250,22 @@ main {
     Menlo,
     Consolas,
     monospace;
-  color: var(--muted);
+  color: var(--fn-color-ink-muted);
   overflow-wrap: anywhere;
 }
 .ai-stamp {
   font-size: 11px;
-  color: var(--muted);
+  color: var(--fn-color-ink-muted);
   margin-top: 16px;
 }
 .ai-empty {
   padding: 8px 2px 4px;
-  color: var(--muted);
+  color: var(--fn-color-ink-muted);
   font-size: 13px;
   line-height: 1.7;
 }
 .ai-empty strong {
-  color: var(--ink);
+  color: var(--fn-color-ink);
   display: block;
   font-size: 16px;
   margin-bottom: 6px;

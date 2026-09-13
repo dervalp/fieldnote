@@ -1,33 +1,14 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { beforeEach, expect, test, vi } from 'vitest';
-
-const deps = vi.hoisted(() => ({ signedIn: vi.fn() }));
-vi.mock('../auth/session', () => ({ hasCurrentSession: deps.signedIn }));
-vi.mock('next/navigation', () => ({
-  redirect: (href: string) => {
-    throw new Error(href);
-  },
-}));
+import { expect, test } from 'vitest';
 
 import Landing from './page';
 
-beforeEach(() => {
-  vi.clearAllMocks();
-  deps.signedIn.mockResolvedValue(false);
-});
-
-// The routing contract. A unit test: it mocks the session and touches no
-// database, because what is being checked is the decision, not the lookup.
-
-test('a signed-out visitor gets the page', async () => {
+// The routing contract. The page takes no session into account at all: /
+// is the website, for everyone.
+test('renders the pitch with no session lookup of any kind', async () => {
   const html = renderToStaticMarkup(await Landing());
   expect(html).toContain('Get your ultimate harness.');
   expect(html).toContain('Agent readiness, graded out of 100');
-});
-
-test('a signed-in visitor is redirected to the dashboard, not shown the pitch', async () => {
-  deps.signedIn.mockResolvedValue(true);
-  await expect(Landing()).rejects.toThrow('/dashboard');
 });
 
 // layout.tsx renders a skip link pointing at #main-content, and this page
