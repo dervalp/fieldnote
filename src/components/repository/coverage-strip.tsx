@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import type { RepositoryHeader } from '../../db/queries/repository-header';
+import { repoSectionPath } from '../../lib/app-routes';
 import { ImportProgress } from '../onboarding/import-progress';
 import './coverage-strip.css';
 
@@ -64,7 +65,7 @@ export function CoverageStrip({
         {evidencePhrase(coverage.reviewDetected, coverage.ciDetected)} ·{' '}
         {fetchPhrase(coverage.lastSuccessfulFetch)} · {historyPhrase(coverage.historyState)}
       </span>
-      <Link className="cov-link" href={`/repos/${encodeURIComponent(repo.id)}/settings`}>
+      <Link className="cov-link" href={repoSectionPath(repo.id, 'settings')}>
         Collection detail →
       </Link>
       {/* An import in flight is the sharpest "do not trust these numbers yet"

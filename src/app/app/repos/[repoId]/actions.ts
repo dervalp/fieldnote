@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { requireRepository } from '../../../../auth/access';
 import { setGatePolicy } from '../../../../db/queries/persist-pr';
 import { setActEnabled } from '../../../../db/queries/act-settings';
+import { dashboardPath, repoPath, repoSectionPath } from '../../../../lib/app-routes';
 const gateSchema = z.object({ appId: z.string().min(1), name: z.string().min(1).max(500) });
 export async function saveGates(repositoryId: string, form: FormData) {
   await requireRepository(repositoryId, true);
@@ -13,8 +14,8 @@ export async function saveGates(repositoryId: string, form: FormData) {
     .parse(form.getAll('gate').map((value) => JSON.parse(String(value))));
   const unique = [...new Map(gates.map((g) => [JSON.stringify([g.appId, g.name]), g])).values()];
   await setGatePolicy(repositoryId, unique);
-  revalidatePath('/dashboard');
-  revalidatePath(`/repos/${encodeURIComponent(repositoryId)}`);
+  revalidatePath(dashboardPath());
+  revalidatePath(repoPath(repositoryId));
 }
 
 export async function refreshImport(repositoryId: string) {
@@ -32,6 +33,6 @@ export async function retryImport(repositoryId: string, runId: string) {
 export async function saveActEnabled(repositoryId: string, form: FormData) {
   await requireRepository(repositoryId, true);
   await setActEnabled(repositoryId, form.get('actEnabled') === 'on');
-  revalidatePath(`/repos/${encodeURIComponent(repositoryId)}/settings`);
-  revalidatePath(`/repos/${encodeURIComponent(repositoryId)}/grading`);
+  revalidatePath(repoSectionPath(repositoryId, 'settings'));
+  revalidatePath(repoSectionPath(repositoryId, 'grading'));
 }

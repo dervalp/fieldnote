@@ -10,6 +10,7 @@ import { visiblePrIds } from '../../../../db/queries/history-access';
 import { analyzePullRequest } from '../../../../domain/pull-request/analyzer';
 import { yesNo, duration } from '../../../../components/metrics';
 import { pageRouteId } from '../../../../lib/page-route-id';
+import { repoPath } from '../../../../lib/app-routes';
 export const dynamic = 'force-dynamic';
 export default async function Pr({ params }: { params: Promise<{ prId: string }> }) {
   const prId = pageRouteId((await params).prId);
@@ -30,7 +31,7 @@ export default async function Pr({ params }: { params: Promise<{ prId: string }>
     m = row?.projection ?? analysis.metrics;
   return (
     <>
-      <Link href={`/repos/${encodeURIComponent(repo.id)}`}>
+      <Link href={repoPath(repo.id)}>
         {repo.owner}/{repo.name}
       </Link>
       <h1>

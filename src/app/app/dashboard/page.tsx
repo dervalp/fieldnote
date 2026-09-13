@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { env } from '../../../lib/env';
+import { dashboardPath, onboardingPath, reposPath } from '../../../lib/app-routes';
 import { needsOnboarding } from '../../../domain/import/onboarding';
 import { accessibleRepositories } from '../../../auth/access';
 import { loadBasicDashboard } from '../../../db/queries/basic-dashboard';
@@ -10,7 +11,7 @@ export const dynamic = 'force-dynamic';
 export default async function Dashboard({ searchParams }: RangePageProps = {}) {
   const available = await accessibleRepositories();
   const demo = env().DEMO_MODE === 'true';
-  if (needsOnboarding(available, demo)) redirect('/onboarding');
+  if (needsOnboarding(available, demo)) redirect(onboardingPath());
   const repositories = available.filter(
     (repo) => repo.trackingStartedAt !== null || (demo && repo.isDemo),
   );
@@ -19,7 +20,7 @@ export default async function Dashboard({ searchParams }: RangePageProps = {}) {
   try {
     range = readRange(search);
   } catch (error) {
-    return <InvalidRange message={(error as Error).message} href="/dashboard" />;
+    return <InvalidRange message={(error as Error).message} href={dashboardPath()} />;
   }
   const data = await loadBasicDashboard(
     repositories.map((repo) => repo.id),
@@ -32,7 +33,7 @@ export default async function Dashboard({ searchParams }: RangePageProps = {}) {
       <p className="page-intro">
         A shared view of progress across {repositories.length} accessible repositories.
       </p>
-      <Link href={`/repos${rangeQuery(range, search)}`}>View repositories ↗</Link>
+      <Link href={reposPath(rangeQuery(range, search))}>View repositories ↗</Link>
       <BasicDashboard data={data} />
     </div>
   );

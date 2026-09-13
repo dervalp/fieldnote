@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, test, vi } from 'vitest';
-const navigation = vi.hoisted(() => ({ pathname: '/repos', search: 'days=30' }));
+const navigation = vi.hoisted(() => ({ pathname: '/app/repos', search: 'days=30' }));
 vi.mock('next/navigation', () => ({
   usePathname: () => navigation.pathname,
   useSearchParams: () => new URLSearchParams(navigation.search),
@@ -18,9 +18,9 @@ const render = () =>
 test('repositories is a dedicated active destination and navigation retains range only', () => {
   navigation.search = 'days=30&private=ignore';
   const html = render();
-  expect(html).toContain('href="/repos?days=30"');
-  expect(html).toContain('aria-current="page" href="/repos?days=30"');
-  expect(html).toContain('href="/dashboard?days=30"');
+  expect(html).toContain('href="/app/repos?days=30"');
+  expect(html).toContain('aria-current="page" href="/app/repos?days=30"');
+  expect(html).toContain('href="/app/dashboard?days=30"');
   expect(html).not.toContain('private=ignore');
 });
 test('the active workspace names the records the sidebar navigates', () => {
@@ -28,7 +28,7 @@ test('the active workspace names the records the sidebar navigates', () => {
   expect(render()).toContain('Personal workspace');
 });
 test('the active item is marked for styling by aria-current alone', () => {
-  navigation.pathname = '/repos';
+  navigation.pathname = '/app/repos';
   navigation.search = '';
   const html = render();
   // The tightened rows drop the 2px left border for a fill plus an inset edge.

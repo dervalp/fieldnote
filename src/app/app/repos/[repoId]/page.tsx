@@ -13,6 +13,7 @@ import { AgentsInvolved } from '../../../../components/agents/agents-involved';
 import { AgentShare } from '../../../../components/agents/agent-share';
 import { CohortComparison } from '../../../../components/cohorts/cohort-comparison';
 import { InvalidRange } from '../../../../components/dashboard/basic-dashboard';
+import { repoPath, repoSectionPath } from '../../../../lib/app-routes';
 import {
   readRange,
   rangeEnd,
@@ -45,11 +46,7 @@ export default async function Repository({
     range = readRange(search);
   } catch (error) {
     return (
-      <InvalidRange
-        message={(error as Error).message}
-        href={`/repos/${encodeURIComponent(repoId)}`}
-        headingLevel="h2"
-      />
+      <InvalidRange message={(error as Error).message} href={repoPath(repoId)} headingLevel="h2" />
     );
   }
   const [grade, involvement, table] = await Promise.all([
@@ -65,7 +62,7 @@ export default async function Repository({
       <p className="page-intro">
         {range.days} UTC days ending {rangeEnd(range)}. The full KPI history for this same range,
         and the pull-request table across all accessible history, are on{' '}
-        <Link href={`/repos/${encodeURIComponent(repoId)}/delivery${query}`}>Delivery</Link>.
+        <Link href={repoSectionPath(repoId, 'delivery', query)}>Delivery</Link>.
       </p>
       <div className="agents-view">
         {grade?.score !== null && grade?.score !== undefined ? (
@@ -95,7 +92,7 @@ export default async function Repository({
             <h2>Not graded yet.</h2>
             <p>
               A score appears only after all evidence is collected. Run the grader from{' '}
-              <Link href={`/repos/${encodeURIComponent(repoId)}/grading`}>Readiness</Link>.
+              <Link href={repoSectionPath(repoId, 'grading')}>Readiness</Link>.
             </p>
           </Surface>
         )}

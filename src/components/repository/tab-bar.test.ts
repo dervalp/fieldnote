@@ -42,17 +42,17 @@ test('every tab keeps the date range the reader arrived with', () => {
     expect(href).toContain('from=2025-01-01');
     expect(href).toContain('to=2025-01-07');
   }
-  expect(links[0]).toBe('/repos/repository%3A1?from=2025-01-01&amp;to=2025-01-07');
-  expect(links[3]).toBe('/repos/repository%3A1/delivery?from=2025-01-01&amp;to=2025-01-07');
+  expect(links[0]).toBe('/app/repos/repository%3A1?from=2025-01-01&amp;to=2025-01-07');
+  expect(links[3]).toBe('/app/repos/repository%3A1/delivery?from=2025-01-01&amp;to=2025-01-07');
 });
 
 test('tabs stay bare paths when there is no query string', () => {
   expect(hrefs('delivery', '')).toEqual([
-    '/repos/repository%3A1',
-    '/repos/repository%3A1/grading',
-    '/repos/repository%3A1/ai-involvement',
-    '/repos/repository%3A1/delivery',
-    '/repos/repository%3A1/settings',
+    '/app/repos/repository%3A1',
+    '/app/repos/repository%3A1/grading',
+    '/app/repos/repository%3A1/ai-involvement',
+    '/app/repos/repository%3A1/delivery',
+    '/app/repos/repository%3A1/settings',
   ]);
 });
 

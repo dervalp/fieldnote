@@ -69,7 +69,7 @@ test('queued import survives dispatch failure without leaking error details', as
   expect(await startFirstAnalysis({}, form('repo:1'))).toEqual({ run });
   expect(request).toHaveBeenCalledWith('repo:1', 'start', undefined);
   expect(log).toHaveBeenCalledWith('Import queued for dispatch retry', { runId: 'run' });
-  expect(revalidate.mock.calls).toEqual([['/dashboard'], ['/repos/repo%3A1']]);
+  expect(revalidate.mock.calls).toEqual([['/app/dashboard'], ['/app/repos/repo%3A1']]);
   log.mockRestore();
 });
 test('retry passes repository ownership and previous run to persistence after authorization', async () => {

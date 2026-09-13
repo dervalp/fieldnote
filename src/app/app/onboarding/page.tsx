@@ -6,6 +6,7 @@ import {
   requireTrackedRepository,
 } from '../../../auth/access';
 import { env } from '../../../lib/env';
+import { dashboardPath, onboardingPath } from '../../../lib/app-routes';
 import { getImport, latestImport } from '../../../db/queries/repository-imports';
 import { RepositoryPicker } from '../../../components/onboarding/repository-picker';
 import { ImportProgress } from '../../../components/onboarding/import-progress';
@@ -46,7 +47,7 @@ export default async function Onboarding({
       <div className="eyebrow">Connect your work</div>
       <h1>Your first engineering record.</h1>
       <p className="page-intro">Bring your pull requests and CI history into Fieldnote.</p>
-      {hasTracked && <Link href="/dashboard">Back to overview</Link>}
+      {hasTracked && <Link href={dashboardPath()}>Back to overview</Link>}
       {resumed ? (
         <div className="onboarding-workspace">
           <h2 className="onboarding-repository-heading">
@@ -58,7 +59,7 @@ export default async function Onboarding({
             repository={resumed.repository}
             canAdmin={resumed.repository.canAdmin}
           />
-          <Link href="/onboarding">Connect another repository</Link>
+          <Link href={onboardingPath()}>Connect another repository</Link>
         </div>
       ) : (
         <RepositoryPicker

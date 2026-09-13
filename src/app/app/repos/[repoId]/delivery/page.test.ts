@@ -22,7 +22,7 @@ vi.mock('../../../../../db/queries/dashboard', () => ({
 // preserving unrelated params, and this suite covers the other direction
 // (the projection toggle preserving the range).
 vi.mock('next/navigation', () => ({
-  usePathname: () => '/repos/repo/delivery',
+  usePathname: () => '/app/repos/repo/delivery',
   useRouter: () => ({ push: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
 }));
@@ -209,10 +209,10 @@ test('the gate-policy projection is a toggle on the same table, not a separate l
 test('the projection toggle links preserve the date range in both directions', async () => {
   const html = renderToStaticMarkup(await call({ days: '30' }));
   // Round trip direction 1: switching projection must not drop the range.
-  expect(html).toContain('href="/repos/repo/delivery?days=30&amp;projection=gate-policy"');
+  expect(html).toContain('href="/app/repos/repo/delivery?days=30&amp;projection=gate-policy"');
   // The basic-outcomes link is the current view: it still carries the range
   // (and no stray projection param) so returning to it later round-trips too.
-  expect(html).toContain('href="/repos/repo/delivery?days=30"');
+  expect(html).toContain('href="/app/repos/repo/delivery?days=30"');
 });
 
 test('renders the failure-breakdown table, classified against the current gate policy', async () => {

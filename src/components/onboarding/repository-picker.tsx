@@ -6,6 +6,7 @@ import { Button, Surface } from '@fieldnote/design-system';
 import type { RepositoryChoice } from '../../domain/import/types';
 import { filterRepositoryChoices } from '../../domain/import/onboarding';
 import { startFirstAnalysis, refreshRepositoryAccess } from '../../app/app/onboarding/actions';
+import { dashboardPath } from '../../lib/app-routes';
 import { ImportProgress } from './import-progress';
 export function RepositoryPicker({
   repositories,
@@ -45,7 +46,7 @@ export function RepositoryPicker({
           {allConnected ? (
             <p>
               View your engineering records or give the app access to another repository.{' '}
-              <Link href="/dashboard">View overview</Link>
+              <Link href={dashboardPath()}>View overview</Link>
             </p>
           ) : (
             <p>Import the latest 100 pull requests and their CI history.</p>

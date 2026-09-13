@@ -4,6 +4,7 @@ import { currentUser, userClient } from '../../../auth/session';
 import { readInvitation } from '../../../auth/invitation-continuation';
 import { acceptInvitation } from '../../../workspaces/invitations';
 import { setActiveWorkspace } from '../../../workspaces/access';
+import { dashboardPath } from '../../../lib/app-routes';
 export async function acceptInvitationAction(sealed: string): Promise<void> {
   await currentUser();
   const token = readInvitation(sealed);
@@ -27,5 +28,5 @@ export async function acceptInvitationAction(sealed: string): Promise<void> {
     redirect(`/invitations/${token}?error=unavailable`);
   }
   await setActiveWorkspace(workspaceId);
-  redirect('/dashboard');
+  redirect(dashboardPath());
 }

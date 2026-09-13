@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Surface } from '@fieldnote/design-system';
 import { currentUser } from '../../../../auth/session';
 import { SettingsForm } from '../../../../components/settings-form';
+import { accountSettingsPath, workspaceSettingsPath } from '../../../../lib/app-routes';
 import { saveAccountName } from '../actions';
 export const metadata = { title: 'Account settings' };
 export default async function AccountSettings() {
@@ -14,10 +15,10 @@ export default async function AccountSettings() {
         How your teammates see you. Your account and workspace have separate names.
       </p>
       <div className="settings-tabs">
-        <Link aria-current="page" href="/settings/account">
+        <Link aria-current="page" href={accountSettingsPath()}>
           Account
         </Link>
-        <Link href="/settings/workspace">Workspace</Link>
+        <Link href={workspaceSettingsPath()}>Workspace</Link>
       </div>
       <Surface className="settings-panel">
         <h2>Your profile</h2>

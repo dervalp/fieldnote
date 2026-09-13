@@ -12,6 +12,7 @@ import {
 import { MetricCards } from '../../../../../components/metrics';
 import { PrTable } from '../../../../../components/pr-table';
 import { githubRepositoryUrl } from '../../../../../components/dashboard/repository-metadata';
+import { repoSectionPath } from '../../../../../lib/app-routes';
 import { failureBreakdown } from '../../../../../metrics/aggregate';
 import { pageRouteId } from '../../../../../lib/page-route-id';
 
@@ -52,7 +53,7 @@ export default async function Delivery({
     return (
       <InvalidRange
         message={(error as Error).message}
-        href={`/repos/${encodeURIComponent(repoId)}/delivery`}
+        href={repoSectionPath(repoId, 'delivery')}
         headingLevel="h2"
       />
     );
@@ -67,7 +68,7 @@ export default async function Delivery({
     policy,
   );
   const projection = readProjection(search);
-  const basePath = `/repos/${encodeURIComponent(repoId)}/delivery`;
+  const basePath = repoSectionPath(repoId, 'delivery');
   const rangeQ = rangeQuery(range, search);
   const toggleHref = (view: Projection) => {
     const params = new URLSearchParams(rangeQ.slice(1));

@@ -5,6 +5,7 @@ import { TAB_PANEL_ID } from '../../../../components/repository/tabs';
 import { composeRepositoryHeader, repositoryRecord } from '../../../../db/queries/repository-header';
 import { latestImport } from '../../../../db/queries/repository-imports';
 import { pageRouteId } from '../../../../lib/page-route-id';
+import { reposPath } from '../../../../lib/app-routes';
 import { AppShell } from '../../../../components/app-shell';
 export const dynamic = 'force-dynamic';
 // The layout renders on every tab, so it loads only what every tab shows: the
@@ -29,7 +30,7 @@ export default async function RepositoryLayout({
   const [record, latest] = await Promise.all([repositoryRecord(repo.id), latestImport(repo.id)]);
   const header = composeRepositoryHeader(record, latest);
   return (
-    <AppShell crumbs={[{ label: 'All repositories', href: '/repos' }, { label: repo.name }]}>
+    <AppShell crumbs={[{ label: 'All repositories', href: reposPath() }, { label: repo.name }]}>
       <div className="repo-layout">
         <RepositoryPageHeader repo={repo} header={header} />
         {/* The preview's Readiness and Involvement counts are not rendered:

@@ -4,6 +4,7 @@ import { requireRepository } from '../../../../../../workspaces/access';
 import { getPlan } from '../../../../../../db/queries/authoring-runs';
 import { PlanView } from '../../../../../../components/act/plan-view';
 import { pageRouteId } from '../../../../../../lib/page-route-id';
+import { repoSectionPath } from '../../../../../../lib/app-routes';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,7 +27,7 @@ export default async function Plan({
       </p>
       <PlanView run={plan.run} remedies={plan.remedies} />
       <p>
-        <Link href={`/repos/${encodeURIComponent(repoId)}/grading`}>Back to readiness</Link>
+        <Link href={repoSectionPath(repoId, 'grading')}>Back to readiness</Link>
       </p>
     </div>
   );

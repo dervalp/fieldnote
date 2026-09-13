@@ -107,7 +107,7 @@ test('renders only one h1 worth of identity — the view starts at h2', async ()
 
 test('the Delivery link carries the parsed range forward, not just the raw search params', async () => {
   const html = renderToStaticMarkup(await call({ from: '2026-08-01', to: '2026-08-30' }));
-  expect(html).toContain('href="/repos/repo/delivery?from=2026-08-01&amp;to=2026-08-30"');
+  expect(html).toContain('href="/app/repos/repo/delivery?from=2026-08-01&amp;to=2026-08-30"');
 });
 
 test('escaped route id is decoded before authorization', async () => {

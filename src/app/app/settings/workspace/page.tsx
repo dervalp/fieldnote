@@ -20,6 +20,12 @@ import {
   deleteMember,
   disconnectRepository,
 } from '../actions';
+import {
+  accountSettingsPath,
+  onboardingPath,
+  repoPath,
+  workspaceSettingsPath,
+} from '../../../../lib/app-routes';
 export const metadata = { title: 'Workspace settings' };
 export default async function WorkspaceSettings() {
   const workspace = await requireWorkspace();
@@ -69,8 +75,8 @@ export default async function WorkspaceSettings() {
         Manage the people and repositories that make up {workspace.name}.
       </p>
       <div className="settings-tabs">
-        <Link href="/settings/account">Account</Link>
-        <Link aria-current="page" href="/settings/workspace">
+        <Link href={accountSettingsPath()}>Account</Link>
+        <Link aria-current="page" href={workspaceSettingsPath()}>
           Workspace
         </Link>
         <span className={owner ? 'owner-badge' : 'member-badge'}>{owner ? 'Owner' : 'Member'}</span>
@@ -106,7 +112,7 @@ export default async function WorkspaceSettings() {
             </p>
             {repositories.map((repo) => (
               <div className="settings-row" key={repo.id}>
-                <Link href={`/repos/${repo.id}`}>
+                <Link href={repoPath(repo.id)}>
                   {repo.owner}/{repo.name}
                 </Link>
                 {owner && (
@@ -118,7 +124,7 @@ export default async function WorkspaceSettings() {
             ))}
             {!repositories.length && <p>No repositories connected yet.</p>}
             {owner ? (
-              <Link className="settings-link" href="/onboarding">
+              <Link className="settings-link" href={onboardingPath()}>
                 Connect a repository →
               </Link>
             ) : (

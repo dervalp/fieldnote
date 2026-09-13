@@ -6,6 +6,7 @@ import { linkRepository, requireRepository, requireWorkspace } from '../../../wo
 import { requestRepositoryImport } from '../../../db/queries/repository-imports';
 import { dispatchImport } from '../../../inngest/dispatch-import';
 import { ImportRequestError, type StartResult } from '../../../domain/import/types';
+import { dashboardPath, repoPath } from '../../../lib/app-routes';
 const idSchema = z.string().trim().min(1);
 async function requestAnalysis(
   repositoryId: string,
@@ -26,8 +27,8 @@ async function requestAnalysis(
   } catch {
     console.error('Import queued for dispatch retry', { runId: run.id });
   }
-  revalidatePath('/dashboard');
-  revalidatePath(`/repos/${encodeURIComponent(repositoryId)}`);
+  revalidatePath(dashboardPath());
+  revalidatePath(repoPath(repositoryId));
   return { run };
 }
 export async function startFirstAnalysis(

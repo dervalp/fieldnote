@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import { accountSettingsPath, workspaceSettingsPath } from '../lib/app-routes';
 import { Menu } from './menu';
 export function AccountMenu({
   name,
@@ -32,11 +33,11 @@ export function AccountMenu({
         </span>
       </p>
       {!demo && (
-        <Link role="menuitem" href="/settings/account">
+        <Link role="menuitem" href={accountSettingsPath()}>
           Account settings
         </Link>
       )}
-      <Link role="menuitem" href="/settings/workspace">
+      <Link role="menuitem" href={workspaceSettingsPath()}>
         Workspace settings
       </Link>
       <hr />

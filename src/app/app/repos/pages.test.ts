@@ -78,7 +78,7 @@ test('directory shows only tracked authorized repositories with genuine links an
     await Directory({ searchParams: Promise.resolve({ days: '90' }) }),
   );
   expect(deps.records).toHaveBeenCalledWith(['repository:1']);
-  expect(html).toContain('href="/repos/repository%3A1?days=90"');
+  expect(html).toContain('href="/app/repos/repository%3A1?days=90"');
   expect(html).toContain('https://github.com/owner/real-project');
   expect(html).toContain('2026-09-06');
   expect(html).toContain('2026-09-08');

@@ -9,7 +9,7 @@ vi.mock('../../../auth/access', () => ({ accessibleRepositories: deps.available 
 vi.mock('../../../db/queries/basic-dashboard', () => ({ loadBasicDashboard: deps.load }));
 vi.mock('../../../lib/env', () => ({ env: () => ({ DEMO_MODE: deps.demo ? 'true' : 'false' }) }));
 vi.mock('next/navigation', () => ({
-  usePathname: () => '/dashboard',
+  usePathname: () => '/app/dashboard',
   useRouter: () => ({ push: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
   redirect: (href: string) => {
@@ -40,7 +40,7 @@ beforeEach(() => {
 });
 test('untracked installations redirect before metrics are fetched', async () => {
   deps.available.mockResolvedValue([{ id: 'untracked', trackingStartedAt: null }]);
-  await expect(Dashboard()).rejects.toThrow('/onboarding');
+  await expect(Dashboard()).rejects.toThrow('/app/onboarding');
   expect(deps.load).not.toHaveBeenCalled();
 });
 test('overview only loads authorized tracked IDs and retains range on repository navigation', async () => {
@@ -51,7 +51,7 @@ test('overview only loads authorized tracked IDs and retains range on repository
   const page = await Dashboard({ searchParams: Promise.resolve({ days: '30' }) });
   expect(deps.load).toHaveBeenCalledWith(['tracked'], expect.objectContaining({ days: 30 }));
   const html = renderToStaticMarkup(page);
-  expect(html).toContain('href="/repos?days=30"');
+  expect(html).toContain('href="/app/repos?days=30"');
   expect(html.match(/data-kpi=/g)).toHaveLength(3);
   expect(html).not.toContain('Demo fixtures');
 });

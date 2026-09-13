@@ -8,6 +8,7 @@ import { GradeCard } from '@fieldnote/design-system';
 import { gradeCardProps } from '../../../../../components/grading/grade-presentation';
 import { GradeControls, GradeReport } from '../../../../../components/grading/report';
 import { pageRouteId } from '../../../../../lib/page-route-id';
+import { repoSectionPath } from '../../../../../lib/app-routes';
 import { actEnabled } from '../../../../../db/queries/act-settings';
 import { fetchGrantedPermissions } from '../../../../../github/installation-permissions';
 import { actAvailability, nothingGranted } from '../../../../../domain/act/availability';
@@ -35,7 +36,7 @@ export default async function Grading({
   if (run && !selected) notFound();
   const summary = summaries[0];
   const grade = run ? selected : summary?.latest;
-  const href = `/repos/${encodeURIComponent(repoId)}/grading`;
+  const href = repoSectionPath(repoId, 'grading');
   // The installation lookup is a network round-trip, so it only runs once
   // the repository has opted in — a demo repository has no real
   // installation and must not 500 this page over a fetch nobody asked for.

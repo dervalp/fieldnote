@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Surface } from '@fieldnote/design-system';
 import { accessibleRepositories } from '../../../auth/access';
 import { env } from '../../../lib/env';
+import { dashboardPath, onboardingPath, repoPath, reposPath } from '../../../lib/app-routes';
 import { repositoryRecords } from '../../../db/queries/repository-records';
 import { readRange, rangeQuery, type RangePageProps } from '../../../components/dashboard/range-query';
 import { InvalidRange } from '../../../components/dashboard/basic-dashboard';
@@ -24,7 +25,7 @@ export default async function Directory({ searchParams }: RangePageProps = {}) {
   } catch (error) {
     return (
       <AppShell crumbs={[{ label: 'All repositories' }]}>
-        <InvalidRange message={(error as Error).message} href="/repos" />
+        <InvalidRange message={(error as Error).message} href={reposPath()} />
       </AppShell>
     );
   }
@@ -39,14 +40,14 @@ export default async function Directory({ searchParams }: RangePageProps = {}) {
           {repositories.length} accessible tracked repositories. One engineering record.
         </p>
         <div className="repository-links">
-          <Link href={`/dashboard${query}`}>← Overview</Link>
-          <Link href="/onboarding">Add repository ↗</Link>
+          <Link href={dashboardPath(query)}>← Overview</Link>
+          <Link href={onboardingPath()}>Add repository ↗</Link>
         </div>
         {repositories.map((repo) => (
           <Surface className="directory-repository" key={repo.id}>
             <div className="repository-heading">
               <h2>
-                <Link href={`/repos/${encodeURIComponent(repo.id)}${query}`}>
+                <Link href={repoPath(repo.id, query)}>
                   {repo.owner}/{repo.name} ↗
                 </Link>
               </h2>

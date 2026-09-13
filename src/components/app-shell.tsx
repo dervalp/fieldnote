@@ -3,6 +3,7 @@ import { currentUser } from '../auth/session';
 import { requireWorkspace } from '../workspaces/access';
 import { listWorkspaces } from '../workspaces/store';
 import { env } from '../lib/env';
+import { dashboardPath } from '../lib/app-routes';
 import { Sidebar } from './sidebar';
 import { AccountMenu } from './account-menu';
 
@@ -19,7 +20,7 @@ export async function AppShell({
   const choices = demo ? [active] : await listWorkspaces((await currentUser()).id);
   // The workspace is always the root of the trail; the section layout supplies
   // the rest, because it is the only thing that knows the repository's name.
-  const trail: Crumb[] = [{ label: active.name, href: '/dashboard' }, ...crumbs];
+  const trail: Crumb[] = [{ label: active.name, href: dashboardPath() }, ...crumbs];
   return (
     <div className="app-shell">
       <Sidebar active={active} workspaces={choices} demo={demo} />
