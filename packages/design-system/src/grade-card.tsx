@@ -36,6 +36,10 @@ export type GradeCardProps = {
   repositoryName: string;
   rubricVersion: string;
   sha: string;
+  title: string;
+  author: string;
+  mode: string;
+  category: string;
 };
 
 /**
@@ -58,6 +62,10 @@ export function GradeCard({
   repositoryName,
   rubricVersion,
   sha,
+  title,
+  author,
+  mode,
+  category,
 }: GradeCardProps) {
   // Two cards on one page must not share a gradient id, and the landing page
   // renders two.
@@ -67,7 +75,7 @@ export function GradeCard({
       className="grade-card"
       data-finish={finish}
       style={{ '--grade': color } as CSSProperties}
-      aria-label={`Agent readiness: ${score} out of 100, ${label}`}
+      aria-label={`${title}: ${score} out of 100, ${label}`}
     >
       <div className="grade-card-inner">
         <div className="grade-card-heading">
@@ -97,7 +105,16 @@ export function GradeCard({
             ))}
           </span>
         </div>
-        <h2>Agent Readiness</h2>
+        <h2>{title}</h2>
+        {/* Author, version, mode and category. Four facts that were implicit
+            while there was one grader and become load-bearing the moment a
+            reader sees two cards side by side. */}
+        <p className="grade-card-identity">
+          <span>{author}</span>
+          <span>v{rubricVersion}</span>
+          <span>{mode}</span>
+          <span>{category}</span>
+        </p>
         <div className="grade-card-scoreline">
           <div className="grade-card-score">
             {score}
@@ -153,7 +170,9 @@ export function GradeCard({
         )}
         <div className="grade-card-rubric">
           <span>Rubric</span>
-          <strong>Readiness v{rubricVersion}</strong>
+          <strong>
+            {title} v{rubricVersion}
+          </strong>
         </div>
         <p className="grade-card-commit">Commit {sha.slice(0, 7)}</p>
       </div>

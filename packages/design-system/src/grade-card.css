@@ -71,7 +71,21 @@
     27px Georgia,
     serif;
   letter-spacing: -1px;
-  margin: 18px 0 10px;
+  margin: 18px 0 0;
+}
+.grade-card-identity {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 8px;
+  margin: 4px 0 10px;
+  font-size: 11px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #526b60;
+}
+.grade-card-identity span + span::before {
+  content: '·';
+  margin-right: 8px;
 }
 .grade-card-scoreline {
   display: flex;

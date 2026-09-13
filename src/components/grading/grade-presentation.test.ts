@@ -1,11 +1,12 @@
 import type { GradeCardProps, GradeFinish } from '@fieldnote/design-system';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, test } from 'vitest';
 import { gradeBannerProps, gradeCardProps } from './grade-presentation';
 import type { GradePresentation } from '../../domain/grading/presentation';
 import { gradePresentation } from '../../domain/grading/presentation';
 import { finishNames } from '../../domain/grading/finish-names';
 import type { CheckResult } from '../../domain/grading/types';
 import { AGENT_READINESS } from '../../domain/grading/graders/agent-readiness';
+import { DELIVERY_HEALTH, deliveryHealthManifest } from '../../domain/grading/graders/delivery-health';
 
 // The package declares its own GradeFinish because it cannot import the
 // domain's. This assignment is the pin: if either union gains, loses or
@@ -91,6 +92,24 @@ describe('gradeCardProps', () => {
     expect(resolved.repositoryName).toBe('demo/checkout-service');
     expect(resolved.rubricVersion).toBe('0.1.0');
     expect(resolved.sha).toBe('6b1f0a4abcdef');
+  });
+});
+
+test('a card carries its grader identity, not fieldnote assumptions', () => {
+  const props = gradeCardProps({
+    score: 70,
+    repositoryName: 'acme / checkout',
+    sha: 'a'.repeat(40),
+    rubricVersion: deliveryHealthManifest.version,
+    checks: [],
+    graderId: DELIVERY_HEALTH,
+  });
+  expect(props).toMatchObject({
+    title: 'Delivery Health',
+    author: 'fieldnote',
+    mode: 'Deterministic',
+    category: 'Delivery health',
+    flavour: 'Does work here reach green cleanly, or by attrition?',
   });
 });
 

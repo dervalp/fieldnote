@@ -1,6 +1,8 @@
 import type { GradeCardProps } from '@fieldnote/design-system';
 import { gradePresentation } from '../../domain/grading/presentation';
 import { finishNames } from '../../domain/grading/finish-names';
+import { modeNames } from '../../domain/grading/mode-names';
+import { categoryNames } from '../../domain/grading/category-names';
 import { nextTier } from '../../domain/grading/next-tier';
 import { getGrader, graderCheckTitles } from '../../domain/grading/registry';
 import type { CheckResult } from '../../domain/grading/types';
@@ -40,6 +42,12 @@ export function gradeCardProps(input: {
     count: grade.count,
     finishName: finishNames[grade.finish],
     flavour: grader.card.tagline,
+    title: grader.card.title,
+    // owner/name. A marketplace has two people who both want the name
+    // test-coverage, so the owner is part of the identity, not decoration.
+    author: input.graderId.split('/')[0],
+    mode: modeNames[grader.mode],
+    category: categoryNames[grader.category],
     next: nextTier(input.score, input.checks, graderCheckTitles(input.graderId)),
     repositoryName: input.repositoryName,
     rubricVersion: input.rubricVersion,
