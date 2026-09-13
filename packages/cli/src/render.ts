@@ -24,6 +24,15 @@ const COLOURS: Record<Line['kind'], string> = {
   url: DIM,
 };
 
+// One predicate, two readers. `CI` is set by every runner worth naming and
+// they disagree only on the value, so '', 'false' and unset all mean "not
+// CI". The banner and the progress writer both consult this rather than
+// each spelling it out: two spellings of "in CI" is two behaviours waiting
+// to drift apart.
+function isCI(env: Env): boolean {
+  return env.CI !== undefined && env.CI !== '' && env.CI !== 'false';
+}
+
 export function capabilities(
   stream: Stream,
   env: Env,
@@ -37,7 +46,12 @@ export function capabilities(
     // NO_COLOR asks for no colour, not no cursor: in-place rewriting is a
     // question of whether the terminal can do it at all (a TTY that isn't
     // "dumb"), independent of whether colour itself is switched off.
-    live: tty && !dumb,
+    //
+    // CI overrides all of that. A runner that allocates a pty passes the TTY
+    // test and would get `\r  running\x1b[K` written into a log file someone
+    // reads six weeks later — so the spec's output-discipline table makes CI,
+    // not isTTY, the deciding condition for the append-only path.
+    live: tty && !dumb && !isCI(env),
   };
 }
 
@@ -46,7 +60,7 @@ export function capabilities(
 export function shouldShowBanner(stream: Stream, env: Env, opts: { json: boolean }): boolean {
   if (opts.json) return false;
   if (!stream.isTTY) return false;
-  if (env.CI !== undefined && env.CI !== '' && env.CI !== 'false') return false;
+  if (isCI(env)) return false;
   if (env.FIELDNOTE_NO_BANNER !== undefined) return false;
   return true;
 }

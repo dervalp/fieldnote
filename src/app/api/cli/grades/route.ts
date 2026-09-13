@@ -66,10 +66,16 @@ export async function POST(request: Request) {
     try {
       run = await requestGrade(repository.id, graderId);
     } catch (error) {
+      // 409, not 403. The CLI maps every 403 to exit code 3, which the spec
+      // defines as "always recoverable by `fieldnote login`" — and no
+      // re-login lifts a demo workspace's read-only rule, so a CI wrapper
+      // that treats 3 as "refresh the credential and retry" would loop on it
+      // forever. A conflict with the state of the workspace is what this is,
+      // and the client's default mapping turns it into exit 2.
       if (error instanceof Error && error.message === DEMO_READ_ONLY)
         return Response.json(
           { error: 'The demo workspace is read-only. Sign in to a connected workspace to grade.' },
-          { status: 403, headers },
+          { status: 409, headers },
         );
       if (error instanceof Error && error.message === REPOSITORY_UNAVAILABLE)
         return Response.json(

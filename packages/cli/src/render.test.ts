@@ -133,6 +133,29 @@ describe('out.progress', () => {
     expect(chunks).toHaveLength(3);
   });
 
+  it('appends one line per transition when CI is set, even on a pty', () => {
+    // A CI runner that allocates a pty still writes to a log file someone
+    // reads six weeks later. \r and \x1b[K are frames for a human watching;
+    // in a log they are residue. The spec's output-discipline table makes CI
+    // the deciding condition, not isTTY.
+    const { chunks, stream } = fake(true);
+    const progress = createOutput(stream, { CI: 'true' }).progress();
+    progress.state('queued');
+    progress.state('running');
+    progress.done();
+    expect(chunks.join('')).toBe('  queued\n  running\n');
+  });
+
+  it('treats CI=false and CI= as not CI, exactly as the banner does', () => {
+    // One predicate, consulted twice — the banner and the progress writer
+    // must not disagree about what "in CI" means.
+    const { chunks, stream } = fake(true);
+    const progress = createOutput(stream, { CI: 'false' }).progress();
+    progress.state('queued');
+    progress.done();
+    expect(chunks[0]).toContain('\r');
+  });
+
   it('writes nothing at all if no state ever arrives', () => {
     const { chunks, stream } = fake(true);
     createOutput(stream, {}).progress().done();

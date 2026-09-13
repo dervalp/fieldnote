@@ -90,7 +90,11 @@ export async function gradeRun(options: GradeRunOptions): Promise<GradeRunOutcom
     try {
       poll = await pollGradeRun(options.base, options.token, requested.runId);
     } catch (error) {
-      if (error instanceof ApiError && error.exitCode === 2) {
+      // A 404 is the poll route saying the run is gone, or no longer visible
+      // to this token's workspace. Neither heals on its own, so retrying it
+      // spends the whole backoff ladder — about fifteen seconds — to report
+      // the same sentence it already had.
+      if (error instanceof ApiError && error.exitCode === 2 && error.status !== 404) {
         consecutiveFailures += 1;
         if (consecutiveFailures > MAX_CONSECUTIVE_POLL_FAILURES) throw error;
         if (Date.now() >= deadline) return { kind: 'timeout' };

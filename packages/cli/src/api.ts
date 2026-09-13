@@ -8,11 +8,18 @@ const TIMEOUT_MS = 30_000;
 
 export class ApiError extends Error {
   readonly exitCode: 2 | 3;
+  // The HTTP status that produced it, when there was one — absent for a
+  // timeout or a connection failure, which never got a response at all. The
+  // exit code deliberately collapses statuses (everything that is not 401 or
+  // 403 is "could not grade"), so a caller that needs to tell a permanent
+  // 404 from a transient 503 has nothing else to read.
+  readonly status?: number;
 
-  constructor(message: string, exitCode: 2 | 3) {
+  constructor(message: string, exitCode: 2 | 3, status?: number) {
     super(message);
     this.name = 'ApiError';
     this.exitCode = exitCode;
+    this.status = status;
   }
 }
 
@@ -129,6 +136,7 @@ async function call<T>(
   throw new ApiError(
     serverMessage ?? 'fieldnote returned something unexpected. Try again.',
     exitCode,
+    response.status,
   );
 }
 

@@ -371,7 +371,20 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
     if (json) out.line(JSON.stringify(view));
     else out.lines(gradeLines(view));
 
-    if (min !== undefined && view.score !== null && view.score < min) return 1;
+    // The null guard is not the question — `null < 90` is true in JS, and an
+    // incomplete grade is genuinely not "below threshold", which is what exit
+    // 1 means. The disposition is: a threshold that could not be evaluated is
+    // not a threshold that was met, and exiting 0 would walk an ungradeable
+    // repository through the CI gate --min exists to be.
+    if (min !== undefined) {
+      if (view.score === null) {
+        // Never a second line under --json: the spec's contract is one
+        // document, and the document already says score: null.
+        if (!json) out.line('  No score, so --min could not be evaluated.');
+        return 2;
+      }
+      if (view.score < min) return 1;
+    }
     return 0;
   }
 

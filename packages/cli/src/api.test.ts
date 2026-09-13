@@ -20,6 +20,17 @@ describe('api errors map to exit codes', () => {
     await expect(pollGradeRun('http://x', 't', 'gr_1')).rejects.toMatchObject({ exitCode: 3 });
   });
 
+  it('carries the HTTP status, so a caller can tell a permanent 404 from a transient 503', async () => {
+    // Without it every non-401/403 collapses to exit code 2, and grade-run.ts
+    // retries all of them — spending fifteen seconds of backoff on a run that
+    // is gone and will stay gone.
+    vi.stubGlobal('fetch', async () => json(404, { error: 'Grade unavailable.' }));
+    await expect(pollGradeRun('http://x', 't', 'gr_1')).rejects.toMatchObject({
+      exitCode: 2,
+      status: 404,
+    });
+  });
+
   it('maps 403 to exit code 3 as well — the token is wrong, not the request', async () => {
     vi.stubGlobal('fetch', async () => json(403, { error: 'This token cannot grade.' }));
     await expect(pollGradeRun('http://x', 't', 'gr_1')).rejects.toMatchObject({ exitCode: 3 });

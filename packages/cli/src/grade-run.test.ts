@@ -241,6 +241,15 @@ describe('gradeRun — the poll loop terminates', () => {
     expect((await promise).kind).toBe('graded');
   });
 
+  it('does not retry a 404 poll — the run is gone, and waiting does not bring it back', async () => {
+    readGitState.mockResolvedValue(CLEAN_STATE);
+    gradeBlocker.mockReturnValue(null);
+    requestGradeRun.mockResolvedValue(REQUESTED);
+    pollGradeRun.mockRejectedValue(new ApiError('Grade unavailable.', 2, 404));
+    await expect(gradeRun(baseOptions)).rejects.toMatchObject({ status: 404 });
+    expect(pollGradeRun).toHaveBeenCalledTimes(1);
+  });
+
   it('does not retry an exitCode 3 poll failure — the token itself was rejected', async () => {
     readGitState.mockResolvedValue(CLEAN_STATE);
     gradeBlocker.mockReturnValue(null);

@@ -102,10 +102,10 @@ describe('POST /api/cli/grades', () => {
     expect(requestGrade).not.toHaveBeenCalled();
   });
 
-  it('403s a demo workspace instead of 503ing', async () => {
+  it('409s a demo workspace — a refusal no re-login can lift, so never a 403', async () => {
     requestGrade.mockRejectedValueOnce(new Error(DEMO_READ_ONLY));
     const response = await POST(post({ repository: 'dervalp/fieldnote', sha: 'a'.repeat(40) }));
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(409);
   });
 
   it('404s a repository made unavailable by post-lock re-authorization, instead of 503ing', async () => {

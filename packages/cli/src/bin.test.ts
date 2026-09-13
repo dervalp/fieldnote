@@ -260,18 +260,48 @@ describe('run (the grading command)', () => {
     expect(await run(['run', '--min', '0'], c.sink, c.env)).toBe(0);
   });
 
-  it('a null score (incomplete evidence) is never "below" --min', async () => {
+  it('exits 2, not 0, when --min is given and there is no score to compare it to', async () => {
     readAuth.mockResolvedValue(AUTH);
     readGitState.mockResolvedValue(CLEAN_STATE);
     gradeBlocker.mockReturnValue(null);
     requestGradeRun.mockResolvedValue(REQUESTED);
-    // null < 90 is true in JavaScript — the guard must check for null first,
-    // not just compare, or an incomplete grade would wrongly fail --min.
+    // null < 90 is true in JavaScript, so the null guard itself is right — an
+    // incomplete grade is not "below threshold", which is what exit 1 means.
+    // But it is not a pass either: exit 0 would walk an ungradeable
+    // repository through a CI gate, which is the one job --min has.
     pollGradeRun.mockResolvedValue(
       completeFixture({ score: null, presentation: null, incompleteReason: 'truncated' }),
     );
     const c = capture();
-    expect(await run(['run', '--min', '90'], c.sink, c.env)).toBe(0);
+    expect(await run(['run', '--min', '90'], c.sink, c.env)).toBe(2);
+    expect(c.text()).toContain('--min');
+  });
+
+  it('still exits 0 on a null score when no --min was asked for', async () => {
+    readAuth.mockResolvedValue(AUTH);
+    readGitState.mockResolvedValue(CLEAN_STATE);
+    gradeBlocker.mockReturnValue(null);
+    requestGradeRun.mockResolvedValue(REQUESTED);
+    pollGradeRun.mockResolvedValue(
+      completeFixture({ score: null, presentation: null, incompleteReason: 'truncated' }),
+    );
+    const c = capture();
+    expect(await run(['run'], c.sink, c.env)).toBe(0);
+  });
+
+  it('--json with an unevaluable --min prints one object and nothing after it', async () => {
+    readAuth.mockResolvedValue(AUTH);
+    readGitState.mockResolvedValue(CLEAN_STATE);
+    gradeBlocker.mockReturnValue(null);
+    requestGradeRun.mockResolvedValue(REQUESTED);
+    pollGradeRun.mockResolvedValue(
+      completeFixture({ score: null, presentation: null, incompleteReason: 'truncated' }),
+    );
+    const c = capture();
+    expect(await run(['run', '--min', '90', '--json'], c.sink, c.env)).toBe(2);
+    // One document or a non-zero exit, never a document with a second one
+    // glued to the end of it.
+    expect(JSON.parse(c.text()).score).toBeNull();
   });
 
   it("exits 2 when --min is the empty string — that is not a quiet '--min 0'", async () => {
