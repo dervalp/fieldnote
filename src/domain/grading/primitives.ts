@@ -132,5 +132,5 @@ export function runCheck(
 
   // Exhaustiveness check: all union members must be handled above.
   const never: never = check;
-  throw new Error(`Primitive '${(never as any).primitive}' is not implemented.`);
+  throw new Error(`Primitive '${(never as { primitive: string }).primitive}' is not implemented.`);
 }
