@@ -136,6 +136,30 @@ test('?grader= selects which report is shown', async () => {
   expect(html).toContain('Delivery Health:9.9.9');
 });
 
+test('the Act entry appears under the readiness card and disappears under a different one', async () => {
+  // Presence alone would still pass if the isReadiness gate were removed
+  // (grade truthy is enough on its own); asserting absence under a different
+  // card is what actually exercises the gate. Both graders carry a completed
+  // grade here so that "no Act marker" cannot be explained by "no grade".
+  deps.summaries.mockResolvedValue([
+    { graderId: 'fieldnote/agent-readiness', latest: completed, status: null },
+    { graderId: DELIVERY_HEALTH, latest: completed, status: null },
+  ]);
+  const readinessSelected = renderToStaticMarkup(await call());
+  expect(readinessSelected).toMatch(/act-(un)?available/);
+  const deliverySelected = renderToStaticMarkup(await call(undefined, DELIVERY_HEALTH));
+  expect(deliverySelected).not.toMatch(/act-(un)?available/);
+});
+
+test('Agent Readiness renders before Delivery Health, in listGraders() registration order', async () => {
+  const html = renderToStaticMarkup(await call());
+  const readinessIndex = html.indexOf('Agent Readiness');
+  const deliveryIndex = html.indexOf('Delivery Health');
+  expect(readinessIndex).toBeGreaterThanOrEqual(0);
+  expect(deliveryIndex).toBeGreaterThanOrEqual(0);
+  expect(readinessIndex).toBeLessThan(deliveryIndex);
+});
+
 test('an unregistered ?grader= is a 404', async () => {
   await expect(call(undefined, 'fieldnote/does-not-exist')).rejects.toThrow(
     'NEXT_HTTP_ERROR_FALLBACK;404',
