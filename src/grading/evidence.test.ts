@@ -27,21 +27,26 @@ beforeEach(() => {
 
 test('a file grader calls only the file collector', async () => {
   collectReadiness.mockResolvedValue({ sha: 'abc', complete: true, documents: [] });
-  const { snapshot } = await collectEvidence(agentReadinessManifest, 'repo', 'abc');
+  const collected = await collectEvidence(agentReadinessManifest, 'repo', 'abc');
   expect(collectReadiness).toHaveBeenCalledWith('repo', 'abc');
   expect(collectMetrics).not.toHaveBeenCalled();
-  expect(snapshot.metrics).toBeNull();
+  expect(collected.snapshot.metrics).toBeNull();
+  // A complete snapshot has no failure to name.
+  expect(collected.incompleteCode).toBeNull();
 });
 
 test('a metrics grader calls only the metrics collector', async () => {
   collectMetrics.mockResolvedValue({ metrics, complete: true });
-  const { snapshot } = await collectEvidence(deliveryHealthManifest, 'repo', 'abc');
+  const collected = await collectEvidence(deliveryHealthManifest, 'repo', 'abc');
+  const { snapshot } = collected;
   expect(collectReadiness).not.toHaveBeenCalled();
   expect(collectMetrics).toHaveBeenCalledWith(
     'repo',
     deliveryHealthManifest.needs['fieldnote.metrics'],
   );
   expect(snapshot).toMatchObject({ sha: 'abc', complete: true, documents: [], metrics });
+  // A complete snapshot has no failure to name.
+  expect(collected.incompleteCode).toBeNull();
 });
 
 test("the grader's floor is reported as insufficient evidence, not a collection failure", async () => {

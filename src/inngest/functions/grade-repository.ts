@@ -52,7 +52,11 @@ export async function evaluateGradeRun(runId: string) {
     const { snapshot, incompleteCode } = await collectEvidence(manifest, run.repositoryId, run.sha);
     const result = runDeclarative(manifest, snapshot);
     if (result.score === null) {
-      await failGrade(runId, incompleteCode);
+      // incompleteCode is null only when collection reported a complete
+      // snapshot, which runDeclarative never pairs with a null score — but the
+      // type now says so explicitly, so fall back to failGrade's own default
+      // rather than assert it away.
+      await failGrade(runId, incompleteCode ?? undefined);
       return;
     }
     // Recheck authorization after collection too; result contains metadata only.

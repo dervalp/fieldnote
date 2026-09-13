@@ -6,8 +6,9 @@ import type { RepositorySnapshot } from '../domain/grading/types';
 
 export type CollectedEvidence = {
   snapshot: RepositorySnapshot;
-  /** Which failure to record when the snapshot is incomplete. */
-  incompleteCode: 'incomplete_collection' | 'insufficient_evidence';
+  /** Which failure to record when the snapshot is incomplete. Null when the
+   * snapshot is complete — there is no failure to name. */
+  incompleteCode: 'incomplete_collection' | 'insufficient_evidence' | null;
 };
 
 /**
@@ -59,10 +60,11 @@ export async function collectEvidence(
     },
     // A failed file collection is always fieldnote's failure. Otherwise, ask
     // the metrics collector which of the two it meant — it already knows.
+    // Null when the snapshot is complete: there is no failure to name.
     incompleteCode: filesFailed
       ? 'incomplete_collection'
       : metricsShort
         ? metrics.incompleteCode
-        : 'incomplete_collection',
+        : null,
   };
 }
