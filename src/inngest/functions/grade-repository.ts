@@ -9,11 +9,8 @@ import {
   completeGrade,
   failGrade,
 } from '../../db/queries/grade-runs';
-import {
-  resolveReadinessSha,
-  collectReadiness,
-  ReadinessCollectionError,
-} from '../../github/collect-readiness';
+import { resolveReadinessSha, ReadinessCollectionError } from '../../github/collect-readiness';
+import { collectEvidence } from '../../grading/evidence';
 import { getGrader } from '../../domain/grading/registry';
 import { runDeclarative } from '../../domain/grading/declarative';
 
@@ -52,16 +49,10 @@ export async function evaluateGradeRun(runId: string) {
   if (!run.sha) throw new NonRetriableError('Grade commit is missing');
   try {
     const manifest = getGrader(run.graderId);
-    // Slice 1 has no evidence broker: collectReadiness supplies repo.files and
-    // nothing else, so a manifest that needs anything more must not silently
-    // be graded against the files collector. Slice 3 replaces this assertion
-    // with the broker.
-    if (Object.keys(manifest.needs).join() !== 'repo.files')
-      throw new NonRetriableError('Grader needs evidence fieldnote cannot yet collect');
-    const snapshot = await collectReadiness(run.repositoryId, run.sha);
+    const { snapshot, incompleteCode } = await collectEvidence(manifest, run.repositoryId, run.sha);
     const result = runDeclarative(manifest, snapshot);
     if (result.score === null) {
-      await failGrade(runId, 'incomplete_collection');
+      await failGrade(runId, incompleteCode);
       return;
     }
     // Recheck authorization after collection too; result contains metadata only.

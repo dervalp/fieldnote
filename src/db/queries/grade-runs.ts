@@ -358,6 +358,7 @@ export async function failGrade(runId: string, code = 'collection_failed') {
     'access_revoked',
     'unsupported_version',
     'incomplete_collection',
+    'insufficient_evidence',
   ].includes(code)
     ? code
     : 'collection_failed';
