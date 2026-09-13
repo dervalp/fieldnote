@@ -222,8 +222,9 @@ test("too little merged work is incomplete, in the grader's own words", async ()
     { ...need, minMergedPullRequests: 1000 },
     new Date('2026-09-13T12:00:00Z'),
   );
-  expect(collected.complete).toBe(false);
+  if (collected.complete) throw new Error('expected an incomplete collection');
   expect(collected.incompleteReason).toBe('Not enough merged work to judge.');
+  expect(collected.incompleteCode).toBe('insufficient_evidence');
   // The window is still returned: the numbers exist, they are just not enough.
   expect(collected.metrics.mergedPullRequests).toBeGreaterThanOrEqual(0);
 });
@@ -241,6 +242,7 @@ test("partial coverage is incomplete in fieldnote's words, not the grader's", as
     need,
     new Date('2026-09-13T12:00:00Z'),
   );
-  expect(collected.complete).toBe(false);
+  if (collected.complete) throw new Error('expected an incomplete collection');
   expect(collected.incompleteReason).toBe(INCOMPLETE);
+  expect(collected.incompleteCode).toBe('incomplete_collection');
 });

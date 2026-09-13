@@ -43,6 +43,12 @@ export async function collectEvidence(
           ? { incompleteReason: metrics.incompleteReason }
           : {}),
     },
-    incompleteCode: filesFailed ? 'incomplete_collection' : 'insufficient_evidence',
+    // A failed file collection is always fieldnote's failure. Otherwise, ask
+    // the metrics collector which of the two it meant — it already knows.
+    incompleteCode: filesFailed
+      ? 'incomplete_collection'
+      : metricsShort
+        ? metrics.incompleteCode
+        : 'incomplete_collection',
   };
 }

@@ -6,11 +6,17 @@ import type { MetricReading, MetricsWindow } from '../../domain/grading/types';
 
 export type MetricsNeed = NonNullable<GraderManifest['needs']['fieldnote.metrics']>;
 
-export type MetricsCollection = {
-  metrics: MetricsWindow;
-  complete: boolean;
-  incompleteReason?: string;
-};
+export type MetricsCollection =
+  | { metrics: MetricsWindow; complete: true }
+  | {
+      metrics: MetricsWindow;
+      complete: false;
+      // Whose failure this was, and therefore which sentence a reader sees.
+      // A failed run stores no result, so the error code is the only thing
+      // that reaches them.
+      incompleteReason: string;
+      incompleteCode: 'incomplete_collection' | 'insufficient_evidence';
+    };
 
 const reading = (numerator: number, denominator: number): MetricReading => ({
   numerator,
@@ -53,8 +59,18 @@ export async function collectMetrics(
   // Partial coverage is fieldnote's failure to collect, and fieldnote's
   // sentence. Too little merged work is the grader's floor, and the grader's.
   if (data.coverage !== 'complete')
-    return { metrics, complete: false, incompleteReason: INCOMPLETE };
+    return {
+      metrics,
+      complete: false,
+      incompleteReason: INCOMPLETE,
+      incompleteCode: 'incomplete_collection',
+    };
   if (merged < need.minMergedPullRequests)
-    return { metrics, complete: false, incompleteReason: need.insufficientReason };
+    return {
+      metrics,
+      complete: false,
+      incompleteReason: need.insufficientReason,
+      incompleteCode: 'insufficient_evidence',
+    };
   return { metrics, complete: true };
 }

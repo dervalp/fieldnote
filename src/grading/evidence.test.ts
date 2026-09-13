@@ -46,11 +46,29 @@ test("the grader's floor is reported as insufficient evidence, not a collection 
     metrics,
     complete: false,
     incompleteReason: 'Not enough merged work to judge.',
+    incompleteCode: 'insufficient_evidence',
   });
   const collected = await collectEvidence(deliveryHealthManifest, 'repo', 'abc');
   expect(collected.snapshot.complete).toBe(false);
   expect(collected.snapshot.incompleteReason).toBe('Not enough merged work to judge.');
   expect(collected.incompleteCode).toBe('insufficient_evidence');
+});
+
+test("a metrics collection fieldnote itself failed is reported as a collection failure, not the grader's floor", async () => {
+  // Same shape as the floor case above (complete: false), but this time the
+  // collector says its own failure was fieldnote's, not the grader's. The
+  // dispatcher must read that code rather than assume 'insufficient_evidence'
+  // for any incomplete metrics collection.
+  collectMetrics.mockResolvedValue({
+    metrics,
+    complete: false,
+    incompleteReason: INCOMPLETE,
+    incompleteCode: 'incomplete_collection',
+  });
+  const collected = await collectEvidence(deliveryHealthManifest, 'repo', 'abc');
+  expect(collected.snapshot.complete).toBe(false);
+  expect(collected.snapshot.incompleteReason).toBe(INCOMPLETE);
+  expect(collected.incompleteCode).toBe('incomplete_collection');
 });
 
 test('a failed file collection is reported as a collection failure', async () => {
