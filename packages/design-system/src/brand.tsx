@@ -15,16 +15,24 @@ type LinkLike = ComponentType<{
  * component is injected: the app passes `as={Link}`, the landing page passes
  * nothing and gets a plain `<a>`. That keeps the boundary intact without
  * turning every logo click in the product into a full page load.
+ *
+ * `size` defaults to `'display'`, the stacked marketing lockup. `'compact'` is
+ * the one-row product lockup the sidebar wears: it adds `brand-compact`,
+ * styled in components.css, which is also what the phone-width rules there are
+ * scoped off, so the sidebar lockup stays one row at every width.
  */
 export function Brand({
   as: Link = 'a',
   href = '/',
+  size = 'display',
   caption,
 }: {
   as?: LinkLike | 'a';
   href?: string;
+  size?: 'compact' | 'display';
   caption?: ReactNode;
 }) {
+  const className = size === 'compact' ? 'brand brand-compact' : 'brand';
   const content = (
     <>
       <svg className="brand-mark" viewBox="0 0 64 64" fill="none" aria-hidden="true">
@@ -39,11 +47,11 @@ export function Brand({
     </>
   );
   return Link === 'a' ? (
-    <a className="brand" href={href} aria-label="Fieldnote home">
+    <a className={className} href={href} aria-label="Fieldnote home">
       {content}
     </a>
   ) : (
-    <Link className="brand" href={href} aria-label="Fieldnote home">
+    <Link className={className} href={href} aria-label="Fieldnote home">
       {content}
     </Link>
   );

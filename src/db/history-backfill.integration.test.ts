@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import postgres from 'postgres';
 import { afterAll, beforeAll, expect, test, vi } from 'vitest';
 import { eq, inArray, sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
@@ -399,19 +400,30 @@ test('a concurrent future pause wins over a contending worker that read the olde
       .where(eq(historyBackfills.id, id));
   });
   let pending: Promise<void> | undefined;
+  let observer: ReturnType<typeof postgres> | undefined;
   try {
     await vi.waitFor(() => expect(locked).toBe(true));
     pending = processHistorySlice(repo, id, { now: () => now, discover: vi.fn() });
+    // The lock-wait check is diagnostic, not part of the behaviour under test, so
+    // it gets its own connection rather than competing for `db()`'s pool. By this
+    // point that pool (max: 2) is fully committed — one connection held open by
+    // `holding`, one taken by `processHistorySlice` — so asking it for a third
+    // here waits for a slot that only `release()` below can free, and `release()`
+    // is only reached once this poll succeeds. That is a deadlock, not a flake.
+    observer = postgres(process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL!, { max: 1 });
     await vi.waitFor(async () => {
-      const [waiting] = await db().execute<{ count: number }>(
-        sql`select count(*)::int as count from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock' and query like 'update "history_backfills"%'`,
-      );
+      const [waiting] = await observer!<{ count: number }[]>`
+        select count(*)::int as count from pg_stat_activity
+        where datname = current_database()
+          and wait_event_type = 'Lock'
+          and query like 'update "history_backfills"%'`;
       expect(waiting.count).toBeGreaterThan(0);
     });
   } finally {
     release();
     await holding;
     await pending;
+    await observer?.end();
   }
   expect(await getHistoryBackfill(id)).toMatchObject({
     status: 'retrying',

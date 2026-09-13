@@ -1,3 +1,4 @@
+import { Surface } from '@fieldnote/design-system';
 import { requireTrackedRepository } from '../../../../auth/access';
 import { loadDetections } from '../../../../db/queries/ai-involvement';
 import { catalogue } from '../../../../domain/ai-involvement/catalogue';
@@ -126,12 +127,12 @@ export default async function AiInvolvement({ params }: { params: Promise<{ repo
       <p className="page-intro">
         Every AI signal we can prove in this repository, with the evidence behind it. Detector v0.1.
       </p>
-      <section>
+      <Surface>
         {state ? <InvolvementTable detections={detections} /> : <NotScanned />}
         {state?.executedRefreshedAt && (
           <p className="ai-stamp">Scanned {formatStamp(state.executedRefreshedAt)}</p>
         )}
-      </section>
+      </Surface>
     </div>
   );
 }

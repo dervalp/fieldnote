@@ -27,3 +27,14 @@ test('the active workspace names the records the sidebar navigates', () => {
   navigation.search = '';
   expect(render()).toContain('Personal workspace');
 });
+test('the active item is marked for styling by aria-current alone', () => {
+  navigation.pathname = '/repos';
+  navigation.search = '';
+  const html = render();
+  // The tightened rows drop the 2px left border for a fill plus an inset edge.
+  // Both are selected by aria-current, so no class may encode selection —
+  // if one appears here, the CSS and the accessibility tree can drift apart.
+  expect(html).toContain('aria-current="page"');
+  expect(html).not.toContain('class="active"');
+  expect(html).not.toContain('nav-active');
+});

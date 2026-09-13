@@ -34,6 +34,7 @@
   /* Mist: the pale greens, from border weight up to the sidebar wash. */
   --fn-mist-350: #b5c9bb;
   --fn-mist-300: #bfcfc4;
+  --fn-mist-250: #dbe5dc;
   --fn-mist-280: #c8ddce;
   --fn-mist-260: #d4e2d6;
   --fn-mist-240: #e1e9df;
@@ -51,10 +52,23 @@
   --fn-sand-50: #f4f2e9;
   --fn-sand-200: #dce0d4;
 
-  /* Ember: the accent rust. */
+  /* Ember: the accent rust. The intermediate stops exist for the control
+     finish's gradients — one hue lit from above, not a second palette.
+     --fn-ember-600 stays the midpoint of the resting gradient, which is what
+     keeps a gradient button the same colour as the flat one it replaced. */
+  --fn-ember-450: #d4522c;
+  --fn-ember-500: #cb4a26;
+  --fn-ember-550: #c5471f;
   --fn-ember-600: #be421f;
+  --fn-ember-620: #b83f1d;
+  --fn-ember-650: #b23d1a;
+  --fn-ember-680: #ad3a1a;
   --fn-ember-700: #a6381a;
   --fn-ember-800: #a1361c;
+  --fn-ember-900: #9e3518;
+  /* The near-black the ember darkens into: the pressed inset and the text
+     shadow that keeps a label legible on the lit gradient. */
+  --fn-ember-ink: #5a1a0a;
 
   /* Clay: the warm wash and the metric rust. */
   --fn-clay-300: #ecd3c3;
@@ -90,8 +104,18 @@
   --fn-paper-50-a79: #f4f7f3c9;
   --fn-paper-75-a43: #f4f8f06e;
   --fn-white-a21: #ffffff35;
+  --fn-white-a22: #ffffff38;
+  --fn-white-a30: #ffffff4d;
   --fn-white-a60: #ffffff99;
   --fn-white-a61: #ffffff9c;
+  --fn-white: #fff;
+  /* The control finish's own overlays: two more pine alphas between the ones
+     above, the ember's own glow, and the pressed/typeset darks. */
+  --fn-pine-900-a07: #203f3612;
+  --fn-pine-900-a14: #203f3624;
+  --fn-ember-600-a22: #be421f38;
+  --fn-ember-ink-a28: #5a1a0a47;
+  --fn-ember-ink-a40: #5a1a0a66;
 
   /* A neutral grey, not on the pine/mist ramp. It is what the grade banner has
      always sat on; it is recorded rather than corrected, because the approved
@@ -167,6 +191,34 @@
   --fn-color-accent: var(--fn-ember-600);
   --fn-color-accent-hover: var(--fn-ember-700);
   --fn-color-danger: var(--fn-ember-800);
+  /* The edge a lit control carries, a shade darker than the gradient's own
+     bottom stop so the button reads as a raised object rather than a patch. */
+  --fn-color-accent-edge: var(--fn-ember-900);
+
+  /* The surface a selected row sits on — the sidebar's current page. Its own
+     step on the mist ramp: it has to read as chosen against the rail's ground
+     without becoming a second accent. */
+  --fn-color-surface-selected: var(--fn-mist-250);
+
+  /* Control finish. Every stop is the approved ember lit from above — a
+     lighting cue, not a second hue. */
+  --fn-gradient-accent: linear-gradient(
+    180deg,
+    var(--fn-ember-500) 0%,
+    var(--fn-ember-600) 52%,
+    var(--fn-ember-680) 100%
+  );
+  --fn-gradient-accent-hover: linear-gradient(
+    180deg,
+    var(--fn-ember-450) 0%,
+    var(--fn-ember-550) 52%,
+    var(--fn-ember-650) 100%
+  );
+  --fn-gradient-accent-press: linear-gradient(
+    180deg,
+    var(--fn-ember-680) 0%,
+    var(--fn-ember-620) 100%
+  );
 
   /* Status */
   --fn-color-positive: var(--fn-moss-700);
@@ -240,4 +292,19 @@
   --fn-elevation-panel-soft: 0 8px 24px var(--fn-pine-900-a03);
   --fn-elevation-panel: 0 20px 60px var(--fn-pine-900-a03);
   --fn-elevation-dialog: 0 20px 80px var(--fn-pine-900-a20);
+
+  /* Controls are a different kind of raised from cards: a highlight along the
+     top edge, a contact shadow, and the accent's own glow. The press state
+     inverts the highlight into an inset rather than moving the shadow. */
+  --fn-elevation-control:
+    inset 0 1px 0 var(--fn-white-a22), 0 1px 1px var(--fn-pine-900-a14),
+    0 2px 7px var(--fn-ember-600-a22);
+  --fn-elevation-control-press:
+    inset 0 1px 2px var(--fn-ember-ink-a40), 0 1px 0 var(--fn-white-a30);
+  --fn-elevation-control-quiet:
+    inset 0 1px 0 var(--fn-white), 0 1px 1px var(--fn-pine-900-a07),
+    0 2px 5px var(--fn-pine-900-a06);
+  /* Not an elevation: the one-pixel darkening under a label sitting on the lit
+     gradient, which is what keeps it legible against the bright top stop. */
+  --fn-shadow-accent-text: 0 1px 0 var(--fn-ember-ink-a28);
 }

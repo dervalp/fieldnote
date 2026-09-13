@@ -69,6 +69,25 @@ describe('@fieldnote/design-system', () => {
     expect(literals).toEqual([]);
   });
 
+  // The same rule stated again over `styles/` alone, and stated by reading the
+  // directory rather than by naming files. The list above is assembled once at
+  // module load from two trees; this one re-enumerates the style tier itself,
+  // so a stylesheet added to `styles/` is covered the day it lands and cannot
+  // be missed by a filter written for `src/`. tokens.css is the only tier
+  // allowed a literal, and it is excluded by name.
+  it('holds no colour literal in styles/ outside tokens.css', () => {
+    const dir = join(here, 'styles');
+    const sheets = readdirSync(dir).filter(
+      (entry) => entry.endsWith('.css') && entry !== 'tokens.css',
+    );
+    expect(sheets.length).toBeGreaterThan(0);
+    const offenders = sheets.flatMap((entry) => {
+      const css = readFileSync(join(dir, entry), 'utf8');
+      return (css.match(/#[0-9a-fA-F]{3,8}\b/g) ?? []).map((hex) => `${entry}: ${hex}`);
+    });
+    expect(offenders).toEqual([]);
+  });
+
   it('declares its cascade layers in exactly one file', () => {
     const declaring = [...filesUnder(join(here, 'styles'), ['.css'])].filter((path) =>
       /@layer\s+[^;{]+;/.test(readFileSync(path, 'utf8')),

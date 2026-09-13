@@ -4,7 +4,7 @@
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-  background: var(--glass);
+  background: var(--fn-color-surface-glass);
   border-radius: 10px;
   padding: 11px 15px;
   box-shadow: 0 6px 20px #203f3610;
@@ -15,24 +15,24 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--ran);
+  background: var(--fn-color-positive);
   flex: none;
 }
 .cov-dot.partial {
-  background: var(--setup);
+  background: var(--fn-color-caution);
 }
 .coverage b {
-  color: var(--ink);
+  color: var(--fn-color-ink);
   font-weight: 700;
 }
 .coverage .cov-detail {
-  color: var(--muted);
+  color: var(--fn-color-ink-muted);
   min-width: 0;
 }
 .coverage .cov-link {
   margin-left: auto;
   font-size: 12px;
-  color: var(--accent);
+  color: var(--fn-color-accent);
   font-weight: 700;
   white-space: nowrap;
 }

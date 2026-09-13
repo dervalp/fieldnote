@@ -44,6 +44,28 @@
   text-transform: uppercase;
   margin-top: var(--fn-space-2);
 }
+/* The stacked lockup above is a marketing lockup: right for the landing page
+   nav, and 94px of vertical space in a sidebar that has two navigation items.
+   `.brand-compact` is the one-row product lockup the app shell wears — one
+   row at every width, which is why the phone-width block at the foot of this
+   file is scoped off it rather than applying to every `.brand`. */
+.brand-compact {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--fn-space-2);
+  margin-bottom: var(--fn-space-4);
+  padding: var(--fn-space-1) var(--fn-space-2);
+}
+.brand-compact .brand-mark {
+  width: 26px;
+  height: 26px;
+  margin-bottom: 0;
+}
+.brand-compact .brand-name {
+  font-size: 21px;
+  line-height: 1;
+  letter-spacing: -0.7px;
+}
 
 /* ---- Button ----------------------------------------------------------- */
 button,
@@ -61,6 +83,51 @@ button:hover,
 .fn-button:hover {
   background: var(--fn-color-accent-hover);
 }
+/* The control finish (application-shell density pass). It lands on `.fn-button`
+   alone and not on the bare `button` above: the app's remaining bare buttons
+   are menu triggers and chart columns that carry their own surface, and giving
+   them a lit gradient would be a redesign rather than a merge. `as="a"` is why
+   the display/decoration declarations are here — a Button rendered as an
+   anchor has to stop looking like a link. */
+.fn-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fn-space-2);
+  border: 1px solid var(--fn-color-accent-edge);
+  border-radius: var(--fn-radius-md);
+  background: var(--fn-gradient-accent);
+  box-shadow: var(--fn-elevation-control);
+  text-decoration: none;
+  text-shadow: var(--fn-shadow-accent-text);
+  transition:
+    box-shadow 0.14s ease,
+    translate 0.14s ease;
+}
+.fn-button:hover {
+  background: var(--fn-gradient-accent-hover);
+}
+.fn-button:active {
+  background: var(--fn-gradient-accent-press);
+  box-shadow: var(--fn-elevation-control-press);
+  translate: 0 1px;
+}
+/* A disabled action must look inert. The gradient and the elevation are what
+   say "pressable", so the elevation comes off and the whole control fades. */
+.fn-button:disabled,
+.fn-button[aria-disabled='true'] {
+  opacity: 0.55;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fn-button {
+    transition: none;
+  }
+  .fn-button:active {
+    translate: none;
+  }
+}
+
 /* The landing page's calls to action, which need to carry across a hero. The
    product has no use for this size yet; the ladder and the signup block do. */
 .fn-button-lg {
@@ -71,17 +138,25 @@ button:hover,
 .fn-button-secondary {
   background: var(--fn-color-ink);
   color: var(--fn-color-ink-inverse);
+  border-color: var(--fn-color-ink);
+  box-shadow: var(--fn-elevation-control-quiet);
+  text-shadow: none;
 }
 .fn-button-secondary:hover {
   background: var(--fn-color-ink-hover);
+  border-color: var(--fn-color-ink-hover);
 }
+/* A text action does not gain a surface, so it sheds the finish entirely. */
 .quiet-button,
 .fn-button-quiet {
   background: transparent;
   color: var(--fn-color-ink-muted);
+  border: 0;
+  box-shadow: none;
   padding: 0;
   text-decoration: underline;
   text-underline-offset: 4px;
+  text-shadow: none;
 }
 .quiet-button:hover,
 .fn-button-quiet:hover {
@@ -224,24 +299,91 @@ label,
   margin: var(--fn-space-4) 0;
 }
 
+/* ---- TopBar and Breadcrumb -------------------------------------------- *
+ * The application shell's replacement for `.page-topline`. TopBar has three
+ * named slots (Context / Utility / Identity) rather than a
+ * `justify-content: space-between` row, so a control added later becomes a
+ * child of a named slot instead of an append that lands wherever it lands.
+ * Utility is reserved for search and then notifications — it renders no
+ * control yet — so the divider before Identity is conditional on Utility
+ * actually holding something (`:not(:empty)`) rather than always drawn.       */
+.fn-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: var(--fn-space-3);
+  padding: 0 var(--fn-space-4) 0 var(--fn-space-5);
+  background: var(--fn-color-surface-glass);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--fn-color-border);
+}
+.fn-topbar__context {
+  min-width: 0;
+  flex: 1;
+}
+/* Reserved for search, then notifications. Empty by design. */
+.fn-topbar__utility {
+  display: flex;
+  align-items: center;
+  gap: var(--fn-space-2);
+}
+.fn-topbar__identity {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+.fn-topbar__utility:not(:empty) + .fn-topbar__identity {
+  border-left: 1px solid var(--fn-color-border);
+  margin-left: var(--fn-space-1);
+  padding-left: var(--fn-space-3);
+}
+.fn-crumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 var(--fn-space-2);
+  font-size: var(--fn-text-detail);
+  color: var(--fn-color-ink-muted);
+}
+.fn-crumb__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fn-space-2);
+  min-width: 0;
+}
+.fn-crumb__sep {
+  opacity: 0.5;
+}
+.fn-crumb [aria-current='page'] {
+  color: var(--fn-color-ink);
+  font-weight: 700;
+}
+
 /* ---- Responsive ------------------------------------------------------- */
 @media (max-width: 650px) {
-  .brand {
+  /* Every rule here is scoped off `.brand-compact`. A bare `.brand` selector
+     restacks the sidebar's one-row lockup onto a phone-width grid, which is
+     the bug the compact variant exists to fix — and the compact lockup must
+     stay one row at every width. */
+  .brand:not(.brand-compact) {
     display: grid;
     grid-template-columns: 40px auto;
     column-gap: 10px;
     margin-bottom: 18px;
   }
-  .brand-mark {
+  .brand:not(.brand-compact) .brand-mark {
     grid-row: span 2;
     width: 38px;
     height: 38px;
     margin: 0;
   }
-  .brand-name {
+  .brand:not(.brand-compact) .brand-name {
     font-size: 28px;
   }
-  .brand-caption {
+  .brand:not(.brand-compact) .brand-caption {
     margin-top: 3px;
     font-size: 7px;
   }

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { Button } from '@fieldnote/design-system';
 import { requestPlanRun } from '../../app/repos/[repoId]/grading/actions';
 import type { ActAvailability } from '../../domain/act/availability';
 
@@ -26,7 +27,7 @@ export function ActEntry({
     );
   return (
     <form action={requestPlanRun.bind(null, repositoryId)}>
-      <button type="submit">Plan the fixes</button>
+      <Button type="submit">Plan the fixes</Button>
     </form>
   );
 }

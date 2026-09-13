@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, useTransition } from 'react';
+import { Button } from '@fieldnote/design-system';
 import {
   historyInterestStatus,
   registerHistoryInterest,
@@ -51,7 +52,7 @@ export function HistoryInterest() {
 
   return (
     <>
-      <button
+      <Button
         ref={trigger}
         type="button"
         className="expand-history"
@@ -63,7 +64,7 @@ export function HistoryInterest() {
         }}
       >
         Expand history ↗
-      </button>
+      </Button>
       <dialog
         ref={dialog}
         id={id}
@@ -75,9 +76,9 @@ export function HistoryInterest() {
           trigger.current?.focus();
         }}
       >
-        <button type="button" className="history-close" onClick={() => dialog.current?.close()}>
+        <Button type="button" className="history-close" onClick={() => dialog.current?.close()}>
           Close
-        </button>
+        </Button>
         <p className="eyebrow">Coming soon</p>
         <h2 id={`${id}-title`}>Good work has a history.</h2>
         <p id={`${id}-description`}>
@@ -110,7 +111,7 @@ export function HistoryInterest() {
           </p>
         )}
         {state !== 'registered' && state !== 'loading' && (
-          <button
+          <Button
             type="button"
             ref={retryButton}
             disabled={pending}
@@ -121,7 +122,7 @@ export function HistoryInterest() {
               : state === 'load-error' || state === 'save-error'
                 ? 'Try again'
                 : 'Register interest'}
-          </button>
+          </Button>
         )}
       </dialog>
     </>

@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { Button } from '@fieldnote/design-system';
 import { refreshImport } from '../../app/repos/[repoId]/actions';
 import { githubRepositoryUrl } from '../dashboard/repository-metadata';
 import { canRefreshImport } from '../../domain/import/progress';
@@ -29,9 +29,6 @@ export function RepositoryPageHeader({
 }) {
   return (
     <>
-      <nav className="crumb" aria-label="Breadcrumb">
-        <Link href="/repos">All repositories</Link> <span aria-hidden="true">/</span> {repo.name}
-      </nav>
       <header className="rhead">
         <div className="rhead-top">
           <div className="rhead-id">
@@ -56,15 +53,15 @@ export function RepositoryPageHeader({
             </p>
           </div>
           <div className="rhead-actions">
-            <a className="btn ghost" href={githubRepositoryUrl(repo)}>
+            <Button as="a" variant="secondary" href={githubRepositoryUrl(repo)}>
               GitHub ↗
-            </a>
+            </Button>
             {/* Exact parity with the gate this header replaced: never over an
                 in-flight, failed or partial run, because Refresh inserts a new
                 run and only the latest run may be retried. */}
             {repo.canAdmin && canRefreshImport(header.latestImportState) && (
               <form action={refreshImport.bind(null, repo.id)}>
-                <button className="btn">Refresh data</button>
+                <Button>Refresh data</Button>
               </form>
             )}
           </div>

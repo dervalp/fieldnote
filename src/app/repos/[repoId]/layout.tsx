@@ -5,6 +5,7 @@ import { TAB_PANEL_ID } from '../../../components/repository/tabs';
 import { composeRepositoryHeader, repositoryRecord } from '../../../db/queries/repository-header';
 import { latestImport } from '../../../db/queries/repository-imports';
 import { pageRouteId } from '../../../lib/page-route-id';
+import { AppShell } from '../../../components/app-shell';
 export const dynamic = 'force-dynamic';
 // The layout renders on every tab, so it loads only what every tab shows: the
 // repository record and the coverage facts. Anything a single view needs —
@@ -28,16 +29,18 @@ export default async function RepositoryLayout({
   const [record, latest] = await Promise.all([repositoryRecord(repo.id), latestImport(repo.id)]);
   const header = composeRepositoryHeader(record, latest);
   return (
-    <div className="repo-layout">
-      <RepositoryPageHeader repo={repo} header={header} />
-      {/* The preview's Readiness and Involvement counts are not rendered:
-          neither is available from the header load, and adding a query the
-          other three tabs never read is exactly the split this layout exists
-          to avoid. Re-add them the day a count is cheap here. */}
-      <TabBar repoId={repoId} />
-      <div className="repo-panel" id={TAB_PANEL_ID} role="tabpanel">
-        {children}
+    <AppShell crumbs={[{ label: 'All repositories', href: '/repos' }, { label: repo.name }]}>
+      <div className="repo-layout">
+        <RepositoryPageHeader repo={repo} header={header} />
+        {/* The preview's Readiness and Involvement counts are not rendered:
+            neither is available from the header load, and adding a query the
+            other three tabs never read is exactly the split this layout exists
+            to avoid. Re-add them the day a count is cheap here. */}
+        <TabBar repoId={repoId} />
+        <div className="repo-panel" id={TAB_PANEL_ID} role="tabpanel">
+          {children}
+        </div>
       </div>
-    </div>
+    </AppShell>
   );
 }

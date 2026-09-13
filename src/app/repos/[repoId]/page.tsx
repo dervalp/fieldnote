@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { Surface } from '@fieldnote/design-system';
 import { requireTrackedRepository } from '../../../auth/access';
 import { latestGrade } from '../../../db/queries/grade-runs';
 import { loadDetections } from '../../../db/queries/ai-involvement';
@@ -90,13 +91,13 @@ export default async function Repository({
             );
           })()
         ) : (
-          <section className="grading-ungraded">
+          <Surface className="grading-ungraded">
             <h2>Not graded yet.</h2>
             <p>
               A score appears only after all evidence is collected. Run the grader from{' '}
               <Link href={`/repos/${encodeURIComponent(repoId)}/grading`}>Readiness</Link>.
             </p>
-          </section>
+          </Surface>
         )}
         <div className="agents-col">
           <AgentsInvolved

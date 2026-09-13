@@ -1,3 +1,4 @@
+import { Button, Surface } from '@fieldnote/design-system';
 import { requireTrackedRepository } from '../../../../auth/access';
 import { currentPolicy, prRows } from '../../../../db/queries/dashboard';
 import { latestImport } from '../../../../db/queries/repository-imports';
@@ -80,7 +81,7 @@ export default async function Settings({ params }: { params: Promise<{ repoId: s
               {g.name} (app {g.appId})
             </label>
           ))}
-          <button>Save policy and recompute PRs</button>
+          <Button>Save policy and recompute PRs</Button>
         </form>
       )}
 
@@ -96,16 +97,16 @@ export default async function Settings({ params }: { params: Promise<{ repoId: s
             <input type="checkbox" name="actEnabled" defaultChecked={actOn} /> Open readiness pull
             requests for this repository
           </label>
-          <button>Save</button>
+          <Button>Save</Button>
         </form>
       ) : (
         <p>{actOn ? 'On.' : 'Off.'}</p>
       )}
 
       <h2>Collection detail</h2>
-      <section>
+      <Surface>
         <RepositoryMetadata record={record} githubUrl={githubRepositoryUrl(repo)} />
-      </section>
+      </Surface>
 
       <h2>Data</h2>
       {latest ? (
@@ -130,7 +131,7 @@ export default async function Settings({ params }: { params: Promise<{ repoId: s
       )}
       {repo.canAdmin && (!latest || latest.state === 'complete') && (
         <form action={refreshImport.bind(null, repoId)}>
-          <button>Refresh latest 100 PRs</button>
+          <Button>Refresh latest 100 PRs</Button>
         </form>
       )}
     </div>

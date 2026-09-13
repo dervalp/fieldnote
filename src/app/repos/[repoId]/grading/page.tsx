@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { Surface } from '@fieldnote/design-system';
 import { requireRepository } from '../../../../workspaces/access';
 import { getGrade, gradeHistory, gradeSummaries } from '../../../../db/queries/grade-runs';
 import { readinessRubric } from '../../../../domain/grading/readiness-v01';
@@ -94,13 +95,13 @@ export default async function Grading({
               })}
             />
           ) : (
-            <section className="grading-ungraded">
+            <Surface className="grading-ungraded">
               <h2>Not graded yet.</h2>
               <p>
                 A score appears only after all evidence is collected. Run the grader to create your
                 first report.
               </p>
-            </section>
+            </Surface>
           )}
           {history.length > 0 && (
             <details className="grading-history">

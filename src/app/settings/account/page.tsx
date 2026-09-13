@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { Surface } from '@fieldnote/design-system';
 import { currentUser } from '../../../auth/session';
 import { SettingsForm } from '../../../components/settings-form';
 import { saveAccountName } from '../actions';
@@ -18,7 +19,7 @@ export default async function AccountSettings() {
         </Link>
         <Link href="/settings/workspace">Workspace</Link>
       </div>
-      <section className="settings-panel">
+      <Surface className="settings-panel">
         <h2>Your profile</h2>
         <SettingsForm action={saveAccountName}>
           <label htmlFor="account-name">Your name</label>
@@ -31,7 +32,7 @@ export default async function AccountSettings() {
           />
         </SettingsForm>
         <p className="fine">Connected with GitHub as @{user.login}.</p>
-      </section>
+      </Surface>
     </>
   );
 }

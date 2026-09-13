@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { eq } from 'drizzle-orm';
 import { notFound } from 'next/navigation';
+import { Surface } from '@fieldnote/design-system';
 import { db } from '../../../db';
 import { pullRequests, prMetrics } from '../../../db/schema';
 import { accessibleRepositories } from '../../../auth/access';
@@ -47,10 +48,10 @@ export default async function Pr({ params }: { params: Promise<{ prId: string }>
           ['Harness Mutation', yesNo(m.harnessChangedAfterFailure)],
           ['Time to Green', duration(m.timeToFirstGreenSeconds)],
         ].map(([name, value]) => (
-          <section key={name}>
+          <Surface key={name}>
             <small>{name}</small>
             <strong>{value}</strong>
-          </section>
+          </Surface>
         ))}
       </div>
       {m.harnessChangedAfterFailure && <p className="notice">Harness modified after failed CI.</p>}
@@ -66,7 +67,7 @@ export default async function Pr({ params }: { params: Promise<{ prId: string }>
             a.sha.localeCompare(b.sha),
         )
         .map((revision, i) => (
-          <section key={`${revision.sha}:${i}`} className="timeline">
+          <Surface key={`${revision.sha}:${i}`} className="timeline">
             <h3>SHA {revision.sha.slice(0, 12)}</h3>
             <small>
               {revision.observedAt ?? 'Revision ordering unavailable'} ·{' '}
@@ -112,7 +113,7 @@ export default async function Pr({ params }: { params: Promise<{ prId: string }>
                   ))}
               </tbody>
             </table>
-          </section>
+          </Surface>
         ))}
       {pr.mergedAt ? (
         <p>PR merged · {pr.mergedAt.toISOString()}</p>

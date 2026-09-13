@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import { Button, Surface } from '@fieldnote/design-system';
 import { useActionState, useEffect, useRef } from 'react';
 import type { ImportSnapshot, StartResult } from '../../domain/import/types';
 import { retryAnalysis } from '../../app/onboarding/actions';
@@ -91,7 +92,7 @@ function ProgressContent({
   const announcement =
     run.state === 'importing' ? `Importing pull requests. ${milestone} PRs imported.` : copy;
   return (
-    <section className="onboarding-panel import-panel" aria-label="Import progress">
+    <Surface className="onboarding-panel import-panel" aria-label="Import progress">
       <div className="eyebrow">First engineering record</div>
       <h2 ref={heading} tabIndex={-1}>
         {copy}
@@ -167,17 +168,17 @@ function ProgressContent({
           connection !== 'unavailable' &&
           connection !== 'signed-out' && (
             <form action={retry}>
-              <button disabled={pending}>
+              <Button disabled={pending}>
                 {pending
                   ? 'Requesting retry…'
                   : run.state === 'partial'
                     ? 'Retry failed PRs'
                     : 'Retry import'}
-              </button>
+              </Button>
             </form>
           )}
       </div>
       {error && <p role="alert">{error}</p>}
-    </section>
+    </Surface>
   );
 }

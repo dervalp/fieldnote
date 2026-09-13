@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { eq, desc } from 'drizzle-orm';
+import { Surface } from '@fieldnote/design-system';
 import { db } from '../../../db';
 import {
   users,
@@ -76,7 +77,7 @@ export default async function WorkspaceSettings() {
       </div>
       <div className="settings-grid" key={workspace.id}>
         <div>
-          <section className="settings-panel">
+          <Surface className="settings-panel">
             <h2>Workspace name</h2>
             {owner ? (
               <SettingsForm action={saveWorkspaceName}>
@@ -96,8 +97,8 @@ export default async function WorkspaceSettings() {
               </>
             )}
             <p className="fine">Your account and workspace are separate identities.</p>
-          </section>
-          <section className="settings-panel">
+          </Surface>
+          <Surface className="settings-panel">
             <h2>Connected repositories</h2>
             <p className="fine">
               Every member can view analytics and grading evidence for all connected repositories,
@@ -124,9 +125,9 @@ export default async function WorkspaceSettings() {
               <p className="fine">Ask an owner to connect a repository.</p>
             )}
             {owner && <p className="fine">Connecting requires GitHub administrator access.</p>}
-          </section>
+          </Surface>
           {!demo && (
-            <section className="settings-panel" id="new-workspace">
+            <Surface className="settings-panel" id="new-workspace">
               <h2>A fresh workspace</h2>
               <p className="fine">Create a separate home for another team or project.</p>
               <SettingsForm action={createNamedWorkspace} submitLabel="Create workspace">
@@ -139,11 +140,11 @@ export default async function WorkspaceSettings() {
                   maxLength={80}
                 />
               </SettingsForm>
-            </section>
+            </Surface>
           )}
         </div>
         <div>
-          <section className="settings-panel">
+          <Surface className="settings-panel">
             <h2>Members & invitations</h2>
             {members.map((member) => (
               <div className="member-row" key={member.id}>
@@ -224,7 +225,7 @@ export default async function WorkspaceSettings() {
                 })}
               </>
             )}
-          </section>
+          </Surface>
         </div>
       </div>
     </>

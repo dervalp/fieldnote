@@ -37,7 +37,7 @@ function SidebarNavigation({
     <aside className="sidebar">
       {/* `as={Link}` keeps the logo a client-side navigation. The package
           cannot import next/link itself, so the app injects it. */}
-      <Brand as={Link} href="/dashboard" />
+      <Brand as={Link} href="/dashboard" size="compact" />
       <WorkspaceSwitcher active={active} workspaces={workspaces} demo={demo} />
       <nav aria-label="Main navigation">
         <Link

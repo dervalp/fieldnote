@@ -1,3 +1,4 @@
+import { Surface } from '@fieldnote/design-system';
 import type { CoverageReason, DashboardData } from '../../domain/dashboard/types';
 import { DailyCharts } from './daily-charts';
 import { DateRange } from './date-range';
@@ -26,7 +27,7 @@ export function BasicDashboard({ data }: { data: DashboardData }) {
     <>
       <DateRange range={data.range} bounds={data.collectionBounds} />
       <div className="basic-kpis">
-        <section data-kpi="merged">
+        <Surface data-kpi="merged">
           <h2>PRs merged</h2>
           <strong>{totals.merged || data.coverage === 'complete' ? totals.merged : '—'}</strong>
           <p>{delta(comparisons.mergedPercent, '%')}</p>
@@ -34,8 +35,8 @@ export function BasicDashboard({ data }: { data: DashboardData }) {
             {totals.merged} observed merges within accessible history
             {data.coverage !== 'complete' ? ' · incomplete coverage' : ''}
           </small>
-        </section>
-        <section data-kpi="first-pass">
+        </Surface>
+        <Surface data-kpi="first-pass">
           <h2>First-pass green</h2>
           <strong>{percent(totals.firstPass.value)}</strong>
           <p>{delta(comparisons.firstPassPoints, ' percentage points')}</p>
@@ -46,8 +47,8 @@ export function BasicDashboard({ data }: { data: DashboardData }) {
           <small>
             Ineligible {totals.prOutcomes.ineligible} · Unknown {totals.prOutcomes.unknown}
           </small>
-        </section>
-        <section data-kpi="ci">
+        </Surface>
+        <Surface data-kpi="ci">
           <h2>CI success rate</h2>
           <strong>{percent(totals.ciSuccess.value)}</strong>
           <p>{delta(comparisons.ciSuccessPoints, ' percentage points')}</p>
@@ -59,7 +60,7 @@ export function BasicDashboard({ data }: { data: DashboardData }) {
             {percent(totals.ciRecovered.value)} passed after reruns ({totals.ciRecovered.numerator}{' '}
             runs)
           </small>
-        </section>
+        </Surface>
       </div>
       <div className="metric-coverage">
         <div>

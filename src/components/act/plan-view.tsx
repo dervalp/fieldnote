@@ -1,19 +1,20 @@
+import { Surface } from '@fieldnote/design-system';
 import { checkTitles } from '../../domain/grading/check-titles';
 import type { AuthoringRun, Remedy } from '../../db/queries/authoring-runs';
 
 export function PlanView({ run, remedies }: { run: AuthoringRun; remedies: Remedy[] }) {
   if (run.state !== 'complete')
     return (
-      <section>
+      <Surface>
         <h2>No plan yet.</h2>
         <p>
           This run is {run.state}
           {run.errorCode ? ` (${run.errorCode})` : ''}.
         </p>
-      </section>
+      </Surface>
     );
   return (
-    <section>
+    <Surface>
       <ul className="plan-remedies">
         {remedies.map((remedy) => (
           <li key={remedy.id}>
@@ -34,6 +35,6 @@ export function PlanView({ run, remedies }: { run: AuthoringRun; remedies: Remed
           ? `Written by ${run.model}`
           : 'No model wrote this plan — it was derived from the grade.'}
       </p>
-    </section>
+    </Surface>
   );
 }
