@@ -27,17 +27,29 @@ describe('withCliPrincipal', () => {
     const b = await withCliPrincipal(req('Bearer fn_b'), 'grade', ok);
     expect(a.status).toBe(b.status);
     expect(await a.json()).toEqual(await b.json());
+    expect(a.headers.get('cache-control')).toBe(b.headers.get('cache-control'));
+    expect(a.headers.get('cache-control')).toBe('private, no-store');
   });
 
-  it('403s when the token lacks the scope', async () => {
+  it('403s when the token lacks the scope, without running the handler', async () => {
     resolveToken.mockResolvedValue({
       userId: 'u_1',
       workspaceId: 'w_1',
       source: 'cli',
       scope: 'read',
     });
-    const response = await withCliPrincipal(req('Bearer fn_x'), 'grade', ok);
+    const handler = vi.fn(ok);
+    const response = await withCliPrincipal(req('Bearer fn_x'), 'grade', handler);
     expect(response.status).toBe(403);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('401s a scheme-less or wrongly-schemed Authorization header without resolving it', async () => {
+    const schemeless = await withCliPrincipal(req('fn_x'), 'grade', ok);
+    expect(schemeless.status).toBe(401);
+    const basic = await withCliPrincipal(req('Basic Zm5f'), 'grade', ok);
+    expect(basic.status).toBe(401);
+    expect(resolveToken).not.toHaveBeenCalled();
   });
 
   it('runs the handler inside the principal scope', async () => {

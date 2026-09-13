@@ -12,7 +12,9 @@ const headers = { 'Cache-Control': 'private, no-store' };
 // unauthenticated caller: "Not signed in."
 export async function POST(request: Request) {
   try {
-    const token = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
+    // Must match src/app/api/cli/principal.ts's bearerToken() exactly — the
+    // two must not drift on what counts as a well-formed bearer token.
+    const token = request.headers.get('authorization')?.match(/^Bearer\s+(\S+)\s*$/i)?.[1];
     if (!token) return Response.json({ error: 'Not signed in.' }, { status: 401, headers });
     const principal = await resolveToken(token);
     if ('error' in principal)

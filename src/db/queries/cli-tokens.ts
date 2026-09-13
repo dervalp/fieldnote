@@ -22,9 +22,15 @@ export async function issueToken(
   return token;
 }
 
+// The only scope a token can carry today — issueToken() never sets one, so
+// every row gets the column's default. A literal type rather than `string`
+// so a future scope value that drifts from what withCliPrincipal() compares
+// against is a typecheck error, not a runtime surprise.
+export type CliScope = 'grade';
+
 export async function resolveToken(
   token: string,
-): Promise<(Principal & { scope: string }) | { error: 'revoked' | 'unknown' }> {
+): Promise<(Principal & { scope: CliScope }) | { error: 'revoked' | 'unknown' }> {
   const [row] = await db()
     .select()
     .from(cliTokens)
@@ -36,7 +42,14 @@ export async function resolveToken(
   if (!row.lastUsedAt || Date.now() - row.lastUsedAt.getTime() > TOUCH_INTERVAL) {
     await db().update(cliTokens).set({ lastUsedAt: new Date() }).where(eq(cliTokens.id, row.id));
   }
-  return { userId: row.userId, workspaceId: row.workspaceId, source: 'cli', scope: row.scope };
+  // The column is unconstrained text; row.scope is only ever 'grade' in
+  // practice (see above), so this narrows what the database can't.
+  return {
+    userId: row.userId,
+    workspaceId: row.workspaceId,
+    source: 'cli',
+    scope: row.scope as CliScope,
+  };
 }
 
 export async function revokeToken(id: string, userId: string): Promise<void> {

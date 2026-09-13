@@ -25,6 +25,15 @@ function digestOf(error: unknown): string | undefined {
 const isRedirectThrow = (error: unknown) => digestOf(error)?.startsWith('NEXT_REDIRECT') ?? false;
 const isNotFoundThrow = (error: unknown) => digestOf(error) === 'NEXT_HTTP_ERROR_FALLBACK;404';
 
+// Accepts only a well-formed `Bearer <token>` value (optional trailing
+// whitespace tolerated, since some clients pad it). A missing scheme, the
+// wrong scheme, or an empty token all come back undefined and 401 the same
+// way a missing header does — resolveToken() never sees anything that was
+// not actually offered as a bearer token.
+function bearerToken(request: Request): string | undefined {
+  return request.headers.get('authorization')?.match(/^Bearer\s+(\S+)\s*$/i)?.[1];
+}
+
 // Every CLI route goes through this door, so authenticating the bearer token,
 // enforcing scope, and converting Next's control-flow throws into JSON exist
 // once rather than per route.
@@ -38,30 +47,30 @@ const isNotFoundThrow = (error: unknown) => digestOf(error) === 'NEXT_HTTP_ERROR
 // follows into a sign-in page's HTML, and notFound() renders an HTML 404
 // page — neither is something a CLI client can act on.
 //
-// The digest checks below must run before unstable_rethrow: it rethrows
+// The digest predicates below must run before unstable_rethrow: it rethrows
 // both a redirect and a notFound by design (that is its job for React
-// Server Components), so checking it first would undo exactly the
+// Server Components), so running it first would undo exactly the
 // conversion this module exists to do.
 export async function withCliPrincipal(
   request: Request,
   scope: 'grade',
   handler: () => Promise<Response>,
 ): Promise<Response> {
-  const token = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
+  const token = bearerToken(request);
   if (!token) return unauthorized();
 
-  const principal = await resolveToken(token);
-  // A revoked token and one that never existed are indistinguishable here on
-  // purpose: an unauthenticated caller learns nothing about which it was.
-  if ('error' in principal) return unauthorized();
-
-  if (principal.scope !== scope)
-    return Response.json(
-      { error: `This token cannot ${scope}. Run \`fieldnote login\` again.` },
-      { status: 403, headers },
-    );
-
   try {
+    const principal = await resolveToken(token);
+    // A revoked token and one that never existed are indistinguishable here on
+    // purpose: an unauthenticated caller learns nothing about which it was.
+    if ('error' in principal) return unauthorized();
+
+    if (principal.scope !== scope)
+      return Response.json(
+        { error: `This token cannot ${scope}. Run \`fieldnote login\` again.` },
+        { status: 403, headers },
+      );
+
     return await withPrincipal(
       { userId: principal.userId, workspaceId: principal.workspaceId, source: 'cli' },
       handler,
@@ -80,6 +89,9 @@ export async function withCliPrincipal(
         { status: 404, headers },
       );
     unstable_rethrow(error);
+    // Never the token or the header — only the failure itself, so an
+    // operator debugging a CLI 503 has something to go on.
+    console.error('withCliPrincipal: request failed', error);
     return Response.json(
       { error: 'fieldnote is temporarily unavailable. Try again.' },
       { status: 503, headers },
