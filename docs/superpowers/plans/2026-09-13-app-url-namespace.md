@@ -579,7 +579,7 @@ EOF
 
 ## Task 4: Point every link through `app-routes.ts`
 
-The links start working again here. 27 non-test files and 13 test files.
+The links start working again here. 27 non-test files and 14 test files.
 
 **Files:** listed in the steps below.
 
@@ -610,6 +610,7 @@ These are the literals that describe what the app must produce. Edit them before
 | `src/app/app/repos/[repoId]/delivery/page.test.ts:212,215` | `href="/repos/repo/delivery?..."` | prefix each with `/app` |
 | `src/app/app/onboarding/actions.test.ts:72` | `[['/dashboard'], ['/repos/repo%3A1']]` | `[['/app/dashboard'], ['/app/repos/repo%3A1']]` |
 | `src/auth/invitation-routes.test.ts:82` | `expired ? '/dashboard' : ...` | `expired ? '/app/dashboard' : ...` |
+| `src/app/invitations/[token]/actions.test.ts:47` | `rejects.toThrow('redirect:/dashboard')` | `rejects.toThrow('redirect:/app/dashboard')` |
 
 Leave the `/invitations/${'a'.repeat(43)}` half of `invitation-routes.test.ts:82` alone — invitations are a public surface and do not move.
 
