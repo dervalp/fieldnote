@@ -23,6 +23,7 @@ export const agentReadinessManifest = registerGrader({
   },
   disclaimer: 'This file and documentation evidence is not semantic quality certification.',
   card: {
+    title: 'Agent Readiness',
     tagline: 'Can an agent work in this repository at all?',
     groups: [
       { title: 'Instructions', checks: ['root-agent-instructions', 'root-readme'] },

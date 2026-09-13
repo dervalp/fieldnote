@@ -71,22 +71,28 @@ export function runCheck(
     return result(check, evidence.length >= min, evidence, disclaimer);
   }
 
-  // heading-has-fence. Scope entries are honoured in the order the manifest
-  // names them, and a document matched by two entries is scanned once — that
-  // order is what a reader of the evidence list sees, so it is part of the
-  // contract, not an implementation detail.
-  const headings = new Set(check.args.headings.map((heading) => heading.toLowerCase()));
-  const seen = new Set<string>();
-  const scoped: SourceDocument[] = [];
-  for (const entry of check.args.scope) {
-    const expression = globToRegExp(entry.pattern, entry.caseInsensitive);
-    for (const document of documents) {
-      const key = `${document.path}::${document.blobSha}`;
-      if (seen.has(key) || !expression.test(document.path)) continue;
-      seen.add(key);
-      scoped.push(document);
+  if (check.primitive === 'heading-has-fence') {
+    // heading-has-fence. Scope entries are honoured in the order the manifest
+    // names them, and a document matched by two entries is scanned once — that
+    // order is what a reader of the evidence list sees, so it is part of the
+    // contract, not an implementation detail.
+    const headings = new Set(check.args.headings.map((heading) => heading.toLowerCase()));
+    const seen = new Set<string>();
+    const scoped: SourceDocument[] = [];
+    for (const entry of check.args.scope) {
+      const expression = globToRegExp(entry.pattern, entry.caseInsensitive);
+      for (const document of documents) {
+        const key = `${document.path}::${document.blobSha}`;
+        if (seen.has(key) || !expression.test(document.path)) continue;
+        seen.add(key);
+        scoped.push(document);
+      }
     }
+    const evidence = scoped.flatMap((document) => sectionsWithFencedBlock(document, headings));
+    return result(check, evidence.length > 0, evidence, disclaimer);
   }
-  const evidence = scoped.flatMap((document) => sectionsWithFencedBlock(document, headings));
-  return result(check, evidence.length > 0, evidence, disclaimer);
+
+  // metric-threshold is not implemented in this task; it will be added by a
+  // later task that provides the metrics collector.
+  throw new Error(`Primitive '${check.primitive}' is not yet implemented.`);
 }

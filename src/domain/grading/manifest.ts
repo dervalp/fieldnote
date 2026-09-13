@@ -14,6 +14,12 @@ export const GRADER_CATEGORIES = [
   'supply-chain',
 ] as const;
 
+// Closed for the same reason GRADER_CATEGORIES is closed, and extracted
+// rather than invented: all three are read off MetricTotals today and
+// rendered on the Delivery tab.
+export const GRADER_METRICS = ['first-pass-rate', 'ci-success-rate', 'ci-recovery-rate'] as const;
+export type GraderMetric = (typeof GRADER_METRICS)[number];
+
 export type ManifestErrorCode =
   | 'schema'
   | 'subject_unsupported'
@@ -23,7 +29,9 @@ export type ManifestErrorCode =
   | 'duplicate_check_id'
   | 'check_not_grouped'
   | 'check_grouped_twice'
-  | 'unknown_check_grouped';
+  | 'unknown_check_grouped'
+  | 'needs_empty'
+  | 'needs_mismatch';
 
 export class ManifestError extends Error {
   constructor(
@@ -77,6 +85,14 @@ const checkSchema = z.discriminatedUnion('primitive', [
       scope: z.array(scopeEntry).min(1),
     }),
   }),
+  z.object({
+    ...checkBase,
+    primitive: z.literal('metric-threshold'),
+    args: z.object({
+      metric: z.enum(GRADER_METRICS),
+      atLeastPercent: z.number().int().min(0).max(100),
+    }),
+  }),
 ]);
 
 const manifestSchema = z.object({
@@ -92,10 +108,26 @@ const manifestSchema = z.object({
   mode: z.enum(['deterministic', 'llm', 'hybrid']),
   category: z.enum(GRADER_CATEGORIES),
   kind: z.enum(['declarative', 'code']),
-  needs: z.object({ 'repo.files': z.array(nonEmpty).min(1) }),
+  // A grader declares the families it reads. Every family is optional and the
+  // invariants below require the declared set to be exactly the set its checks
+  // need: an undeclared family cannot be collected, and a declared one nobody
+  // reads would ask an installer for access to evidence that is never used.
+  needs: z.object({
+    'repo.files': z.array(nonEmpty).min(1).optional(),
+    'fieldnote.metrics': z
+      .object({
+        // The product's own presets, and only those: resolveRange() accepts
+        // no others, so a manifest cannot name a window nothing can build.
+        windowDays: z.union([z.literal(7), z.literal(30), z.literal(90)]),
+        minMergedPullRequests: z.number().int().nonnegative(),
+        insufficientReason: nonEmpty,
+      })
+      .optional(),
+  }),
   // Appended to every explanation. The caveat is the grader's, not fieldnote's.
   disclaimer: nonEmpty,
   card: z.object({
+    title: nonEmpty,
     tagline: nonEmpty,
     groups: z.array(z.object({ title: nonEmpty, checks: z.array(nonEmpty).min(1) })).min(1),
   }),
@@ -141,6 +173,30 @@ export function parseManifest(input: unknown): GraderManifest {
   const ungrouped = ids.find((id) => !grouped.includes(id));
   if (ungrouped)
     throw new ManifestError('check_not_grouped', `Check '${ungrouped}' is in no card group.`);
+
+  const declared = Object.entries(manifest.needs)
+    .filter(([, value]) => value !== undefined)
+    .map(([family]) => family) as Array<'repo.files' | 'fieldnote.metrics'>;
+  if (declared.length === 0)
+    throw new ManifestError('needs_empty', 'A grader must declare at least one evidence family.');
+
+  const required = new Set(
+    manifest.checks.map((check) =>
+      check.primitive === 'metric-threshold' ? 'fieldnote.metrics' : 'repo.files',
+    ),
+  );
+  const undeclared = [...required].find((family) => !declared.includes(family));
+  if (undeclared)
+    throw new ManifestError(
+      'needs_mismatch',
+      `Checks read '${undeclared}', which the manifest does not declare.`,
+    );
+  const unread = declared.find((family) => !required.has(family));
+  if (unread)
+    throw new ManifestError(
+      'needs_mismatch',
+      `Manifest declares '${unread}', which no check reads.`,
+    );
 
   return manifest;
 }

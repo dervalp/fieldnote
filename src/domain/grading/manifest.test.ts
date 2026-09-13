@@ -14,6 +14,7 @@ const valid = (): Draft => ({
   needs: { 'repo.files': ['README.md'] },
   disclaimer: 'Evidence, not certification.',
   card: {
+    title: 'Example',
     tagline: 'Is anything written down?',
     groups: [{ title: 'Docs', checks: ['a', 'b'] }],
   },
@@ -118,4 +119,111 @@ test('heading-has-fence scope entries carry their own case sensitivity', () => {
       { pattern: 'AGENTS.md', caseInsensitive: false },
     ],
   });
+});
+
+const metricsValid = (): Draft => ({
+  ...valid(),
+  needs: {
+    'fieldnote.metrics': {
+      windowDays: 30,
+      minMergedPullRequests: 10,
+      insufficientReason: 'Not enough merged work to judge.',
+    },
+  },
+  checks: [
+    {
+      id: 'a',
+      title: 'A',
+      points: 60,
+      explain: { pass: 'Clean.', fail: 'Not clean.' },
+      primitive: 'metric-threshold',
+      args: { metric: 'first-pass-rate', atLeastPercent: 60 },
+    },
+    {
+      id: 'b',
+      title: 'B',
+      points: 40,
+      explain: { pass: 'Green.', fail: 'Red.' },
+      primitive: 'metric-threshold',
+      args: { metric: 'ci-success-rate', atLeastPercent: 90 },
+    },
+  ],
+});
+
+test('a metrics manifest parses and keeps its window', () => {
+  const manifest = parseManifest(metricsValid());
+  expect(manifest.needs['fieldnote.metrics']).toMatchObject({
+    windowDays: 30,
+    minMergedPullRequests: 10,
+  });
+  expect(manifest.checks[0].primitive).toBe('metric-threshold');
+});
+
+test('a manifest declaring no evidence family at all is rejected', () => {
+  rejects((m) => void (m.needs = {}), 'needs_empty');
+});
+
+test('a metric check without fieldnote.metrics is rejected', () => {
+  const manifest = metricsValid();
+  (manifest as Draft).needs = { 'repo.files': ['README.md'] };
+  try {
+    parseManifest(manifest);
+  } catch (error) {
+    expect((error as ManifestError).code).toBe('needs_mismatch');
+    return;
+  }
+  throw new Error('expected needs_mismatch');
+});
+
+test('a file check without repo.files is rejected', () => {
+  rejects(
+    (m) =>
+      void (m.needs = {
+        'fieldnote.metrics': {
+          windowDays: 30,
+          minMergedPullRequests: 10,
+          insufficientReason: 'Not enough.',
+        },
+      }),
+    'needs_mismatch',
+  );
+});
+
+test('a family no check uses is rejected — it would ask for evidence nobody reads', () => {
+  rejects(
+    (m) =>
+      void (m.needs['fieldnote.metrics'] = {
+        windowDays: 30,
+        minMergedPullRequests: 10,
+        insufficientReason: 'Not enough.',
+      }),
+    'needs_mismatch',
+  );
+});
+
+test('a window that is not one of the product presets is a schema error', () => {
+  const manifest = metricsValid();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (manifest as any).needs['fieldnote.metrics'].windowDays = 45;
+  try {
+    parseManifest(manifest);
+  } catch (error) {
+    expect((error as ManifestError).code).toBe('schema');
+    return;
+  }
+  throw new Error('expected schema');
+});
+
+test('a bar outside 0-100 and a missing card title are schema errors', () => {
+  rejects((m) => void delete m.card.title, 'schema');
+  const manifest = metricsValid();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (manifest as any).checks[0].args.atLeastPercent = 101;
+  try {
+    parseManifest(manifest);
+  } catch (error) {
+    expect((error as ManifestError).code).toBe('schema');
+    return;
+  }
+  throw new Error('expected schema');
 });
