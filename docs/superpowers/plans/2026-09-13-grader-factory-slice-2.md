@@ -657,9 +657,47 @@ test('an incomplete window is still recorded — the dates are not in doubt', ()
   });
 });
 
-test('a file-only snapshot records no window at all', () => {
-  const result = runDeclarative(metricsManifest, snapshot({ metrics: null, complete: false }));
-  expect(result.window).toBeUndefined();
+// A genuinely file-only grader. Asserting "no window" against the metrics
+// manifest would mean running a metric-threshold check with no window, which
+// Task 2 specified as a throw — a wiring bug, not a repository state. The test
+// must use a grader that really reads files.
+const filesManifest = parseManifest({
+  id: 'fieldnote/example-files',
+  version: '0.1.0',
+  evaluatorVersion: '1.0.0',
+  subject: 'repository',
+  mode: 'deterministic',
+  category: 'documentation',
+  kind: 'declarative',
+  needs: { 'repo.files': ['README.md'] },
+  disclaimer: 'Evidence, not certification.',
+  card: {
+    title: 'Example Files',
+    tagline: 'Is anything written down?',
+    groups: [{ title: 'Docs', checks: ['readme'] }],
+  },
+  checks: [
+    {
+      id: 'readme',
+      title: 'Project documentation',
+      points: 100,
+      explain: { pass: 'Found a README.', fail: 'No README.' },
+      primitive: 'file-exists',
+      args: { root: true, nonempty: true, anyOf: ['README.md'] },
+    },
+  ],
+});
+
+test('a file-only grader records no window at all', () => {
+  const result = runDeclarative(filesManifest, {
+    sha: 'commit-sha',
+    complete: true,
+    documents: [{ path: 'README.md', blobSha: 'readme-sha', text: '# Project' }],
+  });
+  expect(result.score).toBe(100);
+  // Absence, not an undefined value: this object is stored in a jsonb column,
+  // and `toBeUndefined()` alone cannot tell the two apart.
+  expect('window' in result).toBe(false);
 });
 
 test("the snapshot's own reason wins, because it belongs to the grader", () => {
