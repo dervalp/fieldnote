@@ -10,6 +10,7 @@ import { awaitCallback, openBrowser } from './login.ts';
 import { ApiError, exchangeCliToken, listGraders, revokeCliToken } from './api.ts';
 import { gradeRun, type GradeRunOutcome } from './grade-run.ts';
 import { gradeLines } from './grade-view.ts';
+import { notBuiltYet, unbuiltCommand } from './unbuilt.ts';
 
 // --sha and --min are the only flags this dispatch reads that take a value —
 // every other token that follows them is that value, not a positional or a
@@ -107,15 +108,6 @@ function reportApiError(
   return fail(out, json, error.exitCode, { error: 'api-error', message: error.message });
 }
 
-const COMING_SOON = [
-  '  fieldnote over MCP — coming soon',
-  '',
-  '  One stdio server, started by your coding agent, answering three',
-  "  questions from this repository's own record. Not built.",
-  '',
-  '  Tracked with Train in docs/roadmap.md.',
-].join('\n');
-
 export async function run(argv: string[], stream: Stream, env: Env): Promise<number> {
   const json = argv.includes('--json');
   const out = createOutput(stream, env);
@@ -140,8 +132,11 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
     return 0;
   }
 
-  if (command === 'mcp') {
-    out.line(COMING_SOON);
+  // Every command help lists as unbuilt answers for itself, from the same
+  // list help reads. A listed command that replies "Unknown command" would be
+  // the worst of both: advertised and denied.
+  if (unbuiltCommand(command)) {
+    out.line(notBuiltYet(command));
     return 0;
   }
 

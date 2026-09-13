@@ -1,13 +1,29 @@
 import { cliVersion } from './version.ts';
+import { NOT_BUILT_YET, REPOSITORY, UNBUILT, type Unbuilt } from './unbuilt.ts';
+
+const COMMAND_WIDTH = 20;
+
+// Rows for one group, built from the one list of unbuilt commands rather than
+// retyped here. The marker column is measured across every row so the help
+// lines up whatever gets added to that list next.
+const SUMMARY_WIDTH = Math.max(...UNBUILT.map((entry) => entry.summary.length)) + 2;
+
+function unbuiltRows(group: Unbuilt['group']): string[] {
+  return UNBUILT.filter((entry) => entry.group === group).map(
+    (entry) =>
+      `    ${entry.command.padEnd(COMMAND_WIDTH)}${entry.summary.padEnd(SUMMARY_WIDTH)}${NOT_BUILT_YET}`,
+  );
+}
 
 // Four groups, not one list. A developer looking for "how do I score this
 // repo" reads one group and stops. Commands that are not built are listed
 // rather than hidden — a roadmap readable from the terminal beats a hidden
-// one — but a command that exists and fails is worse than one that does not,
-// so only `mcp` appears, and only because its placeholder is honest.
+// one — and every one of them answers for itself when typed, so the listing
+// never promises something the dispatch then denies.
 export function helpText(): string {
   return [
     `  fieldnote ${cliVersion()} — grade what your agents work in`,
+    `  work in progress · come and contribute: ${REPOSITORY}`,
     '',
     '  USAGE',
     '    fieldnote <command> [options]',
@@ -17,6 +33,7 @@ export function helpText(): string {
     '',
     '  GRADERS',
     '    graders             list graders available to this workspace',
+    ...unbuiltRows('GRADERS'),
     '',
     '  ACCOUNT',
     '    login               sign in through your browser',
@@ -24,13 +41,9 @@ export function helpText(): string {
     '    whoami              who this machine is signed in as',
     '',
     '  AGENTS',
-    '    mcp                 serve fieldnote over MCP       coming soon',
+    ...unbuiltRows('AGENTS'),
     '',
     '  OPTIONS',
-    // --sha does not choose the commit that gets graded: requestGrade neither
-    // accepts nor stores a sha, and the collection worker pins the
-    // repository's default branch head. Saying "grade this commit" promised
-    // something the system does not do.
     '    --sha <sha>         bypass the work-in-progress guard; fieldnote still grades',
     '                        the default branch head',
     '    --min <score>       exit 1 if the grade scores below this threshold',

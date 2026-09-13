@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { run } from './bin.ts';
+import { REPOSITORY, UNBUILT } from './unbuilt.ts';
 import { ApiError } from './api.ts';
 import { CLEAN_STATE, REQUESTED, completeFixture } from './fixtures.ts';
 
@@ -125,10 +126,15 @@ describe('run', () => {
     expect(c.text().trim()).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
-  it('lists mcp as coming soon and exits zero rather than pretending', async () => {
-    const c = capture();
-    expect(await run(['mcp'], c.sink, c.env)).toBe(0);
-    expect(c.text()).toContain('coming soon');
+  it('answers every command help lists as unbuilt, rather than denying it exists', async () => {
+    for (const { command, summary } of UNBUILT) {
+      const c = capture();
+      expect(await run([command], c.sink, c.env), `${command} should exit 0`).toBe(0);
+      expect(c.text(), `${command} should say it is not built`).toContain('not built yet');
+      expect(c.text(), `${command} should say what it will do`).toContain(summary);
+      expect(c.text(), `${command} should invite a contribution`).toContain(REPOSITORY);
+      expect(c.text(), `${command} must not read as unknown`).not.toContain('Unknown command');
+    }
   });
 
   it('exits 2 on an unknown command and names the one that exists', async () => {
