@@ -12,7 +12,7 @@ export type Line = {
 export type GradeView = GradeComplete & { slug: string; requestedSha: string };
 
 // A grader check's own `status` is binary, but its points are not: a rubric
-// with partial credit returns `pass` for a check that earned 12 of 20. Reading
+// with partial credit returns `pass` for one that earned 12 of 20. Reading
 // the points rather than the status is what keeps "pass" meaning "all of it".
 function kindOf(check: GradeCheck): 'pass' | 'fail' | 'partial' {
   if (check.points >= check.maxPoints) return 'pass';
