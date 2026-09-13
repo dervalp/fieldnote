@@ -516,15 +516,34 @@ Extend the comment block at the top of the file so the extraction rule still rea
 // Delivery tab. fieldnote/delivery-health earned it.
 ```
 
+**Keep the tree green.** `declarative.ts` is the only caller of `runCheck`, and
+Task 3 is the task that rewrites it. Until then this commit would leave the
+build failing typecheck and the acceptance suite failing, so update that one
+line here:
+
+```ts
+  const checks = manifest.checks.map((check) =>
+    runCheck(check, { documents: ordered(snapshot.documents) }, manifest.disclaimer),
+  );
+```
+
+Task 3 replaces it properly. Every commit stands on its own, and the acceptance
+test is checked per task rather than only at the end.
+
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `pnpm vitest run src/domain/grading/primitives.test.ts`
 Expected: PASS, all cases.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Confirm the acceptance test still passes and never moved**
+
+Run: `pnpm vitest run src/domain/grading/readiness-v01.test.ts && pnpm typecheck`
+Expected: PASS, and no output from `git diff main -- src/domain/grading/readiness-v01.test.ts`.
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/domain/grading/types.ts src/domain/grading/primitives.ts src/domain/grading/primitives.test.ts
+git add src/domain/grading/types.ts src/domain/grading/primitives.ts src/domain/grading/primitives.test.ts src/domain/grading/declarative.ts
 git commit -m "feat(grading): a check can read a number, and shows its working
 
 runCheck takes CheckEvidence rather than a document array, because a
@@ -773,12 +792,15 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 Create `src/domain/grading/graders/delivery-health.test.ts`:
 
 ```ts
+// The barrel comes first on purpose. Registration is a side effect of
+// importing a grader, ES modules evaluate imports in source order, and the
+// order assertion below is about the barrel's declared order — not about
+// which import this test file happens to list first.
+import { AGENT_READINESS, DELIVERY_HEALTH, deliveryHealthManifest } from './index';
 import { expect, test } from 'vitest';
-import { DELIVERY_HEALTH, deliveryHealthManifest } from './delivery-health';
 import { runDeclarative } from '../declarative';
 import { getGrader, listGraders } from '../registry';
 import type { MetricsWindow, RepositorySnapshot } from '../types';
-import './index';
 
 const metricsWindow = (over: Partial<MetricsWindow> = {}): MetricsWindow => ({
   days: 30,
@@ -806,10 +828,9 @@ test('the grader registers and is an ordinary one', () => {
 });
 
 test('both built-ins are listed, readiness first', () => {
-  expect(listGraders().map((grader) => grader.id)).toEqual([
-    'fieldnote/agent-readiness',
-    DELIVERY_HEALTH,
-  ]);
+  // The row on the Grades tab renders in this order, so it is a product
+  // decision worth pinning rather than an accident of the module graph.
+  expect(listGraders().map((grader) => grader.id)).toEqual([AGENT_READINESS, DELIVERY_HEALTH]);
 });
 
 test('a repository that merges cleanly and recovers scores 100', () => {
