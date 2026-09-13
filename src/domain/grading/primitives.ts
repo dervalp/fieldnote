@@ -48,14 +48,12 @@ function result(
 
 export function runCheck(
   check: GraderCheck,
-  evidence: CheckEvidence,
+  { documents, metrics }: CheckEvidence,
   disclaimer: string,
 ): CheckResult {
-  const documents = evidence.documents;
-
   if (check.primitive === 'metric-threshold') {
     const { metric, atLeastPercent } = check.args;
-    const window = evidence.metrics;
+    const window = metrics;
     // A manifest that reaches here declared fieldnote.metrics — parseManifest
     // refuses otherwise — and the dispatcher collects what a manifest declared.
     // A missing window is a wiring bug, not a state a repository can be in.
