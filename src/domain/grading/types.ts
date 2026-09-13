@@ -8,6 +8,9 @@ export type RepositorySnapshot = {
   sha: string;
   complete: boolean;
   documents: SourceDocument[];
+  metrics?: MetricsWindow | null;
+  /** The grader's own sentence when its declared floor was not met. */
+  incompleteReason?: string;
 };
 
 export type EvidenceLineRange = {
@@ -32,6 +35,9 @@ export type GradeResult = {
   checks: CheckResult[];
   rubricVersion: string;
   evaluatorVersion: string;
+  /** Present only for a grader that read a window. A saved report names the
+   * dates it scored, so reopening it does not silently mean a different month. */
+  window?: { start: string; endExclusive: string; days: number };
   incompleteReason?: string;
 };
 
