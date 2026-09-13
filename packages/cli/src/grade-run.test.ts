@@ -205,13 +205,51 @@ describe('gradeRun — the poll loop terminates', () => {
     expect((await promise).kind).toBe('graded');
   });
 
-  it('does not retry a 404 poll — the run is gone, and waiting does not bring it back', async () => {
+  it('retries a 404 on the first poll once — the run may not be visible yet', async () => {
+    // The POST has just created the run. A read that races it — replica lag,
+    // or accessibleRepositories() transiently empty — 404s, and that is a
+    // visibility race rather than a run that is gone. One retry, and only
+    // here.
+    vi.useFakeTimers();
+    readGitState.mockResolvedValue(CLEAN_STATE);
+    gradeBlocker.mockReturnValue(null);
+    requestGradeRun.mockResolvedValue(REQUESTED);
+    pollGradeRun
+      .mockRejectedValueOnce(new ApiError('Grade unavailable.', 2, 404))
+      .mockResolvedValueOnce(completeFixture());
+    const promise = gradeRun(baseOptions);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect((await promise).kind).toBe('graded');
+    expect(pollGradeRun).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives up on the second 404 — a run that is gone stays gone', async () => {
+    // Not the backoff ladder: one retry, then the answer. The ladder would
+    // spend about fifteen seconds arriving at the same sentence.
+    vi.useFakeTimers();
     readGitState.mockResolvedValue(CLEAN_STATE);
     gradeBlocker.mockReturnValue(null);
     requestGradeRun.mockResolvedValue(REQUESTED);
     pollGradeRun.mockRejectedValue(new ApiError('Grade unavailable.', 2, 404));
-    await expect(gradeRun(baseOptions)).rejects.toMatchObject({ status: 404 });
-    expect(pollGradeRun).toHaveBeenCalledTimes(1);
+    const settled = expect(gradeRun(baseOptions)).rejects.toMatchObject({ status: 404 });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await settled;
+    expect(pollGradeRun).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry a 404 that arrives after a poll has already succeeded', async () => {
+    // Visibility was proven by the first poll, so this 404 is not a race.
+    vi.useFakeTimers();
+    readGitState.mockResolvedValue(CLEAN_STATE);
+    gradeBlocker.mockReturnValue(null);
+    requestGradeRun.mockResolvedValue(REQUESTED);
+    pollGradeRun
+      .mockResolvedValueOnce({ state: 'queued' })
+      .mockRejectedValue(new ApiError('Grade unavailable.', 2, 404));
+    const settled = expect(gradeRun(baseOptions)).rejects.toMatchObject({ status: 404 });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await settled;
+    expect(pollGradeRun).toHaveBeenCalledTimes(2);
   });
 
   it('does not retry an exitCode 3 poll failure — the token itself was rejected', async () => {

@@ -130,17 +130,20 @@ export function gradeBlocker(
     ].filter(Boolean);
 
     // --sha does not choose what gets graded — the server pins the
-    // repository's default branch head either way. All it does is waive this
-    // refusal, so the copy offers it as "grade what is already on GitHub",
-    // not as "grade this commit". The sha offered is the upstream head: this
-    // branch is entered when HEAD itself is unpushed or uncommitted, so
-    // state.sha is precisely the commit the server cannot fetch.
+    // repository's default branch head either way, and on a feature branch
+    // that is not this branch's upstream. So the line promises the bypass and
+    // nothing about the commit, in the same words help.ts uses.
+    //
+    // The sha offered is still the upstream head rather than state.sha: this
+    // branch is entered when HEAD itself is unpushed or uncommitted, and a
+    // command should not name a commit that is nowhere but this laptop, even
+    // when the server will not read it.
     const pushedOffer =
       state.upstreamSha === null
         ? []
         : [
             '',
-            '    skip this refusal and grade what is already on GitHub',
+            '    bypass this refusal — fieldnote still grades the default branch head',
             `      fieldnote run --sha ${state.upstreamSha.slice(0, 7)}`,
           ];
 

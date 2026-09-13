@@ -21,8 +21,10 @@ export const unauthorized = () =>
 // .../http-access-fallback/http-access-fallback.js in the Next version this
 // repo pins: a redirect() throw carries a digest beginning `NEXT_REDIRECT`,
 // and notFound() throws one that is exactly `NEXT_HTTP_ERROR_FALLBACK;404`
-// (the same prefix is shared with forbidden()/unauthorized(), which use
-// other status suffixes — 404 is the one notFound() writes).
+// (the same prefix is shared by next/navigation's own forbidden() and
+// unauthorized() helpers — no relation to this module's unauthorized()
+// above — which use other status suffixes; 404 is the one notFound()
+// writes).
 function digestOf(error: unknown): string | undefined {
   if (!(error instanceof Error)) return undefined;
   const digest = (error as { digest?: unknown }).digest;

@@ -85,16 +85,29 @@ export async function gradeRun(options: GradeRunOptions): Promise<GradeRunOutcom
 
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   let consecutiveFailures = 0;
+  let pollAttempts = 0;
   let poll: GradePoll;
   for (;;) {
     try {
+      pollAttempts += 1;
       poll = await pollGradeRun(options.base, options.token, requested.runId);
     } catch (error) {
       // A 404 is the poll route saying the run is gone, or no longer visible
       // to this token's workspace. Neither heals on its own, so retrying it
       // spends the whole backoff ladder — about fifteen seconds — to report
       // the same sentence it already had.
-      if (error instanceof ApiError && error.exitCode === 2 && error.status !== 404) {
+      //
+      // The one exception is the very first poll, which races the POST that
+      // created the run: replica lag, or accessibleRepositories() transiently
+      // empty, both answer 404 for a run that exists. That gets exactly one
+      // retry — the second attempt is attempt 2, so a 404 there is fatal like
+      // any other.
+      const firstPollRace = error instanceof ApiError && error.status === 404 && pollAttempts === 1;
+      if (
+        error instanceof ApiError &&
+        error.exitCode === 2 &&
+        (error.status !== 404 || firstPollRace)
+      ) {
         consecutiveFailures += 1;
         if (consecutiveFailures > MAX_CONSECUTIVE_POLL_FAILURES) throw error;
         if (Date.now() >= deadline) return { kind: 'timeout' };

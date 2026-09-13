@@ -94,6 +94,10 @@ const BLOCKED_MESSAGE: Record<'not-a-repo' | 'no-remote' | 'dirty' | 'unpushed',
   unpushed: 'There are commits that have not been pushed to GitHub yet.',
 };
 
+// Named once: it is printed as a line, sent as a JSON `message`, and read by
+// a test that must not be pinning its own copy of the sentence.
+const MIN_UNEVALUABLE = 'No score, so --min could not be evaluated.';
+
 function reportApiError(
   out: ReturnType<typeof createOutput>,
   error: unknown,
@@ -389,23 +393,32 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
     }
 
     const { view } = outcome;
-    if (json) out.line(JSON.stringify(view));
-    else out.lines(gradeLines(view));
 
     // The null guard is not the question — `null < 90` is true in JS, and an
     // incomplete grade is genuinely not "below threshold", which is what exit
     // 1 means. The disposition is: a threshold that could not be evaluated is
     // not a threshold that was met, and exiting 0 would walk an ungradeable
     // repository through the CI gate --min exists to be.
-    if (min !== undefined) {
-      if (view.score === null) {
-        // Never a second line under --json: the spec's contract is one
-        // document, and the document already says score: null.
-        if (!json) out.line('  No score, so --min could not be evaluated.');
-        return 2;
-      }
-      if (view.score < min) return 1;
+    const unevaluable = min !== undefined && view.score === null;
+
+    // The one outcome that is both a real grade and a non-zero exit, so
+    // --json carries both: the whole result, because the evidence is real
+    // data a wrapper should still get, plus the `error` key that makes the
+    // exit code explicable to a wrapper reading .error. Still one object —
+    // never the document with a second one glued to the end of it.
+    if (json) {
+      out.line(
+        JSON.stringify(
+          unevaluable ? { ...view, error: 'min-unevaluable', message: MIN_UNEVALUABLE } : view,
+        ),
+      );
+    } else {
+      out.lines(gradeLines(view));
+      if (unevaluable) out.line(`  ${MIN_UNEVALUABLE}`);
     }
+
+    if (unevaluable) return 2;
+    if (min !== undefined && view.score !== null && view.score < min) return 1;
     return 0;
   }
 

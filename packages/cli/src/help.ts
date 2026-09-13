@@ -34,7 +34,7 @@ export function helpText(): string {
     '    --sha <sha>         bypass the work-in-progress guard; fieldnote still grades',
     '                        the default branch head',
     '    --min <score>       exit 1 if the grade scores below this threshold',
-    '    --json              one object: the result on success, or one with an "error" key',
+    '    --json              one object: the result, an "error" key, or a result carrying one',
     '    --version           print the version and exit',
     '',
     '  Exit codes: 0 success · 1 below threshold · 2 could not grade · 3 signed out',

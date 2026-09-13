@@ -9,8 +9,9 @@ const headers = { 'Cache-Control': 'private, no-store' };
 // server-side, so a laptop that is handed on does not leave a live credential
 // behind. It authenticates by the bearer token itself and revokes only that
 // token — it must never accept a token id in the body, which would let one
-// token revoke another. A revoked or unknown token both look the same to an
-// unauthenticated caller: "Not signed in."
+// token revoke another. A revoked token, an unknown one and no token at all
+// all look the same to an unauthenticated caller — principal.ts's shared
+// unauthorized() answers all three, in one sentence written there.
 export async function POST(request: Request) {
   try {
     // Shared with withCliPrincipal rather than re-spelled: this route and

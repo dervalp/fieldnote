@@ -314,8 +314,25 @@ describe('run (the grading command)', () => {
     const c = capture();
     expect(await run(['run', '--min', '90', '--json'], c.sink, c.env)).toBe(2);
     // One document or a non-zero exit, never a document with a second one
-    // glued to the end of it.
-    expect(JSON.parse(c.text()).score).toBeNull();
+    // glued to the end of it — and that one document carries both halves:
+    // the real grade, and the `error` key a wrapper reads to explain why the
+    // exit was non-zero. help.ts documents all three --json shapes.
+    const body = JSON.parse(c.text());
+    expect(body.score).toBeNull();
+    expect(body.error).toBe('min-unevaluable');
+    expect(body.message).toContain('--min');
+    expect(body.checks).toBeDefined();
+  });
+
+  it('leaves the --json result untouched when --min was met', async () => {
+    readAuth.mockResolvedValue(AUTH);
+    readGitState.mockResolvedValue(CLEAN_STATE);
+    gradeBlocker.mockReturnValue(null);
+    requestGradeRun.mockResolvedValue(REQUESTED);
+    pollGradeRun.mockResolvedValue(completeFixture({ score: 92 }));
+    const c = capture();
+    expect(await run(['run', '--min', '90', '--json'], c.sink, c.env)).toBe(0);
+    expect(JSON.parse(c.text()).error).toBeUndefined();
   });
 
   it("exits 2 when --min is the empty string — that is not a quiet '--min 0'", async () => {
