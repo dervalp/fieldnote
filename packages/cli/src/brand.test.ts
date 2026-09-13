@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SEAL, WORDMARK, lockup, DISCLAIMER, banner, disclaimer } from './brand';
+import { SEAL, WORDMARK, lockup, DISCLAIMER, banner, disclaimer } from './brand.ts';
 
 const width = (line: string) => [...line].length;
 
@@ -55,15 +55,6 @@ describe('lockup', () => {
     expect(lines.map((line) => line.seal).join('')).not.toContain('╭');
     expect(lines.map((line) => line.mark).join(' ')).toContain('fieldnote');
   });
-
-  it('uses no box drawing at all when the terminal cannot render it', () => {
-    const rendered = lockup({ columns: 80, unicode: false })
-      .map((line) => line.seal + line.mark)
-      .join('\n');
-    // eslint-disable-next-line no-control-regex
-    expect(rendered).toMatch(/^[\x00-\x7F\n]*$/);
-    expect(rendered).toContain('fieldnote');
-  });
 });
 
 describe('disclaimer', () => {
@@ -109,5 +100,13 @@ describe('banner', () => {
         expect([...(line.seal + line.mark)].length).toBeLessThanOrEqual(columns);
       }
     }
+  });
+
+  it('uses no box drawing at all when the terminal cannot render it', () => {
+    const rendered = banner({ columns: 80, unicode: false })
+      .map((line) => line.seal + line.mark)
+      .join('\n');
+    expect(rendered).toMatch(/^[\x00-\x7F\n]*$/);
+    expect(rendered).toContain('fieldnote');
   });
 });

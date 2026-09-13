@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { run } from './bin';
+import { run } from './bin.ts';
 
 const tty = { isTTY: true, columns: 80, write: () => true };
 
@@ -17,7 +17,6 @@ describe('run', () => {
     // compared as plain flowed text: escapes stripped, whitespace collapsed.
     const plain = c
       .text()
-      // eslint-disable-next-line no-control-regex
       .replace(/\x1b\[[0-9;]*m/g, '')
       .replace(/\s+/g, ' ');
     expect(plain).toContain('Nothing on this machine is uploaded');

@@ -1,7 +1,7 @@
 import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { Env } from './render';
+import type { Env } from './render.ts';
 
 export type Auth = { token: string; login: string; workspace: string };
 

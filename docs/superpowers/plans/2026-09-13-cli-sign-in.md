@@ -1218,7 +1218,7 @@ export const cliTokens = pgTable(
 pnpm db:generate
 ```
 
-Rename the generated file to `drizzle/0013_cli_tokens.sql` if drizzle-kit chose another name, then:
+Keep whatever filename drizzle-kit generates. Never rename a migration file — the journal `tag`, the `.sql` filename and the snapshot index must agree. Then:
 
 ```bash
 pnpm db:migrate

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
-import { awaitCallback, openBrowser } from './login';
+import { awaitCallback, openBrowser } from './login.ts';
 
 vi.mock('node:child_process', () => ({ spawn: vi.fn() }));
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { cliVersion } from './version';
+import { cliVersion } from './version.ts';
 
 describe('cliVersion', () => {
   it('is the package version, so the banner can never drift from what was installed', () => {

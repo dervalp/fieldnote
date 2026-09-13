@@ -1,4 +1,4 @@
-import { cliVersion } from './version';
+import { cliVersion } from './version.ts';
 
 export type Capabilities = { columns: number; unicode: boolean };
 export type LockupLine = { seal: string; mark: string };
@@ -78,14 +78,17 @@ function wrap(text: string, width: number): string[] {
   return lines;
 }
 
-export function disclaimer(columns: number): string[] {
+export function disclaimer(columns: number, unicode = true): string[] {
   const width = Math.max(1, Math.min(MEASURE, columns - MARGIN.length));
   const out: string[] = [];
   DISCLAIMER.forEach((paragraph, index) => {
+    // The degradation table is ASCII only: a terminal that cannot render the
+    // seal cannot be trusted with an em dash either.
+    const text = unicode ? paragraph : paragraph.replace(/—/g, '--');
     if (index > 0) out.push('');
     // A word longer than the measure still gets its own line rather than a
     // cut: the claim survives a narrow terminal even when the layout does not.
-    for (const line of wrap(paragraph, width)) out.push(MARGIN + line);
+    for (const line of wrap(text, width)) out.push(MARGIN + line);
   });
   return out;
 }
@@ -94,6 +97,6 @@ export function banner(caps: Capabilities): LockupLine[] {
   return [
     ...lockup(caps),
     { seal: '', mark: '' },
-    ...disclaimer(caps.columns).map((mark) => ({ seal: '', mark })),
+    ...disclaimer(caps.columns, caps.unicode).map((mark) => ({ seal: '', mark })),
   ];
 }

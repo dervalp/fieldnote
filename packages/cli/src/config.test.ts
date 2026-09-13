@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { clearAuth, readAuth, writeAuth } from './config';
+import { clearAuth, readAuth, writeAuth } from './config.ts';
 
 let home: string;
 beforeEach(() => {

@@ -1,4 +1,4 @@
-import { type Capabilities, type LockupLine, banner as bannerLines } from './brand';
+import { type Capabilities, type LockupLine, banner as bannerLines } from './brand.ts';
 
 export type Env = Record<string, string | undefined>;
 export type Stream = { isTTY?: boolean; columns?: number; write(chunk: string): unknown };
@@ -22,7 +22,7 @@ export function capabilities(stream: Stream, env: Env): Capabilities & { color: 
 export function shouldShowBanner(stream: Stream, env: Env, opts: { json: boolean }): boolean {
   if (opts.json) return false;
   if (!stream.isTTY) return false;
-  if (env.CI !== undefined) return false;
+  if (env.CI !== undefined && env.CI !== '' && env.CI !== 'false') return false;
   if (env.FIELDNOTE_NO_BANNER !== undefined) return false;
   return true;
 }

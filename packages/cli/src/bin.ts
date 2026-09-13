@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 import { createHash, randomBytes } from 'node:crypto';
-import { type Env, type Stream, createOutput, shouldShowBanner } from './render';
-import { cliVersion } from './version';
-import { helpText } from './help';
-import { clearAuth, readAuth, writeAuth } from './config';
-import { awaitCallback, openBrowser } from './login';
+import { hostname } from 'node:os';
+import { pathToFileURL } from 'node:url';
+import { type Env, type Stream, createOutput, shouldShowBanner } from './render.ts';
+import { cliVersion } from './version.ts';
+import { helpText } from './help.ts';
+import { clearAuth, readAuth, writeAuth } from './config.ts';
+import { awaitCallback, openBrowser } from './login.ts';
 
 const COMING_SOON = [
   '  fieldnote over MCP — coming soon',
@@ -55,9 +57,32 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
   }
 
   if (command === 'logout') {
+    const base = env.FIELDNOTE_URL ?? 'https://fieldnote.dev';
+    const auth = await readAuth(env);
+    let revoked = false;
+    if (auth) {
+      try {
+        const response = await fetch(new URL('/api/cli/revoke', base), {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${auth.token}` },
+        });
+        revoked = response.ok;
+      } catch {
+        // Best effort: clearing the local credential still happens below, and
+        // the user is told honestly that the token itself may still be live.
+      }
+    }
     await clearAuth();
-    out.line('  Signed out on this machine.');
-    out.line('  Revoke the token itself at fieldnote.dev/settings/tokens.');
+    if (!auth) {
+      out.line('  Signed out on this machine.');
+    } else if (revoked) {
+      out.line('  Signed out on this machine. The token was revoked.');
+    } else {
+      out.line(
+        '  Signed out on this machine, but the token could not be revoked — it may still be live.',
+      );
+    }
+    out.line(`  Revoke the token itself at ${new URL('/settings/tokens', base)}.`);
     return 0;
   }
 
@@ -69,7 +94,14 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
     const userCode = randomBytes(4).toString('hex').toUpperCase();
 
     const pending = awaitCallback(0, state, 5 * 60_000);
-    const { port } = await pending.address;
+    let port: number;
+    try {
+      ({ port } = await pending.address);
+    } catch {
+      out.line('');
+      out.line('  Could not start the local sign-in server. Run `fieldnote login` again.');
+      return 2;
+    }
     const url = new URL('/cli/auth', base);
     url.searchParams.set('challenge', challenge);
     url.searchParams.set('redirect', `http://127.0.0.1:${port}`);
@@ -102,7 +134,7 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
         body: JSON.stringify({
           code: result.code,
           verifier,
-          label: env.HOSTNAME ?? 'this machine',
+          label: env.HOSTNAME ?? hostname(),
         }),
       });
       if (!response.ok) {
@@ -135,7 +167,7 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
 }
 
 // The only place in the package that touches the process.
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   run(process.argv.slice(2), process.stdout, process.env)
     .then((code) => {
       process.exitCode = code;

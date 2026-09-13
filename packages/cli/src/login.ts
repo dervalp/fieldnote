@@ -13,9 +13,14 @@ export function awaitCallback(
   timeoutMs: number,
 ): Promise<Callback> & { address: Promise<AddressInfo> } {
   let resolveAddress: (value: AddressInfo) => void;
-  const address = new Promise<AddressInfo>((resolve) => {
+  let rejectAddress: (reason: Error) => void;
+  const address = new Promise<AddressInfo>((resolve, reject) => {
     resolveAddress = resolve;
+    rejectAddress = reject;
   });
+  // Never let a rejection nobody awaited yet become an unhandled rejection —
+  // bin.ts is the one place that awaits `address`, and it always does.
+  address.catch(() => {});
 
   const result = new Promise<Callback>((resolve) => {
     let settled = false;
@@ -35,6 +40,15 @@ export function awaitCallback(
         ok ? 'Signed in. You can close this tab.' : 'This sign-in could not be verified.',
       );
       finish(ok ? { code: url.searchParams.get('code') ?? '' } : { error: 'state_mismatch' });
+    });
+
+    // An `error` event with no listener is thrown, bypassing the caller's own
+    // handling entirely. A failed `listen` (a busy port, a sandboxed loopback)
+    // must still settle both promises — `result`, so a caller awaiting it
+    // never hangs, and `address`, so `await pending.address` cannot hang either.
+    server.on('error', (error) => {
+      finish({ error: 'timeout' });
+      rejectAddress(error instanceof Error ? error : new Error(String(error)));
     });
 
     const timer = setTimeout(() => finish({ error: 'timeout' }), timeoutMs);

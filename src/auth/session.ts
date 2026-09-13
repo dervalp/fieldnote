@@ -24,6 +24,7 @@ export async function createSession(userId: string) {
   (await cookies()).set('reliability-session', token, { ...cookieOptions, expires: expiresAt });
 }
 export async function hasCurrentSession(): Promise<boolean> {
+  if (currentPrincipal()) return true;
   const token = (await cookies()).get('reliability-session')?.value;
   if (!token) return false;
   const [session] = await db()
@@ -58,6 +59,8 @@ async function sessionUser() {
 // Local identity only: this does not need GitHub credentials or network access.
 // Returns null instead of redirecting, for callers that tolerate a signed-out visitor.
 export async function currentUserId(): Promise<string | null> {
+  const principal = currentPrincipal();
+  if (principal) return principal.userId;
   const token = (await cookies()).get('reliability-session')?.value;
   if (!token) return null;
   const [session] = await db()

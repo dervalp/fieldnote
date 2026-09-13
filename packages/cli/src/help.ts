@@ -1,4 +1,4 @@
-import { cliVersion } from './version';
+import { cliVersion } from './version.ts';
 
 // Four groups, not one list. A developer looking for "how do I score this
 // repo" reads one group and stops. Commands that are not built are listed
