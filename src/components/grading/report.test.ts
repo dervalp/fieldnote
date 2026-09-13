@@ -232,6 +232,45 @@ test('the report wears its grader name and its grader disclaimer', () => {
   expect(html).not.toContain('does not execute repository code');
 });
 
+test('a grade with a window names the dates it scored', () => {
+  const html = renderToStaticMarkup(
+    createElement(GradeReport, {
+      grade: {
+        ...grade,
+        window: {
+          start: '2026-08-15T00:00:00.000Z',
+          endExclusive: '2026-09-14T00:00:00.000Z',
+          days: 30,
+        },
+      },
+      owner: 'acme',
+      name: 'checkout',
+      outdated: false,
+      checkTitles: { 'merges-land-clean': 'Merges land clean' },
+      graderTitle: deliveryHealthManifest.card.title,
+      disclaimer: deliveryHealthManifest.disclaimer,
+    }),
+  );
+  expect(html).toContain('2026-08-15');
+  expect(html).toContain('2026-09-13');
+  expect(html).toContain('30 days');
+});
+
+test('a grade with no window renders no window line', () => {
+  const html = renderToStaticMarkup(
+    createElement(GradeReport, {
+      grade,
+      owner: 'owner',
+      name: 'repo',
+      outdated: false,
+      checkTitles: titles,
+      graderTitle: agentReadinessManifest.card.title,
+      disclaimer: agentReadinessManifest.disclaimer,
+    }),
+  );
+  expect(html).not.toContain('days');
+});
+
 test('a metric check renders its measurement and no empty evidence block', () => {
   const metricGrade = {
     ...grade,

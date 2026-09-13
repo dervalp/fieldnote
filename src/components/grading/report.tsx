@@ -3,6 +3,7 @@ import { useActionState, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { CompletedGrade } from '../../db/queries/grade-runs';
 import { runGrade } from '../../app/repos/[repoId]/grading/actions';
+import { rangeEnd } from '../dashboard/range-query';
 import './report.css';
 type Status = {
   id: string;
@@ -202,6 +203,15 @@ export function GradeReport({
           </time>
           <br />
           Commit <code>{grade.sha}</code>
+          {grade.window && (
+            <>
+              <br />
+              Window <time dateTime={grade.window.start}>{grade.window.start.slice(0, 10)}</time>
+              {' – '}
+              <time dateTime={grade.window.endExclusive}>{rangeEnd(grade.window)}</time> (
+              {grade.window.days} days)
+            </>
+          )}
         </p>
         <p>{disclaimer}</p>
       </div>
