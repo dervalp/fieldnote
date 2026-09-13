@@ -17,6 +17,7 @@ export default async function AccountSettings() {
           Account
         </Link>
         <Link href="/settings/workspace">Workspace</Link>
+        <Link href="/settings/tokens">Tokens</Link>
       </div>
       <section className="settings-panel">
         <h2>Your profile</h2>
