@@ -17,6 +17,10 @@ export function registerGrader(input: unknown): GraderManifest {
   return manifest;
 }
 
+export function listGraders(): GraderManifest[] {
+  return [...graders.values()];
+}
+
 export function getGrader(graderId: string): GraderManifest {
   const manifest = graders.get(graderId);
   if (!manifest)
