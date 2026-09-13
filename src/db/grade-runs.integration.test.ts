@@ -321,58 +321,64 @@ test('validateGradeRun accepts card drift but rejects frozen field changes', asy
   const run = await loadGradeRun(runInfo.id);
   if (!run) throw new Error('Run not found');
 
-  // Update stored rubric card only (this is allowed drift).
-  const cardDrifted = {
-    ...agentReadinessManifest,
-    card: { ...agentReadinessManifest.card, tagline: 'Modified tagline for drift test.' },
-  };
-  await db()
-    .update(gradingRubrics)
-    .set({ manifest: cardDrifted })
-    .where(
-      and(
-        eq(gradingRubrics.graderId, agentReadinessManifest.id),
-        eq(gradingRubrics.version, agentReadinessManifest.version),
+  // The rubric row is shared across the whole file, so a mutation here must
+  // be undone even if an assertion below throws — otherwise every test that
+  // runs after this one (should this stop being last) inherits a poisoned
+  // rubric with no test of its own to blame.
+  try {
+    // Update stored rubric card only (this is allowed drift).
+    const cardDrifted = {
+      ...agentReadinessManifest,
+      card: { ...agentReadinessManifest.card, tagline: 'Modified tagline for drift test.' },
+    };
+    await db()
+      .update(gradingRubrics)
+      .set({ manifest: cardDrifted })
+      .where(
+        and(
+          eq(gradingRubrics.graderId, agentReadinessManifest.id),
+          eq(gradingRubrics.version, agentReadinessManifest.version),
+        ),
+      );
+
+    // validateGradeRun should accept the run despite card drift.
+    await expect(validateGradeRun(run)).resolves.not.toThrow();
+
+    // Now test that frozen field changes are rejected.
+    // Create a second run.
+    const run2Info = await requestGrade(repo, AGENT_READINESS);
+    const run2 = await loadGradeRun(run2Info.id);
+    if (!run2) throw new Error('Run not found');
+
+    // Modify a frozen field in the stored rubric.
+    const frozenDrifted = {
+      ...agentReadinessManifest,
+      checks: agentReadinessManifest.checks.map((check, index) =>
+        index === 0 ? { ...check, args: { ...check.args, nonempty: false } } : check,
       ),
-    );
+    } as typeof agentReadinessManifest;
+    await db()
+      .update(gradingRubrics)
+      .set({ manifest: frozenDrifted })
+      .where(
+        and(
+          eq(gradingRubrics.graderId, agentReadinessManifest.id),
+          eq(gradingRubrics.version, agentReadinessManifest.version),
+        ),
+      );
 
-  // validateGradeRun should accept the run despite card drift.
-  await expect(validateGradeRun(run)).resolves.not.toThrow();
-
-  // Now test that frozen field changes are rejected.
-  // Create a second run.
-  const run2Info = await requestGrade(repo, AGENT_READINESS);
-  const run2 = await loadGradeRun(run2Info.id);
-  if (!run2) throw new Error('Run not found');
-
-  // Modify a frozen field in the stored rubric.
-  const frozenDrifted = {
-    ...agentReadinessManifest,
-    checks: agentReadinessManifest.checks.map((check, index) =>
-      index === 0 ? { ...check, args: { ...check.args, nonempty: false } } : check,
-    ),
-  } as typeof agentReadinessManifest;
-  await db()
-    .update(gradingRubrics)
-    .set({ manifest: frozenDrifted })
-    .where(
-      and(
-        eq(gradingRubrics.graderId, agentReadinessManifest.id),
-        eq(gradingRubrics.version, agentReadinessManifest.version),
-      ),
-    );
-
-  // validateGradeRun should reject the run.
-  await expect(validateGradeRun(run2)).rejects.toThrow('Unsupported rubric version');
-
-  // Clean up: restore the original manifest for subsequent tests.
-  await db()
-    .update(gradingRubrics)
-    .set({ manifest: agentReadinessManifest })
-    .where(
-      and(
-        eq(gradingRubrics.graderId, agentReadinessManifest.id),
-        eq(gradingRubrics.version, agentReadinessManifest.version),
-      ),
-    );
+    // validateGradeRun should reject the run.
+    await expect(validateGradeRun(run2)).rejects.toThrow('Unsupported rubric version');
+  } finally {
+    // Clean up: restore the original manifest for subsequent tests.
+    await db()
+      .update(gradingRubrics)
+      .set({ manifest: agentReadinessManifest })
+      .where(
+        and(
+          eq(gradingRubrics.graderId, agentReadinessManifest.id),
+          eq(gradingRubrics.version, agentReadinessManifest.version),
+        ),
+      );
+  }
 });
