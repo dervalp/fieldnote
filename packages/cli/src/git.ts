@@ -6,6 +6,10 @@ const run = promisify(execFile);
 export type GitState = {
   slug: string | null;
   sha: string | null;
+  // The upstream branch's head: the newest commit that is, by definition,
+  // already on the remote. sha is HEAD, which in the unpushed case is exactly
+  // the commit the server cannot fetch — so the two are not interchangeable.
+  upstreamSha: string | null;
   dirtyCount: number;
   unpushedCount: number;
   hasUpstream: boolean;
@@ -44,12 +48,20 @@ async function git(cwd: string, args: string[]): Promise<string | null> {
 export async function readGitState(cwd: string): Promise<GitState> {
   const sha = await git(cwd, ['rev-parse', 'HEAD']);
   if (sha === null)
-    return { slug: null, sha: null, dirtyCount: 0, unpushedCount: 0, hasUpstream: false };
+    return {
+      slug: null,
+      sha: null,
+      upstreamSha: null,
+      dirtyCount: 0,
+      unpushedCount: 0,
+      hasUpstream: false,
+    };
 
   const remote = await git(cwd, ['remote', 'get-url', 'origin']);
   const status = await git(cwd, ['status', '--porcelain']);
   const upstream = await git(cwd, ['rev-parse', '--abbrev-ref', '@{u}']);
   const ahead = upstream === null ? null : await git(cwd, ['rev-list', '--count', '@{u}..HEAD']);
+  const upstreamSha = upstream === null ? null : await git(cwd, ['rev-parse', '@{u}']);
   // Non-numeric stdout must not become NaN in GitState: NaN is not an integer
   // count and downstream code should never have to know that. Fall back to 0
   // rather than let a malformed count reach a caller.
@@ -58,6 +70,7 @@ export async function readGitState(cwd: string): Promise<GitState> {
   return {
     slug: remote === null ? null : parseSlug(remote),
     sha,
+    upstreamSha,
     dirtyCount: status ? status.split('\n').filter(Boolean).length : 0,
     unpushedCount: Number.isInteger(aheadCount) ? aheadCount : 0,
     hasUpstream: upstream !== null,
@@ -116,6 +129,21 @@ export function gradeBlocker(
         : null,
     ].filter(Boolean);
 
+    // --sha does not choose what gets graded — the server pins the
+    // repository's default branch head either way. All it does is waive this
+    // refusal, so the copy offers it as "grade what is already on GitHub",
+    // not as "grade this commit". The sha offered is the upstream head: this
+    // branch is entered when HEAD itself is unpushed or uncommitted, so
+    // state.sha is precisely the commit the server cannot fetch.
+    const pushedOffer =
+      state.upstreamSha === null
+        ? []
+        : [
+            '',
+            '    skip this refusal and grade what is already on GitHub',
+            `      fieldnote run --sha ${state.upstreamSha.slice(0, 7)}`,
+          ];
+
     return {
       reason: state.unpushedCount > 0 ? 'unpushed' : 'dirty',
       lines: [
@@ -130,9 +158,7 @@ export function gradeBlocker(
         '',
         '    push this branch, then grade its head',
         '      git push && fieldnote run',
-        '',
-        '    grade a commit that is already pushed',
-        `      fieldnote run --sha ${state.sha.slice(0, 7)}`,
+        ...pushedOffer,
         '',
         '    see what has not been graded',
         '      git status --short',
@@ -141,4 +167,19 @@ export function gradeBlocker(
   }
 
   return null;
+}
+
+// The server's POST schema requires a full 40-character sha, and this package
+// offers abbreviations (the refusal copy above prints a seven-character one).
+// `git rev-parse --verify <sha>^{commit}` does both halves of the job: it
+// expands an abbreviation to the full 40 characters, and it proves the object
+// exists locally and is a commit — a refusal the developer can act on, rather
+// than a 400 from the server. Null means git would not vouch for it.
+//
+// `sha` reaches here from argv, but never with a leading '-': bin.ts's
+// flagValue() refuses a value that starts with one, so no caller can turn it
+// into a git option. execFile takes an argument array and no shell.
+export async function expandSha(cwd: string, sha: string): Promise<string | null> {
+  const expanded = await git(cwd, ['rev-parse', '--verify', `${sha}^{commit}`]);
+  return expanded !== null && /^[0-9a-f]{40}$/.test(expanded) ? expanded : null;
 }

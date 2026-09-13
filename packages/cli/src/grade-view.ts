@@ -22,12 +22,14 @@ function kindOf(check: GradeCheck): 'pass' | 'fail' | 'partial' {
 
 const short = (sha: string) => sha.slice(0, 7);
 
-// The CLI accepts an abbreviated sha (git.ts itself suggests one, in the
-// dirty/unpushed blocker's own copy), so exact equality is the wrong test
-// for "did we grade what was requested" — a 7-character requestedSha and its
-// own 40-character expansion are the same commit, not a mismatch. Either
-// string being empty is never a match: an empty sha is missing information,
-// not a shared prefix of everything.
+// Defensive, and deliberately kept. grade-run.ts now expands --sha to 40
+// characters before the POST, so requestedSha and gradedSha should both be
+// full shas and exact equality would do — but the CLI still accepts an
+// abbreviation at the command line (the dirty/unpushed refusal copy offers
+// one), and if that expansion ever moves or goes away, a 7-character
+// requestedSha and its own 40-character expansion are the same commit, not a
+// mismatch to disclose. Either string being empty is never a match: an empty
+// sha is missing information, not a shared prefix of everything.
 function shaMatches(a: string, b: string): boolean {
   if (a === '' || b === '') return false;
   return a.startsWith(b) || b.startsWith(a);

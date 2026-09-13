@@ -27,7 +27,12 @@ export function helpText(): string {
     '    mcp                 serve fieldnote over MCP       coming soon',
     '',
     '  OPTIONS',
-    '    --sha <sha>         grade this commit, bypassing the work-in-progress guard',
+    // --sha does not choose the commit that gets graded: requestGrade neither
+    // accepts nor stores a sha, and the collection worker pins the
+    // repository's default branch head. Saying "grade this commit" promised
+    // something the system does not do.
+    '    --sha <sha>         bypass the work-in-progress guard; fieldnote still grades',
+    '                        the default branch head',
     '    --min <score>       exit 1 if the grade scores below this threshold',
     '    --json              one object: the result on success, or one with an "error" key',
     '    --version           print the version and exit',

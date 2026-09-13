@@ -2,16 +2,24 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { run } from './bin.ts';
 import { ApiError, type GradeComplete } from './api.ts';
 
-const { readGitState, gradeBlocker, requestGradeRun, pollGradeRun, listGraders, readAuth } =
-  vi.hoisted(() => ({
-    readGitState: vi.fn(),
-    gradeBlocker: vi.fn(),
-    requestGradeRun: vi.fn(),
-    pollGradeRun: vi.fn(),
-    listGraders: vi.fn(),
-    readAuth: vi.fn(),
-  }));
-vi.mock('./git.ts', () => ({ readGitState, gradeBlocker }));
+const {
+  readGitState,
+  gradeBlocker,
+  expandSha,
+  requestGradeRun,
+  pollGradeRun,
+  listGraders,
+  readAuth,
+} = vi.hoisted(() => ({
+  readGitState: vi.fn(),
+  gradeBlocker: vi.fn(),
+  expandSha: vi.fn(),
+  requestGradeRun: vi.fn(),
+  pollGradeRun: vi.fn(),
+  listGraders: vi.fn(),
+  readAuth: vi.fn(),
+}));
+vi.mock('./git.ts', () => ({ readGitState, gradeBlocker, expandSha }));
 vi.mock('./config.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./config.ts')>()),
   readAuth,
@@ -41,6 +49,7 @@ const AUTH = { token: 't', login: 'pierre', workspace: 'vertuoza' };
 const CLEAN_STATE = {
   slug: 'dervalp/fieldnote',
   sha: 'a'.repeat(40),
+  upstreamSha: 'a'.repeat(40),
   dirtyCount: 0,
   unpushedCount: 0,
   hasUpstream: true,
@@ -139,17 +148,20 @@ describe('run (the grading command)', () => {
     expect(c.text()).toBe('  3 files changed\n  fix it\n');
   });
 
-  it('--sha bypasses a dirty blocker', async () => {
+  it('--sha bypasses a dirty blocker, sending the expansion the server requires', async () => {
     readAuth.mockResolvedValue(AUTH);
     readGitState.mockResolvedValue(CLEAN_STATE);
     gradeBlocker.mockReturnValue({ reason: 'dirty', lines: ['  dirty'] });
-    requestGradeRun.mockResolvedValue({ ...REQUESTED, requestedSha: 'deadbeef' });
-    pollGradeRun.mockResolvedValue(completeFixture({ gradedSha: 'deadbeef' }));
+    // The abbreviation the refusal copy itself offers, expanded before the
+    // POST: the server's schema is /^[0-9a-f]{40}$/ and rejects anything less.
+    expandSha.mockResolvedValue('d'.repeat(40));
+    requestGradeRun.mockResolvedValue({ ...REQUESTED, requestedSha: 'd'.repeat(40) });
+    pollGradeRun.mockResolvedValue(completeFixture({ gradedSha: 'd'.repeat(40) }));
     const c = capture();
-    expect(await run(['run', '--sha', 'deadbeef'], c.sink, c.env)).toBe(0);
+    expect(await run(['run', '--sha', 'deadbee'], c.sink, c.env)).toBe(0);
     expect(requestGradeRun).toHaveBeenCalledWith(expect.any(String), AUTH.token, {
       repository: CLEAN_STATE.slug,
-      sha: 'deadbeef',
+      sha: 'd'.repeat(40),
       grader: undefined,
     });
   });
@@ -158,10 +170,11 @@ describe('run (the grading command)', () => {
     readAuth.mockResolvedValue(AUTH);
     readGitState.mockResolvedValue(CLEAN_STATE);
     gradeBlocker.mockReturnValue({ reason: 'unpushed', lines: ['  unpushed'] });
-    requestGradeRun.mockResolvedValue({ ...REQUESTED, requestedSha: 'deadbeef' });
-    pollGradeRun.mockResolvedValue(completeFixture({ gradedSha: 'deadbeef' }));
+    expandSha.mockResolvedValue('d'.repeat(40));
+    requestGradeRun.mockResolvedValue({ ...REQUESTED, requestedSha: 'd'.repeat(40) });
+    pollGradeRun.mockResolvedValue(completeFixture({ gradedSha: 'd'.repeat(40) }));
     const c = capture();
-    expect(await run(['run', '--sha', 'deadbeef'], c.sink, c.env)).toBe(0);
+    expect(await run(['run', '--sha', 'deadbee'], c.sink, c.env)).toBe(0);
   });
 
   it('--sha does not bypass a no-remote blocker', async () => {
@@ -269,6 +282,17 @@ describe('run (the grading command)', () => {
     expect(readGitState).not.toHaveBeenCalled();
   });
 
+  it('exits 2 and names the commit when --sha is not one this repository has', async () => {
+    readAuth.mockResolvedValue(AUTH);
+    readGitState.mockResolvedValue(CLEAN_STATE);
+    gradeBlocker.mockReturnValue(null);
+    expandSha.mockResolvedValue(null);
+    const c = capture();
+    expect(await run(['run', '--sha', 'deadbee'], c.sink, c.env)).toBe(2);
+    expect(c.text()).toContain('deadbee');
+    expect(requestGradeRun).not.toHaveBeenCalled();
+  });
+
   it('exits 2 and names the errorCode for a failed grade', async () => {
     readAuth.mockResolvedValue(AUTH);
     readGitState.mockResolvedValue(CLEAN_STATE);
@@ -339,13 +363,14 @@ describe('run (the grading command)', () => {
     readAuth.mockResolvedValue(AUTH);
     readGitState.mockResolvedValue(CLEAN_STATE);
     gradeBlocker.mockReturnValue(null);
+    expandSha.mockResolvedValue('d'.repeat(40));
     requestGradeRun.mockResolvedValue(REQUESTED);
     pollGradeRun.mockResolvedValue(completeFixture());
     const c = capture();
-    await run(['run', '--sha', 'deadbeef', 'agent-brief'], c.sink, c.env);
+    await run(['run', '--sha', 'deadbee', 'agent-brief'], c.sink, c.env);
     expect(requestGradeRun).toHaveBeenCalledWith(expect.any(String), AUTH.token, {
       repository: CLEAN_STATE.slug,
-      sha: 'deadbeef',
+      sha: 'd'.repeat(40),
       grader: 'agent-brief',
     });
   });
@@ -357,10 +382,11 @@ describe('run (the grading command)', () => {
     readAuth.mockResolvedValue(AUTH);
     readGitState.mockResolvedValue(CLEAN_STATE);
     gradeBlocker.mockReturnValue(null);
+    expandSha.mockResolvedValue('d'.repeat(40));
     requestGradeRun.mockResolvedValue(REQUESTED);
     pollGradeRun.mockResolvedValue(completeFixture());
     const c = capture();
-    expect(await run(['--sha', 'deadbeef', 'run'], c.sink, c.env)).toBe(0);
+    expect(await run(['--sha', 'deadbee', 'run'], c.sink, c.env)).toBe(0);
     expect(c.text()).not.toContain('Unknown command');
   });
 

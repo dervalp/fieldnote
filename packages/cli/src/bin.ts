@@ -332,6 +332,17 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
       );
     }
 
+    if (outcome.kind === 'unknown-sha') {
+      // git itself declined to resolve it, so the server would only refuse it
+      // again half a second later, in the server's words rather than this
+      // repository's.
+      return fail(out, json, 2, {
+        error: 'unknown-sha',
+        message: `No commit ${outcome.sha} in this repository. Run \`git fetch\` if it is on the remote.`,
+        sha: outcome.sha,
+      });
+    }
+
     if (outcome.kind === 'timeout') {
       return fail(out, json, 2, {
         error: 'timeout',

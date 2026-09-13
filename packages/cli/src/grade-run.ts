@@ -1,5 +1,5 @@
 import { ApiError, hasResult, pollGradeRun, requestGradeRun, type GradePoll } from './api.ts';
-import { gradeBlocker, readGitState } from './git.ts';
+import { expandSha, gradeBlocker, readGitState } from './git.ts';
 import type { GradeView } from './grade-view.ts';
 
 type Blocker = NonNullable<ReturnType<typeof gradeBlocker>>;
@@ -25,6 +25,7 @@ export type GradeRunOptions = {
 // into lines and an exit code; this owns none of that.
 export type GradeRunOutcome =
   | ({ kind: 'blocked' } & Blocker)
+  | { kind: 'unknown-sha'; sha: string }
   | { kind: 'timeout' }
   | { kind: 'failed'; errorCode: string | null }
   | { kind: 'no-result' }
@@ -64,7 +65,17 @@ export async function gradeRun(options: GradeRunOptions): Promise<GradeRunOutcom
   const slug = state.slug;
   // What is sent to the server: the developer's own --sha, or the git-
   // resolved HEAD. Not what ends up in the rendered view — see below.
-  const shaToRequest = options.sha ?? state.sha;
+  //
+  // --sha is expanded first. The POST schema requires a full 40-character
+  // sha and this package offers abbreviations, so an unexpanded --sha — in
+  // the exact form the refusal copy recommends — is a 400. rev-parse HEAD is
+  // already 40 characters, so only the developer's own value is expanded.
+  let shaToRequest = state.sha;
+  if (options.sha !== undefined) {
+    const expanded = await expandSha(options.cwd, options.sha);
+    if (expanded === null) return { kind: 'unknown-sha', sha: options.sha };
+    shaToRequest = expanded;
+  }
 
   const requested = await requestGradeRun(options.base, options.token, {
     repository: slug,

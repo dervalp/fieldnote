@@ -2,13 +2,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { gradeRun } from './grade-run.ts';
 import { ApiError, type GradeComplete } from './api.ts';
 
-const { readGitState, gradeBlocker, requestGradeRun, pollGradeRun } = vi.hoisted(() => ({
+const { readGitState, gradeBlocker, expandSha, requestGradeRun, pollGradeRun } = vi.hoisted(() => ({
   readGitState: vi.fn(),
   gradeBlocker: vi.fn(),
+  expandSha: vi.fn(),
   requestGradeRun: vi.fn(),
   pollGradeRun: vi.fn(),
 }));
-vi.mock('./git.ts', () => ({ readGitState, gradeBlocker }));
+vi.mock('./git.ts', () => ({ readGitState, gradeBlocker, expandSha }));
 vi.mock('./api.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./api.ts')>()),
   requestGradeRun,
@@ -23,6 +24,7 @@ afterEach(() => {
 const CLEAN_STATE = {
   slug: 'dervalp/fieldnote',
   sha: 'a'.repeat(40),
+  upstreamSha: 'a'.repeat(40),
   dirtyCount: 0,
   unpushedCount: 0,
   hasUpstream: true,
@@ -70,9 +72,10 @@ describe('gradeRun — the work-in-progress guard', () => {
   it('--sha bypasses a dirty or unpushed blocker', async () => {
     readGitState.mockResolvedValue(CLEAN_STATE);
     gradeBlocker.mockReturnValue({ reason: 'unpushed', lines: ['  unpushed'] });
-    requestGradeRun.mockResolvedValue({ ...REQUESTED, requestedSha: 'deadbeef' });
-    pollGradeRun.mockResolvedValue(completeFixture({ gradedSha: 'deadbeef' }));
-    const outcome = await gradeRun({ ...baseOptions, sha: 'deadbeef' });
+    expandSha.mockResolvedValue('d'.repeat(40));
+    requestGradeRun.mockResolvedValue({ ...REQUESTED, requestedSha: 'd'.repeat(40) });
+    pollGradeRun.mockResolvedValue(completeFixture({ gradedSha: 'd'.repeat(40) }));
+    const outcome = await gradeRun({ ...baseOptions, sha: 'deadbee' });
     expect(outcome.kind).toBe('graded');
   });
 
@@ -82,6 +85,49 @@ describe('gradeRun — the work-in-progress guard', () => {
     const outcome = await gradeRun({ ...baseOptions, sha: 'deadbeef' });
     expect(outcome).toEqual({ kind: 'blocked', reason: 'no-remote', lines: ['  no remote'] });
     expect(requestGradeRun).not.toHaveBeenCalled();
+  });
+});
+
+describe('gradeRun — --sha is expanded before it is sent', () => {
+  it('sends the 40-character expansion, not the abbreviation the developer typed', async () => {
+    // The POST schema is /^[0-9a-f]{40}$/, and the refusal copy in git.ts
+    // offers a seven-character sha — so the CLI's own escape hatch, in the
+    // exact form the CLI recommends, 400s unless it is expanded here.
+    readGitState.mockResolvedValue(CLEAN_STATE);
+    gradeBlocker.mockReturnValue(null);
+    expandSha.mockResolvedValue('d'.repeat(40));
+    requestGradeRun.mockResolvedValue({ ...REQUESTED, requestedSha: 'd'.repeat(40) });
+    pollGradeRun.mockResolvedValue(completeFixture());
+    await gradeRun({ ...baseOptions, sha: 'deadbee' });
+    expect(expandSha).toHaveBeenCalledWith('/repo', 'deadbee');
+    expect(requestGradeRun).toHaveBeenCalledWith(
+      'http://x',
+      't',
+      expect.objectContaining({ sha: 'd'.repeat(40) }),
+    );
+  });
+
+  it('refuses a --sha this repository does not have, without spending a run', async () => {
+    // A local refusal naming the commit beats a server 400, and it is the
+    // same answer either way — git is the authority on what this repository
+    // contains.
+    readGitState.mockResolvedValue(CLEAN_STATE);
+    gradeBlocker.mockReturnValue(null);
+    expandSha.mockResolvedValue(null);
+    const outcome = await gradeRun({ ...baseOptions, sha: 'deadbee' });
+    expect(outcome).toEqual({ kind: 'unknown-sha', sha: 'deadbee' });
+    expect(requestGradeRun).not.toHaveBeenCalled();
+  });
+
+  it('does not shell out to expand a sha nobody abbreviated', async () => {
+    // rev-parse HEAD already returns 40 characters; expanding it again is a
+    // subprocess spent on a string that cannot change.
+    readGitState.mockResolvedValue(CLEAN_STATE);
+    gradeBlocker.mockReturnValue(null);
+    requestGradeRun.mockResolvedValue(REQUESTED);
+    pollGradeRun.mockResolvedValue(completeFixture());
+    await gradeRun(baseOptions);
+    expect(expandSha).not.toHaveBeenCalled();
   });
 });
 
@@ -109,6 +155,7 @@ describe('gradeRun — requestedSha', () => {
     // already waited out a full grade.
     readGitState.mockResolvedValue(CLEAN_STATE);
     gradeBlocker.mockReturnValue(null);
+    expandSha.mockResolvedValue('d'.repeat(40));
     requestGradeRun.mockResolvedValue({
       runId: 'r1',
       graderId: 'agent-brief',
@@ -116,9 +163,11 @@ describe('gradeRun — requestedSha', () => {
       requestedSha: undefined as unknown as string,
     });
     pollGradeRun.mockResolvedValue(completeFixture());
-    const outcome = await gradeRun({ ...baseOptions, sha: 'deadbeef' });
+    const outcome = await gradeRun({ ...baseOptions, sha: 'deadbee' });
     if (outcome.kind !== 'graded') throw new Error('expected graded');
-    expect(outcome.view.requestedSha).toBe('deadbeef');
+    // The fallback is what was actually sent — the expansion, not the
+    // abbreviation the developer typed.
+    expect(outcome.view.requestedSha).toBe('d'.repeat(40));
   });
 
   it('slug comes from git state, not from the server', async () => {

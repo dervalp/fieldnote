@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vitest';
-import { gradeBlocker, parseSlug } from './git.ts';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { execFile } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { promisify } from 'node:util';
+import { expandSha, gradeBlocker, parseSlug } from './git.ts';
 
 describe('parseSlug', () => {
   it('reads every remote form GitHub hands out', () => {
@@ -56,6 +61,7 @@ describe('parseSlug', () => {
 const clean = {
   slug: 'dervalp/fieldnote',
   sha: 'a'.repeat(40),
+  upstreamSha: 'b'.repeat(40),
   dirtyCount: 0,
   unpushedCount: 0,
   hasUpstream: true,
@@ -80,10 +86,23 @@ describe('gradeBlocker', () => {
     expect(blocker?.lines.join(' ')).toContain('3');
   });
 
-  it('refuses unpushed commits, and offers the last pushed sha', () => {
+  it('refuses unpushed commits, and offers the upstream sha rather than the unpushed one', () => {
+    // This branch is entered *because* HEAD is not pushed, so offering
+    // state.sha under "already on GitHub" would offer, by construction, the
+    // one commit the server cannot fetch. The upstream head is the last sha
+    // that is actually there.
     const blocker = gradeBlocker({ ...clean, unpushedCount: 1 });
     expect(blocker?.reason).toBe('unpushed');
-    expect(blocker?.lines.join(' ')).toContain('--sha');
+    const lines = blocker?.lines.join(' ') ?? '';
+    expect(lines).toContain(`--sha ${clean.upstreamSha.slice(0, 7)}`);
+    expect(lines).not.toContain(clean.sha.slice(0, 7));
+  });
+
+  it('omits the --sha offer when the upstream head is unreadable', () => {
+    // Nothing to offer is better than offering a sha that was never resolved.
+    const blocker = gradeBlocker({ ...clean, unpushedCount: 1, upstreamSha: null });
+    expect(blocker?.reason).toBe('unpushed');
+    expect(blocker?.lines.join(' ')).not.toContain('--sha');
   });
 
   it('refuses a branch with no upstream, even when clean and unpushed-count is zero', () => {
@@ -103,5 +122,49 @@ describe('gradeBlocker', () => {
     // "3 files changed" is checkable; "working tree dirty" is a state the
     // developer has to go and confirm.
     expect(gradeBlocker({ ...clean, dirtyCount: 3 })?.lines.join(' ')).not.toContain('dirty');
+  });
+});
+
+describe('expandSha', () => {
+  // A real repository, not a mock: the whole point of this function is that
+  // git itself is the authority on whether an abbreviation names a commit.
+  const run = promisify(execFile);
+  let repo: string;
+  let sha: string;
+
+  beforeAll(async () => {
+    repo = mkdtempSync(join(tmpdir(), 'fieldnote-git-'));
+    await run('git', ['init', '-q'], { cwd: repo });
+    await run('git', ['config', 'user.email', 'test@example.com'], { cwd: repo });
+    await run('git', ['config', 'user.name', 'test'], { cwd: repo });
+    writeFileSync(join(repo, 'README.md'), '# x\n');
+    await run('git', ['add', 'README.md'], { cwd: repo });
+    await run('git', ['commit', '-qm', 'first'], { cwd: repo });
+    sha = (await run('git', ['rev-parse', 'HEAD'], { cwd: repo })).stdout.trim();
+  });
+
+  afterAll(() => {
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it('expands the abbreviation its own blocker copy offers to the 40 characters the server requires', async () => {
+    expect(await expandSha(repo, sha.slice(0, 7))).toBe(sha);
+  });
+
+  it('leaves a full sha unchanged', async () => {
+    expect(await expandSha(repo, sha)).toBe(sha);
+  });
+
+  it('is null for a commit this repository does not have', async () => {
+    expect(await expandSha(repo, 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef')).toBeNull();
+  });
+
+  it('is null outside a repository', async () => {
+    const empty = mkdtempSync(join(tmpdir(), 'fieldnote-nogit-'));
+    try {
+      expect(await expandSha(empty, sha)).toBeNull();
+    } finally {
+      rmSync(empty, { recursive: true, force: true });
+    }
   });
 });
