@@ -5,9 +5,10 @@ import type { CompletedGrade } from '../../db/queries/grade-runs';
 import type { CheckResult } from '../../domain/grading/types';
 vi.stubGlobal('React', React);
 vi.mock('../../app/repos/[repoId]/grading/actions', () => ({ runGrade: vi.fn() }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 import { GradeCard } from '@fieldnote/design-system';
 import { gradeCardProps } from './grade-presentation';
-import { GradeReport } from './report';
+import { GradeControls, GradeReport } from './report';
 import {
   AGENT_READINESS,
   agentReadinessManifest,
@@ -259,4 +260,47 @@ test('a metric check renders its measurement and no empty evidence block', () =>
   );
   expect(html).toContain('Most merged pull requests passed review');
   expect(html).not.toContain('Show pinned evidence');
+});
+
+// The ternary in GradeControls is the whole point of the errorCode work: it
+// decides whether a team reads a failure as theirs ("not enough record") or
+// fieldnote's ("the grader could not finish"). These pin both branches by
+// their specific copy, not merely that something rendered, so swapped
+// branches, a misspelled literal, or a deleted errorCode check would fail.
+const NOT_ENOUGH_RECORD =
+  'There is not enough record in this window to score. Try again once more work has merged.';
+const COULD_NOT_FINISH =
+  'The grader could not finish. Your last completed report is unchanged. Try again.';
+test('a run that failed for insufficient evidence tells the team it is their record, not fieldnote', () => {
+  const html = renderToStaticMarkup(
+    createElement(GradeControls, {
+      repositoryId: 'repo',
+      initial: { id: 'run', state: 'failed', errorCode: 'insufficient_evidence' },
+      canRun: true,
+    }),
+  );
+  expect(html).toContain(NOT_ENOUGH_RECORD);
+  expect(html).not.toContain(COULD_NOT_FINISH);
+});
+test('a run that failed to collect evidence tells the team fieldnote could not finish, not that their record is thin', () => {
+  const html = renderToStaticMarkup(
+    createElement(GradeControls, {
+      repositoryId: 'repo',
+      initial: { id: 'run', state: 'failed', errorCode: 'incomplete_collection' },
+      canRun: true,
+    }),
+  );
+  expect(html).toContain(COULD_NOT_FINISH);
+  expect(html).not.toContain(NOT_ENOUGH_RECORD);
+});
+test('a failed run with no error code, as an older row would look, reads as the generic failure', () => {
+  const html = renderToStaticMarkup(
+    createElement(GradeControls, {
+      repositoryId: 'repo',
+      initial: { id: 'run', state: 'failed', errorCode: null },
+      canRun: true,
+    }),
+  );
+  expect(html).toContain(COULD_NOT_FINISH);
+  expect(html).not.toContain(NOT_ENOUGH_RECORD);
 });
