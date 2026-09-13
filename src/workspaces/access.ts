@@ -2,6 +2,7 @@ import { and, asc, eq, sql } from 'drizzle-orm';
 import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { currentUser } from '../auth/session';
+import { currentPrincipal } from '../auth/principal';
 import { db } from '../db';
 import {
   installations,
@@ -28,8 +29,16 @@ export async function requireWorkspace(
   }
   const user = await currentUser();
   await ensureDefaultWorkspace(user.id);
+  const principal = currentPrincipal();
   const explicit = workspaceId !== undefined;
-  const preferred = explicit ? workspaceId : (await cookies()).get(workspaceCookie)?.value;
+  // A CLI token pins its workspace at issue. A token that followed a cookie
+  // preference would be a token whose blast radius changed without anyone
+  // touching it — and there is no cookie on a bearer request anyway.
+  const preferred = explicit
+    ? workspaceId
+    : principal
+      ? principal.workspaceId
+      : (await cookies()).get(workspaceCookie)?.value;
   const memberships = await db()
     .select({
       id: workspaces.id,

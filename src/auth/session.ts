@@ -8,6 +8,7 @@ import { users, sessions } from '../db/schema';
 import { integrationEnv } from '../lib/env';
 import { decrypt, encrypt, tokenHash } from './crypto';
 import { credentialsSchema, exchangeToken } from './oauth';
+import { currentPrincipal } from './principal';
 export const cookieOptions = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
@@ -23,6 +24,7 @@ export async function createSession(userId: string) {
   (await cookies()).set('reliability-session', token, { ...cookieOptions, expires: expiresAt });
 }
 export async function hasCurrentSession(): Promise<boolean> {
+  if (currentPrincipal()) return true;
   const token = (await cookies()).get('reliability-session')?.value;
   if (!token) return false;
   const [session] = await db()
@@ -33,6 +35,16 @@ export async function hasCurrentSession(): Promise<boolean> {
 }
 
 async function sessionUser() {
+  // A CLI principal short-circuits the cookie entirely. currentUser() and
+  // userClient() both funnel through here, so this one branch is the whole
+  // seam — a bearer token gets the same GitHub client and the same identity
+  // every cookie session gets, and no authorization check knows the difference.
+  const principal = currentPrincipal();
+  if (principal) {
+    const [user] = await db().select().from(users).where(eq(users.id, principal.userId));
+    if (!user) redirect('/signed-out');
+    return user;
+  }
   const token = (await cookies()).get('reliability-session')?.value;
   if (!token) redirect('/signed-out');
   const [row] = await db()
@@ -47,6 +59,8 @@ async function sessionUser() {
 // Local identity only: this does not need GitHub credentials or network access.
 // Returns null instead of redirecting, for callers that tolerate a signed-out visitor.
 export async function currentUserId(): Promise<string | null> {
+  const principal = currentPrincipal();
+  if (principal) return principal.userId;
   const token = (await cookies()).get('reliability-session')?.value;
   if (!token) return null;
   const [session] = await db()

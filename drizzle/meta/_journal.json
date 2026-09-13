@@ -85,6 +85,13 @@
       "when": 1789119891757,
       "tag": "0011_sleepy_machine_man",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1789295170007,
+      "tag": "0012_cli_tokens",
+      "breakpoints": true
     }
   ]
 }

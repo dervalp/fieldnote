@@ -16,9 +16,4 @@ export { Field } from './field';
 export { DataTable } from './data-table';
 export { GradeCard } from './grade-card';
 export { GradeBanner } from './grade-banner';
-export type {
-  GradeCardProps,
-  GradeFinish,
-  GradeMove,
-  GradeNextTier,
-} from './grade-card';
+export type { GradeCardProps, GradeFinish, GradeMove, GradeNextTier } from './grade-card';

@@ -72,6 +72,7 @@ export default async function WorkspaceSettings() {
         <Link aria-current="page" href="/settings/workspace">
           Workspace
         </Link>
+        <Link href="/settings/tokens">Tokens</Link>
         <span className={owner ? 'owner-badge' : 'member-badge'}>{owner ? 'Owner' : 'Member'}</span>
       </div>
       <div className="settings-grid" key={workspace.id}>
