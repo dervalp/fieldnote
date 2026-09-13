@@ -6,6 +6,15 @@ import { ManifestError } from '../../../../../domain/grading/manifest';
 import { gradePresentation } from '../../../../../domain/grading/presentation';
 import { finishNames } from '../../../../../domain/grading/finish-names';
 import { nextTier } from '../../../../../domain/grading/next-tier';
+// Registers fieldnote's own built-in grader as a module-scope side effect.
+// Nothing else boots that registration — there is no barrel file and no
+// startup hook — and none of this route's other imports reach it. Without
+// this import, any module instance whose first CLI request is a poll (a
+// per-route serverless function, or a cold instance) throws unknown_grader
+// below and 404s with "no longer registered": false about a grader that is
+// registered, and classified as transient by the CLI, which then retries it
+// for fifteen seconds before reporting.
+import '../../../../../domain/grading/graders/agent-readiness';
 
 const headers = { 'Cache-Control': 'private, no-store' };
 const notFound = (error = 'Grade unavailable.') =>

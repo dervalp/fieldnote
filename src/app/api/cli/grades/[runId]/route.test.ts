@@ -2,20 +2,34 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { ManifestError } from '../../../../../domain/grading/manifest';
 import type { CheckResult } from '../../../../../domain/grading/types';
 
-const { withCliPrincipal, loadGradeRun, accessibleRepositories, graderCheckTitles, getGrader } =
-  vi.hoisted(() => ({
-    withCliPrincipal: vi.fn(
-      async (_r: Request, _s: string, h: () => Promise<Response>) => await h(),
-    ),
-    loadGradeRun: vi.fn(),
-    accessibleRepositories: vi.fn(),
-    graderCheckTitles: vi.fn(),
-    getGrader: vi.fn(),
-  }));
+const {
+  withCliPrincipal,
+  loadGradeRun,
+  accessibleRepositories,
+  graderCheckTitles,
+  getGrader,
+  registerGrader,
+} = vi.hoisted(() => ({
+  withCliPrincipal: vi.fn(async (_r: Request, _s: string, h: () => Promise<Response>) => await h()),
+  loadGradeRun: vi.fn(),
+  accessibleRepositories: vi.fn(),
+  graderCheckTitles: vi.fn(),
+  getGrader: vi.fn(),
+  // The route imports agent-readiness.ts for its registration side effect,
+  // and that module calls registerGrader() at module scope — so a registry
+  // mock that omits it fails at import time. Stubbed rather than real: this
+  // file's subject is the response shape, and registry.test.ts alongside it
+  // is the one that exercises the real registration.
+  registerGrader: vi.fn(),
+}));
 vi.mock('../../principal', () => ({ withCliPrincipal }));
 vi.mock('../../../../../db/queries/grade-runs', () => ({ loadGradeRun }));
 vi.mock('../../../../../workspaces/access', () => ({ accessibleRepositories }));
-vi.mock('../../../../../domain/grading/registry', () => ({ graderCheckTitles, getGrader }));
+vi.mock('../../../../../domain/grading/registry', () => ({
+  graderCheckTitles,
+  getGrader,
+  registerGrader,
+}));
 
 import { GET } from './route';
 
