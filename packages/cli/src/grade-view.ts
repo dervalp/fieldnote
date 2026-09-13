@@ -47,7 +47,7 @@ export function gradeLines(input: GradeView): Line[] {
 
   // The server grades the repository's default branch head, not the working
   // tree. Saying so is the difference between a grade and a misleading one.
-  if (input.gradedSha === null)
+  if (!input.gradedSha)
     lines.push({
       kind: 'dim',
       text: `  This grade does not record which commit it read.`,

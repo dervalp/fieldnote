@@ -100,6 +100,27 @@ describe('gradeRun — requestedSha', () => {
     expect(outcome.view.requestedSha).toBe('deadbeef');
   });
 
+  it('falls back to the requested sha if the server ever omits the echo', async () => {
+    // api.ts's call() casts the parsed response with a bare `as T` and
+    // validates no field, so a server that omits requestedSha is not a type
+    // error at runtime — it is `undefined` reaching this module. Without the
+    // fallback, that flows into GradeView.requestedSha and grade-view.ts's
+    // shaMatches throws calling .startsWith() on it, after the developer has
+    // already waited out a full grade.
+    readGitState.mockResolvedValue(CLEAN_STATE);
+    gradeBlocker.mockReturnValue(null);
+    requestGradeRun.mockResolvedValue({
+      runId: 'r1',
+      graderId: 'agent-brief',
+      mode: 'deterministic',
+      requestedSha: undefined as unknown as string,
+    });
+    pollGradeRun.mockResolvedValue(completeFixture());
+    const outcome = await gradeRun({ ...baseOptions, sha: 'deadbeef' });
+    if (outcome.kind !== 'graded') throw new Error('expected graded');
+    expect(outcome.view.requestedSha).toBe('deadbeef');
+  });
+
   it('slug comes from git state, not from the server', async () => {
     readGitState.mockResolvedValue(CLEAN_STATE);
     gradeBlocker.mockReturnValue(null);
@@ -166,7 +187,8 @@ describe('gradeRun — the poll loop terminates', () => {
       .mockRejectedValueOnce(new ApiError('Could not reach fieldnote. Try again.', 2))
       .mockResolvedValueOnce(completeFixture());
     const promise = gradeRun(baseOptions);
-    await vi.advanceTimersByTimeAsync(2_000);
+    // Exponential backoff: 1s after the 1st failure, 2s after the 2nd.
+    await vi.advanceTimersByTimeAsync(3_000);
     expect((await promise).kind).toBe('graded');
   });
 
@@ -186,7 +208,8 @@ describe('gradeRun — the poll loop terminates', () => {
     requestGradeRun.mockResolvedValue(REQUESTED);
     pollGradeRun.mockRejectedValue(new ApiError('Could not reach fieldnote. Try again.', 2));
     const promise = gradeRun(baseOptions).catch((error) => error);
-    await vi.advanceTimersByTimeAsync(10_000);
+    // 4 tolerated failures back off 1s, 2s, 4s, 8s (15s) before the 5th gives up.
+    await vi.advanceTimersByTimeAsync(15_000);
     expect(await promise).toBeInstanceOf(ApiError);
   });
 

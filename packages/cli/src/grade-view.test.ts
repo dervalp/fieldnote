@@ -143,6 +143,26 @@ describe('gradeLines', () => {
     expect(joined(lines)).toContain('which commit');
   });
 
+  test('an empty-string graded sha is treated the same as a null one, not as a mismatch', () => {
+    // input.gradedSha ? … : 'commit unknown' in the head already treats ''
+    // like null; the mismatch disclosure below it must agree, or an empty
+    // string prints both "commit unknown" AND "Graded , not the commit you
+    // are on (…)" from the same value.
+    const lines = gradeLines({ ...base, gradedSha: '' });
+    expect(joined(lines)).toContain('which commit');
+    expect(joined(lines)).not.toContain('not the commit');
+  });
+
+  test('an empty requestedSha is never treated as matching — an empty prefix is not a shared commit', () => {
+    // The one branch of shaMatches's own empty-string guard that gradeSha
+    // being non-empty here can still reach: requestedSha empty, gradedSha
+    // not. Without the guard, ''.startsWith('') style reasoning would treat
+    // this as a match and hide a mismatch that is, if anything, more worth
+    // disclosing than an ordinary one.
+    const lines = gradeLines({ ...base, requestedSha: '' });
+    expect(joined(lines)).toContain('not the commit');
+  });
+
   test('the card url is the last line, so a scrolled terminal still ends on it', () => {
     expect(gradeLines(base).at(-1)).toEqual({ kind: 'url', text: base.url });
   });

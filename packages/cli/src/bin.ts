@@ -81,6 +81,19 @@ function notSignedIn(out: ReturnType<typeof createOutput>, json: boolean): numbe
   });
 }
 
+// A short, fixed phrase per reason, not scraped from the blocker's own
+// lines: git.ts's dirty and unpushed copy both open with the same generic
+// heading ("There is nothing here fieldnote can read yet.") and put the
+// actual detail — which files, how many commits — several lines further in.
+// Composing the message this way keeps it accurate regardless of which line
+// git.ts happens to put first; `lines` below still carries the full detail.
+const BLOCKED_MESSAGE: Record<'not-a-repo' | 'no-remote' | 'dirty' | 'unpushed', string> = {
+  'not-a-repo': 'This is not a git repository.',
+  'no-remote': 'This repository has no GitHub remote named origin.',
+  dirty: 'There are uncommitted changes fieldnote cannot grade yet.',
+  unpushed: 'There are commits that have not been pushed to GitHub yet.',
+};
+
 function reportApiError(
   out: ReturnType<typeof createOutput>,
   error: unknown,
@@ -130,10 +143,7 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
 
   if (command === 'whoami') {
     const auth = await readAuth(env);
-    if (!auth) {
-      out.line('  Not signed in. Run `fieldnote login`.');
-      return 3;
-    }
+    if (!auth) return notSignedIn(out, json);
     out.line(`  ${auth.login} · ${auth.workspace}`);
     return 0;
   }
@@ -314,7 +324,7 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
         2,
         {
           error: 'blocked',
-          message: outcome.lines[0]?.trim() ?? 'Blocked.',
+          message: BLOCKED_MESSAGE[outcome.reason],
           reason: outcome.reason,
           lines: outcome.lines,
         },

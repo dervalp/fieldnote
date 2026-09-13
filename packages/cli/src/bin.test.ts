@@ -432,7 +432,8 @@ describe('run (the grading command)', () => {
       .mockResolvedValueOnce(completeFixture({ score: 92 }));
     const c = capture();
     const promise = run(['run'], c.sink, c.env);
-    await vi.advanceTimersByTimeAsync(2_000);
+    // Exponential backoff: 1s after the 1st failure, 2s after the 2nd.
+    await vi.advanceTimersByTimeAsync(3_000);
     expect(await promise).toBe(0);
     expect(c.text()).toContain('92/100');
   });
@@ -458,7 +459,8 @@ describe('run (the grading command)', () => {
     pollGradeRun.mockRejectedValue(new ApiError('Could not reach fieldnote. Try again.', 2));
     const c = capture();
     const promise = run(['run'], c.sink, c.env);
-    await vi.advanceTimersByTimeAsync(10_000);
+    // 4 tolerated failures back off 1s, 2s, 4s, 8s (15s) before the 5th gives up.
+    await vi.advanceTimersByTimeAsync(15_000);
     expect(await promise).toBe(2);
     expect(c.text()).toContain('Could not reach fieldnote. Try again.');
   });
@@ -495,17 +497,42 @@ describe('run --json error shapes', () => {
     });
   });
 
-  it('blocked — carries the reason and the blocker lines, not just the reason', async () => {
+  it('blocked — a fixed message per reason, plus the blocker lines for the full detail', async () => {
+    // A realistic fixture: git.ts's actual dirty/unpushed copy opens with the
+    // same generic heading either way ("There is nothing here fieldnote can
+    // read yet.") and puts the real detail — which files, how many commits —
+    // several lines in. `message` must not be that scraped heading; it is a
+    // fixed phrase keyed by `reason`, accurate regardless of what line git.ts
+    // happens to put first. `lines` still carries the full, real detail.
+    const lines = [
+      '  There is nothing here fieldnote can read yet.',
+      '',
+      '     3 files changed, 1 commit not pushed',
+      '',
+      '     fieldnote grades a commit its server can fetch from GitHub.',
+      '     Your working tree is not one.',
+      '',
+      '  WHAT YOU PROBABLY WANT',
+      '',
+      '    push this branch, then grade its head',
+      '      git push && fieldnote run',
+      '',
+      '    grade a commit that is already pushed',
+      '      fieldnote run --sha abc1234',
+      '',
+      '    see what has not been graded',
+      '      git status --short',
+    ];
     readAuth.mockResolvedValue(AUTH);
     readGitState.mockResolvedValue(CLEAN_STATE);
-    gradeBlocker.mockReturnValue({ reason: 'dirty', lines: ['  3 files changed', '', '  fix it'] });
+    gradeBlocker.mockReturnValue({ reason: 'dirty', lines });
     const c = capture();
     expect(await run(['run', '--json'], c.sink, c.env)).toBe(2);
     expect(JSON.parse(c.text())).toEqual({
       error: 'blocked',
-      message: '3 files changed',
+      message: 'There are uncommitted changes fieldnote cannot grade yet.',
       reason: 'dirty',
-      lines: ['  3 files changed', '', '  fix it'],
+      lines,
     });
   });
 

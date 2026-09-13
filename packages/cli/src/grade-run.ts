@@ -35,7 +35,13 @@ const POLL_TIMEOUT_MS = 10 * 60_000;
 // A transient failure (a timeout, a dropped connection) should not cost a
 // ten-minute run its whole result — but an exitCode 3 means the token itself
 // was rejected mid-run, and no amount of retrying fixes that.
-const MAX_CONSECUTIVE_POLL_FAILURES = 3;
+const MAX_CONSECUTIVE_POLL_FAILURES = 4;
+// Its own constant, not POLL_INTERVAL_MS: a flat one-second backoff only
+// absorbs a dropped packet, not what actually happens during a ten-minute
+// poll — a proxy restart, a deploy, a Wi-Fi handoff, a laptop waking — which
+// run five to thirty seconds. 1s, 2s, 4s, 8s absorbs ~15s of that before
+// giving up, and retuning the poll cadence no longer silently retunes this.
+const POLL_RETRY_BACKOFF_MS = 1_000;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -77,7 +83,8 @@ export async function gradeRun(options: GradeRunOptions): Promise<GradeRunOutcom
         consecutiveFailures += 1;
         if (consecutiveFailures > MAX_CONSECUTIVE_POLL_FAILURES) throw error;
         if (Date.now() >= deadline) return { kind: 'timeout' };
-        await sleep(POLL_INTERVAL_MS);
+        // 2^(n-1) * base: 1s, 2s, 4s, 8s for consecutive failures 1-4.
+        await sleep(POLL_RETRY_BACKOFF_MS * 2 ** (consecutiveFailures - 1));
         continue;
       }
       // Not a transient exitCode-2 failure: an exitCode 3 (the token itself
@@ -101,7 +108,11 @@ export async function gradeRun(options: GradeRunOptions): Promise<GradeRunOutcom
   // echoed back (api.ts) — not shaToRequest above. The server is the
   // authority on what it received, and grade-view.ts's own mismatch
   // disclosure only means what it says if this is the real echo rather than
-  // a client-side reconstruction of it.
-  const view: GradeView = { ...poll, slug, requestedSha: requested.requestedSha };
+  // a client-side reconstruction of it. The fallback to shaToRequest exists
+  // only because api.ts validates no field of the response it casts — if
+  // the server ever omitted requestedSha, this would otherwise hand
+  // grade-view.ts an undefined string and throw inside .startsWith() after
+  // a ten-minute wait the developer cannot get back.
+  const view: GradeView = { ...poll, slug, requestedSha: requested.requestedSha ?? shaToRequest };
   return { kind: 'graded', view };
 }
