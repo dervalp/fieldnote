@@ -1823,49 +1823,76 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ### Task 9: The Grades tab
 
+> **Rewritten after `origin/main` merged the `/app` URL namespace.** The product
+> now lives under `src/app/app/`, every internal link is built by
+> `src/lib/app-routes.ts`, and the page renders inside `<Surface>`. The design
+> decision is unchanged — a row of cards, selection by `?grader=` — only the
+> paths and the link construction move.
+
 **Files:**
 - Modify: `src/components/repository/tabs.ts`
-- Modify: `src/app/repos/[repoId]/grading/page.tsx`
-- Modify: `src/app/repos/[repoId]/grading/actions.ts`
-- Modify: `src/db/queries/grade-runs.ts`
-- Test: `src/components/repository/tabs.test.ts`
+- Modify: `src/app/app/repos/[repoId]/grading/page.tsx`
+- Modify: `src/app/app/repos/[repoId]/grading/actions.ts`
+- Modify: `src/components/grading/report.tsx` (`GradeControls` takes a `graderId`)
+- Modify: `src/db/queries/grade-runs.ts` (`gradeSummaries` takes `graderIds`)
+- Modify: `src/app/style.css`
+- Test: `src/components/repository/tabs.test.ts`, `src/app/app/repos/[repoId]/grading/page.test.ts`, `src/app/app/repos/[repoId]/grading/actions.test.ts`
 
 **Interfaces:**
-- Consumes: `listGraders()` (Task 4), `gradeCardProps` (Task 7), `GradeReport` props (Task 8).
+- Consumes: `listGraders()` (Task 4), `gradeCardProps` (Task 7), `GradeReport`'s `graderTitle`/`disclaimer` (Task 8), and `repoSectionPath(repoId, 'grading', query)` from `src/lib/app-routes.ts`.
 - Produces:
   - `runGrade(repositoryId: string, graderId: string): Promise<{ runId: string }>`
   - `gradeSummaries(repositoryIds: string[], graderIds: string[]): Promise<GradeSummary[]>`
   - `GradeSummary` gains `graderId: string`
 
-- [ ] **Step 1: Write the failing test**
+#### How links must be built
 
-In `src/components/repository/tabs.test.ts`, change every assertion naming the label `Readiness` to `Grades`. If the file asserts the tab list wholesale, update that array.
+`src/lib/app-routes.ts` is the one place the `/app` prefix is spelled, and its
+own docstring says a test that builds an expected href from it asserts nothing.
+So: **page code calls `repoSectionPath`; test files spell their paths out in
+full.** The grader selection is a query parameter, which that helper already
+carries:
 
-Add to the same file:
+```ts
+const gradingHref = (query = '') => repoSectionPath(repoId, 'grading', query);
+const hrefFor = (graderId: string) =>
+  graderId === AGENT_READINESS
+    ? gradingHref()
+    : gradingHref(`?${new URLSearchParams({ grader: graderId })}`);
+```
+
+- [ ] **Step 1: Write the failing tests**
+
+In `src/components/repository/tabs.test.ts`, change assertions naming the label `Readiness` to `Grades`, and add:
 
 ```ts
 test('the grades tab keeps its route, so old links still land', () => {
   const grades = tabs.find((tab) => tab.segment === 'grading');
   expect(grades).toMatchObject({ segment: 'grading', label: 'Grades' });
-  expect(tabHref('r1', grades!, '')).toBe('/repos/r1/grading');
+  // Spelled out, not built from app-routes: a test that calls the helper it
+  // is checking asserts nothing.
+  expect(tabHref('repository:1', grades!, '')).toBe('/app/repos/repository%3A1/grading');
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+In `src/app/app/repos/[repoId]/grading/page.test.ts`, follow that file's existing harness and add cases asserting: both graders render a card region; `?grader=` selects which report is shown; an unregistered `?grader=` is a 404; a grader that has never run renders its tile and its Run button.
 
-Run: `pnpm vitest run src/components/repository/tabs.test.ts`
-Expected: FAIL — the label is still `Readiness`.
+- [ ] **Step 2: Run the tests to verify they fail**
 
-- [ ] **Step 3: Implement the label, the action and the query**
+Run: `pnpm vitest run src/components/repository/tabs.test.ts "src/app/app/repos/[repoId]/grading/page.test.ts"`
+Expected: FAIL — the label is still `Readiness` and the page renders one card.
 
-In `src/components/repository/tabs.ts`, change one line:
+- [ ] **Step 3: The label, the action and the query**
+
+In `src/components/repository/tabs.ts`, one line:
 
 ```ts
-  // The route stays `grading`: renaming it buys a redirect and nothing else.
+  // The route segment stays `grading`: renaming it would mean a second
+  // redirect table entry on top of the /app move, for no gain.
   { segment: 'grading', label: 'Grades' },
 ```
 
-In `src/app/repos/[repoId]/grading/actions.ts`:
+In `src/app/app/repos/[repoId]/grading/actions.ts`:
 
 ```ts
 export async function runGrade(
@@ -1880,84 +1907,14 @@ export async function runGrade(
 
 Delete the now-unused `AGENT_READINESS` import from that file.
 
-In `src/db/queries/grade-runs.ts`, generalise `gradeSummaries` — it has one call site, so a second near-identical function would be two things to keep in step for no gain:
+In `src/db/queries/grade-runs.ts`, generalise `gradeSummaries` to take `graderIds: string[]` and add `graderId` to `GradeSummary`, returning one summary per (repository, grader) pair. It has one call site, so a second near-identical function would be two things to keep in step for no gain.
+
+- [ ] **Step 4: The page**
+
+Resolve the selected grader, defaulting to readiness, and 404 on an unregistered one:
 
 ```ts
-export type GradeSummary = {
-  repositoryId: string;
-  graderId: string;
-  latest: CompletedGrade | null;
-  status: Pick<GradeRun, 'id' | 'state' | 'errorCode' | 'createdAt'> | null;
-};
-
-export async function gradeSummaries(
-  repositoryIds: string[],
-  graderIds: string[],
-): Promise<GradeSummary[]> {
-  const allowed = new Set((await accessibleRepositories()).map((repo) => repo.id));
-  const ids = [...new Set(repositoryIds)].filter((id) => allowed.has(id));
-  const graders = [...new Set(graderIds)];
-  if (!ids.length || !graders.length) return [];
-  const records = await db()
-    .select()
-    .from(runs)
-    .where(and(inArray(runs.repositoryId, ids), inArray(runs.graderId, graders)))
-    .orderBy(desc(runs.createdAt), desc(runs.id));
-  return ids.flatMap((repositoryId) =>
-    graders.map((graderId) => {
-      const history = records.filter(
-        (run) => run.repositoryId === repositoryId && run.graderId === graderId,
-      );
-      const current = history[0];
-      const latest = history.find((run) => run.state === 'complete');
-      return {
-        repositoryId,
-        graderId,
-        latest: latest ? completed(latest) : null,
-        status: current
-          ? {
-              id: current.id,
-              state: current.state,
-              errorCode: current.errorCode,
-              createdAt: current.createdAt,
-            }
-          : null,
-      };
-    }),
-  );
-}
-```
-
-- [ ] **Step 4: Rewrite the page**
-
-In `src/app/repos/[repoId]/grading/page.tsx`:
-
-Replace the readiness imports with the barrel and the registry:
-
-```ts
-import { AGENT_READINESS } from '../../../../domain/grading/graders';
-import { getGrader, graderCheckTitles, listGraders } from '../../../../domain/grading/registry';
-import { ManifestError } from '../../../../domain/grading/manifest';
-```
-
-Widen the search params and resolve the selected grader:
-
-```ts
-export default async function Grading({
-  params,
-  searchParams,
-}: {
-  params: Promise<{ repoId: string }>;
-  searchParams: Promise<{ run?: string; grader?: string }>;
-}) {
-  const repoId = pageRouteId((await params).repoId);
-  const repo = await requireRepository(repoId);
-  const { run, grader } = await searchParams;
-  // Every registered grader gets a card, whether or not it has ever run: a
-  // second grader should advertise itself before anyone has used it.
   const graders = listGraders();
-  // Selection is route state. An unregistered id is a 404 rather than a silent
-  // fall back to the built-in, which would hide a broken link.
   let selectedGrader;
   try {
     selectedGrader = getGrader(grader ?? AGENT_READINESS);
@@ -1965,184 +1922,19 @@ export default async function Grading({
     if (error instanceof ManifestError) notFound();
     throw error;
   }
-  const checkTitles = graderCheckTitles(selectedGrader.id);
-  const [summaries, history, selected, enabled, plan] = await Promise.all([
-    gradeSummaries([repoId], graders.map((entry) => entry.id)),
-    gradeHistory(repoId, selectedGrader.id),
-    run ? getGrade(repoId, run, selectedGrader.id) : Promise.resolve(null),
-    actEnabled(repoId),
-    latestPlan(repoId),
-  ]);
-  if (run && !selected) notFound();
-  const summaryFor = (graderId: string) =>
-    summaries.find((entry) => entry.graderId === graderId) ?? null;
-  const summary = summaryFor(selectedGrader.id);
-  const grade = run ? selected : summary?.latest;
-  const href = `/repos/${encodeURIComponent(repoId)}/grading`;
-  const hrefFor = (graderId: string) =>
-    graderId === AGENT_READINESS ? href : `${href}?grader=${encodeURIComponent(graderId)}`;
 ```
 
-Keep the Act block exactly as it is, but gate it on the readiness grader being the selected one, so no Act button appears under a delivery report:
+Widen `searchParams` to `{ run?: string; grader?: string }`. Query `gradeSummaries([repoId], graders.map((g) => g.id))`, and `gradeHistory`/`getGrade` for the selected grader only.
 
-```tsx
-      {grade && selectedGrader.id === AGENT_READINESS && (
-        <ActEntry
-          repositoryId={repoId}
-          availability={availability}
-          latest={plan ? { id: plan.id, state: plan.state } : null}
-        />
-      )}
-```
+Render one card per registered grader — a grader that has never run gets its tile and its Run button, so a second grader advertises itself before anyone has used it. Each card links to `hrefFor(entry.id)`. Keep `<Surface>` wherever the merged page already uses it; this task adds a region, it does not restyle one.
 
-Compute `availability` from the readiness summary rather than the selected one, so switching tabs does not change what Act says:
+Gate the Act entry on the readiness grader being selected, and compute its `failingCheckCount` from the readiness summary rather than the selected one, so switching cards does not change what Act says.
 
-```ts
-  const readinessGrade = summaryFor(AGENT_READINESS)?.latest ?? null;
-  const availability = actAvailability({
-    enabled,
-    permissions,
-    failingCheckCount:
-      readinessGrade?.checks.filter((check) => check.status === 'fail').length ?? 0,
-  });
-```
+Pass `graderTitle={selectedGrader.card.title}` and `disclaimer={selectedGrader.disclaimer}` to `GradeReport` — replacing the two lines Task 8 added — and scope the history list and the saved-report link to the selected grader.
 
-Replace the single card with the row:
+In `src/components/grading/report.tsx`, `GradeControls` takes `graderId: string` and passes it to `runGrade(repositoryId, graderId)`.
 
-```tsx
-      <div className="grade-row">
-        {graders.map((entry) => {
-          const entrySummary = summaryFor(entry.id);
-          const entryGrade = entry.id === selectedGrader.id ? grade : entrySummary?.latest;
-          const selectedNow = entry.id === selectedGrader.id;
-          return (
-            <div
-              className="grade-row-item"
-              key={entry.id}
-              aria-current={selectedNow ? 'true' : undefined}
-            >
-              {entryGrade?.score !== null && entryGrade?.score !== undefined ? (
-                <Link href={hrefFor(entry.id)} className="grade-row-link">
-                  <GradeCard
-                    {...gradeCardProps({
-                      score: entryGrade.score,
-                      repositoryName: `${repo.owner} / ${repo.name}`,
-                      sha: entryGrade.sha,
-                      rubricVersion: entryGrade.rubricVersion,
-                      checks: entryGrade.checks,
-                      graderId: entry.id,
-                    })}
-                  />
-                </Link>
-              ) : (
-                <section className="grading-ungraded">
-                  <h3>{entry.card.title}</h3>
-                  <p>{entry.card.tagline}</p>
-                  <p>
-                    A score appears only after all evidence is collected. Run this grader to create
-                    your first report.
-                  </p>
-                </section>
-              )}
-              <GradeControls
-                key={`${repoId}:${entry.id}`}
-                repositoryId={repoId}
-                graderId={entry.id}
-                initial={entrySummary?.status ?? null}
-                canRun={!repo.isDemo}
-              />
-            </div>
-          );
-        })}
-      </div>
-```
-
-Pass the two new props to the report, and keep the history block beneath the selected grader:
-
-```tsx
-        {grade && (
-          <GradeReport
-            grade={grade}
-            owner={repo.owner}
-            name={repo.name}
-            checkTitles={checkTitles}
-            graderTitle={selectedGrader.card.title}
-            disclaimer={selectedGrader.disclaimer}
-            outdated={
-              grade.rubricVersion !== selectedGrader.version ||
-              grade.evaluatorVersion !== selectedGrader.evaluatorVersion
-            }
-          />
-        )}
-```
-
-Rewrite the history block so a saved report keeps the grader it belongs to. It
-sits beneath the row and lists only the selected grader's runs:
-
-```tsx
-      {history.length > 0 && (
-        <details className="grading-history">
-          <summary>
-            {selectedGrader.card.title} — completed reports ({history.length})
-          </summary>
-          <ul>
-            {history.map((item) => (
-              <li key={item.id}>
-                <Link
-                  href={`${href}?${new URLSearchParams({
-                    grader: selectedGrader.id,
-                    run: item.id,
-                  })}`}
-                  aria-current={grade?.id === item.id ? 'page' : undefined}
-                >
-                  {item.score} / 100 · {item.sha.slice(0, 7)} ·{' '}
-                  {item.computedAt.toISOString().slice(0, 10)} · v{item.rubricVersion}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-```
-
-The "viewing a saved report" line above it must return to the selected grader,
-not to readiness:
-
-```tsx
-      {run && (
-        <p>
-          Viewing a saved report. <Link href={hrefFor(selectedGrader.id)}>View latest completed report</Link>
-        </p>
-      )}
-```
-
-Change the panel heading and intro so they describe a row rather than one grader:
-
-```tsx
-      <div className="eyebrow panel-eyebrow">Repository / Grades</div>
-      <h2>A record you can inspect.</h2>
-      <p className="page-intro">Every grader that has an opinion about this repository.</p>
-```
-
-In `src/components/grading/report.tsx`, `GradeControls` takes the grader it runs:
-
-```tsx
-export function GradeControls({
-  repositoryId,
-  graderId,
-  initial,
-  canRun,
-}: {
-  repositoryId: string;
-  graderId: string;
-  initial: Status | null;
-  canRun: boolean;
-}) {
-```
-
-and passes it through: `await runGrade(repositoryId, graderId)`.
-
-Add to `src/app/style.css`, beside the existing `.grading-layout` rules:
+Add to `src/app/style.css`, beside the existing grading rules:
 
 ```css
 .grade-row {
@@ -2162,32 +1954,35 @@ Add to `src/app/style.css`, beside the existing `.grading-layout` rules:
 }
 ```
 
-- [ ] **Step 5: Run the tests**
+- [ ] **Step 5: Run the gate**
 
-Run: `pnpm vitest run src/components src/domain/grading`
-Expected: PASS.
-Run: `pnpm typecheck`
-Expected: PASS.
+Run: `pnpm lint && pnpm typecheck && pnpm test`
+Then: `DEMO_MODE=false pnpm test:integration`
+Expected: all unit tests pass; integration unchanged at 2 known failures in `src/inngest/dispatch-import.integration.test.ts`.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Update the seed line**
+
+`scripts/seed.ts` currently says the delivery grade is "not yet shown — the Grades tab is on hold". It is shown now. Change it to name the page, using the same `/app` spelling as the lines around it.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/components/repository/tabs.ts src/components/repository/tabs.test.ts "src/app/repos/[repoId]/grading/page.tsx" "src/app/repos/[repoId]/grading/actions.ts" src/components/grading/report.tsx src/db/queries/grade-runs.ts src/app/style.css
+git add src/components/repository/tabs.ts src/components/repository/tabs.test.ts "src/app/app/repos/[repoId]/grading/page.tsx" "src/app/app/repos/[repoId]/grading/page.test.ts" "src/app/app/repos/[repoId]/grading/actions.ts" "src/app/app/repos/[repoId]/grading/actions.test.ts" src/components/grading/report.tsx src/db/queries/grade-runs.ts src/app/style.css scripts/seed.ts
 git commit -m "feat(grading): a row of cards, one per grader
 
-Answers the open question slice 1 deferred. A repository with two grades
-shows both, side by side, and selecting a card shows that grader's
-report and history. No primary grader and no composite score: the
-graders answer different questions, and a mean of can an agent work here
-and does work reach green cleanly is a number about nothing.
+Answers the open question slice 1 deferred. A repository with two
+grades shows both, side by side, and selecting a card shows that
+grader's report and history. No primary grader and no composite score:
+the graders answer different questions, and a mean of can an agent work
+here and does work reach green cleanly is a number about nothing.
 
 Every registered grader gets a card whether or not it has run, so a
 second grader advertises itself before anyone has used it. The route
-stays /grading; only the label changes.
+segment stays grading; only the label changes.
 
 Act keeps naming the readiness grader, and its entry renders only under
-the readiness report. Nothing an agent writes into a repository raises a
-first-pass rate.
+the readiness report. Nothing an agent writes into a repository raises
+a first-pass rate.
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
