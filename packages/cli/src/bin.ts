@@ -7,7 +7,7 @@ import { cliVersion } from './version.ts';
 import { helpText } from './help.ts';
 import { clearAuth, readAuth, writeAuth } from './config.ts';
 import { awaitCallback, openBrowser } from './login.ts';
-import { exchangeCliToken } from './api.ts';
+import { exchangeCliToken, revokeCliToken } from './api.ts';
 
 const COMING_SOON = [
   '  fieldnote over MCP — coming soon',
@@ -63,14 +63,14 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
     let revoked = false;
     if (auth) {
       try {
-        const response = await fetch(new URL('/api/cli/revoke', base), {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${auth.token}` },
-        });
-        revoked = response.ok;
+        await revokeCliToken(base, auth.token);
+        revoked = true;
       } catch {
         // Best effort: clearing the local credential still happens below, and
         // the user is told honestly that the token itself may still be live.
+        // revokeCliToken's own exit code and message are ignored here on
+        // purpose — this branch always keeps going regardless of why the
+        // revoke failed.
       }
     }
     await clearAuth();

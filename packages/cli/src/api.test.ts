@@ -1,5 +1,13 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { ApiError, hasResult, pollGradeRun, requestGradeRun } from './api.ts';
+import {
+  ApiError,
+  exchangeCliToken,
+  hasResult,
+  listGraders,
+  pollGradeRun,
+  requestGradeRun,
+  revokeCliToken,
+} from './api.ts';
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -92,17 +100,32 @@ describe('non-JSON responses', () => {
     expect(error).toBeInstanceOf(ApiError);
     expect(error.exitCode).toBe(3);
   });
+
+  it('treats a JSON null body on an otherwise-ok response as unexpected, not a valid T', async () => {
+    vi.stubGlobal('fetch', async () => json(200, null));
+    const error = await pollGradeRun('http://x', 't', 'gr_1').catch((e) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error.exitCode).toBe(2);
+  });
 });
 
 describe('timeout', () => {
-  it('passes a timeout signal on every request', async () => {
-    let capturedInit: RequestInit | undefined;
+  it('attaches a fresh timeout signal to every request, not a shared module-scope one', async () => {
+    // A signal captured once and reused across requests (e.g. a module-scope
+    // `const SIGNAL = AbortSignal.timeout(30_000)`) would also satisfy
+    // "is an AbortSignal" — the bug worth catching is that it aborts every
+    // request after the first window. Calling twice and comparing identity
+    // is what actually discriminates that.
+    const signals: (AbortSignal | undefined)[] = [];
     vi.stubGlobal('fetch', async (_url: string | URL, init?: RequestInit) => {
-      capturedInit = init;
+      signals.push(init?.signal ?? undefined);
       return json(200, { state: 'running' });
     });
     await pollGradeRun('http://x', 't', 'gr_1');
-    expect(capturedInit?.signal).toBeInstanceOf(AbortSignal);
+    await pollGradeRun('http://x', 't', 'gr_1');
+    expect(signals[0]).toBeInstanceOf(AbortSignal);
+    expect(signals[1]).toBeInstanceOf(AbortSignal);
+    expect(signals[0]).not.toBe(signals[1]);
   });
 
   it('maps an aborted request to exit code 2 with a message about the timeout', async () => {
@@ -117,5 +140,66 @@ describe('timeout', () => {
     expect(error).toBeInstanceOf(ApiError);
     expect(error.exitCode).toBe(2);
     expect(error.message.toLowerCase()).toContain('time');
+  });
+});
+
+describe('the token goes only in the Authorization header', () => {
+  it('never in the request URL, and as exactly `Bearer <token>` in the header', async () => {
+    const secret = 'sekrit-token-do-not-leak';
+    let capturedUrl: string | URL | undefined;
+    let capturedHeaders: HeadersInit | undefined;
+    vi.stubGlobal('fetch', async (url: string | URL, init?: RequestInit) => {
+      capturedUrl = url;
+      capturedHeaders = init?.headers;
+      return json(200, { state: 'running' });
+    });
+    await pollGradeRun('http://x', secret, 'gr_1');
+    expect(new Headers(capturedHeaders).get('authorization')).toBe(`Bearer ${secret}`);
+    expect(String(capturedUrl)).not.toContain(secret);
+  });
+});
+
+describe('listGraders', () => {
+  it('unwraps the envelope and returns the array itself', async () => {
+    const graders = [
+      {
+        id: 'agent-readiness',
+        version: '1',
+        mode: 'deterministic' as const,
+        category: 'c',
+        tagline: 't',
+      },
+    ];
+    vi.stubGlobal('fetch', async () => json(200, { graders }));
+    expect(await listGraders('http://x', 't')).toEqual(graders);
+  });
+});
+
+describe('exchangeCliToken', () => {
+  it('returns the parsed auth on success', async () => {
+    const auth = { token: 'tok', login: 'ada', workspace: 'lovelace' };
+    vi.stubGlobal('fetch', async () => json(200, auth));
+    expect(await exchangeCliToken('http://x', { code: 'c', verifier: 'v', label: 'l' })).toEqual(
+      auth,
+    );
+  });
+
+  it('maps a failure to exit code 2, same as every other endpoint', async () => {
+    vi.stubGlobal('fetch', async () => json(400, { error: 'This sign-in expired.' }));
+    await expect(
+      exchangeCliToken('http://x', { code: 'c', verifier: 'v', label: 'l' }),
+    ).rejects.toMatchObject({ exitCode: 2 });
+  });
+});
+
+describe('revokeCliToken', () => {
+  it('resolves on success', async () => {
+    vi.stubGlobal('fetch', async () => json(200, { revoked: true }));
+    await expect(revokeCliToken('http://x', 't')).resolves.toBeUndefined();
+  });
+
+  it('throws an ApiError on failure, leaving the best-effort decision to the caller', async () => {
+    vi.stubGlobal('fetch', async () => json(401, { error: 'Not signed in.' }));
+    await expect(revokeCliToken('http://x', 't')).rejects.toBeInstanceOf(ApiError);
   });
 });

@@ -1,7 +1,7 @@
 import type { Auth } from './config.ts';
 
-// The only module in this package that touches the network. Every request
-// goes through call(), which is where the status-to-exit-code mapping, the
+// The only module in this package that calls fetch(). Every request goes
+// through call(), which is where the status-to-exit-code mapping, the
 // timeout and the non-JSON guard all live exactly once.
 
 const TIMEOUT_MS = 30_000;
@@ -101,11 +101,20 @@ async function call<T>(
   }
 
   if (response.ok) {
+    let parsed: unknown;
     try {
-      return (await response.json()) as T;
+      parsed = await response.json();
     } catch {
       throw new ApiError('fieldnote returned something unexpected. Try again.', 2);
     }
+    // Every endpoint this client calls returns a JSON object. A bare `null`
+    // (or any other non-object JSON value) parses without error but is not a
+    // shape any caller can use — treat it the same as a body that failed to
+    // parse at all, rather than letting `null` flow through as T.
+    if (parsed === null || typeof parsed !== 'object') {
+      throw new ApiError('fieldnote returned something unexpected. Try again.', 2);
+    }
+    return parsed as T;
   }
 
   const exitCode: 2 | 3 = response.status === 401 || response.status === 403 ? 3 : 2;
@@ -150,4 +159,11 @@ export function exchangeCliToken(
   body: { code: string; verifier: string; label: string },
 ): Promise<Auth> {
   return call(base, '/api/cli/token', { method: 'POST', body });
+}
+
+// Throws like every other function here — the decision to treat a failed
+// revoke as best-effort and keep going belongs to the caller (bin.ts's
+// logout branch), not to the transport.
+export async function revokeCliToken(base: string, token: string): Promise<void> {
+  await call(base, '/api/cli/revoke', { method: 'POST', token });
 }
