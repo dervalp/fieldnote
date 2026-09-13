@@ -65,6 +65,24 @@ describe('createOutput', () => {
     const text = written.join('');
     // eslint-disable-next-line no-control-regex
     expect(text).toMatch(/\x1b\[38;2;190;66;31m/);
-    expect(text).toContain('Nothing on this machine is uploaded');
+    // The disclaimer is wrapped to the measure and painted per line, so it is
+    // compared as plain flowed text: escapes stripped, whitespace collapsed.
+    const plain = text
+      // eslint-disable-next-line no-control-regex
+      .replace(/\x1b\[[0-9;]*m/g, '')
+      .replace(/\s+/g, ' ');
+    expect(plain).toContain('Nothing on this machine is uploaded');
+  });
+
+  it('writes one physical line per lockup line, so the disclaimer keeps its wrapping', () => {
+    const { sink, written } = capture({});
+    createOutput(sink, { NO_COLOR: '1' }).banner();
+    const lines = written.join('').split('\n');
+    // Trailing newline yields one empty final element.
+    expect(lines.pop()).toBe('');
+    expect(lines.length).toBeGreaterThan(6);
+    for (const line of lines) {
+      expect([...line].length).toBeLessThanOrEqual(80);
+    }
   });
 });

@@ -33,9 +33,7 @@ export function createOutput(stream: Stream, env: Env) {
   const paint = (line: LockupLine) => {
     if (!caps.color) return line.seal + line.mark;
     const seal = line.seal === '' ? '' : EMBER + line.seal + RESET;
-    // Only bold the mark if there's a seal (e.g., wordmark/license lines)
-    // Don't bold disclaimer lines (which have empty seal)
-    const mark = line.mark === '' || line.seal === '' ? line.mark : BOLD + line.mark + RESET;
+    const mark = line.mark === '' ? '' : BOLD + line.mark + RESET;
     return seal + mark;
   };
 
@@ -45,20 +43,7 @@ export function createOutput(stream: Stream, env: Env) {
       stream.write(text + '\n');
     },
     banner() {
-      const lines = bannerLines(caps);
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const isEmptySeal = line.seal === '';
-        const nextIsEmptySeal = i < lines.length - 1 && lines[i + 1].seal === '';
-
-        // For wrapped disclaimer lines, join with space and trim margins
-        if (isEmptySeal && nextIsEmptySeal) {
-          const paintedMark = line.mark;
-          stream.write(paintedMark.trim() + ' ');
-        } else {
-          stream.write(paint(line) + '\n');
-        }
-      }
+      for (const line of bannerLines(caps)) stream.write(paint(line) + '\n');
     },
   };
 }
