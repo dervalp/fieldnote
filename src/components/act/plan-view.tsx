@@ -1,7 +1,14 @@
-import { checkTitles } from '../../domain/grading/check-titles';
 import type { AuthoringRun, Remedy } from '../../db/queries/authoring-runs';
 
-export function PlanView({ run, remedies }: { run: AuthoringRun; remedies: Remedy[] }) {
+export function PlanView({
+  run,
+  remedies,
+  checkTitles,
+}: {
+  run: AuthoringRun;
+  remedies: Remedy[];
+  checkTitles: Record<string, string>;
+}) {
   if (run.state !== 'complete')
     return (
       <section>

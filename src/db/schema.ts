@@ -663,13 +663,17 @@ export const invitationDeliveries = pgTable(
 export const gradingRubrics = pgTable(
   'grading_rubrics',
   {
-    family: text('family').notNull(),
+    graderId: text('grader_id').notNull(),
     version: text('version').notNull(),
     evaluatorVersion: text('evaluator_version').notNull(),
     definition: jsonb('definition').$type<Record<string, unknown>>().notNull(),
+    // The full validated manifest. `definition` remains the rubric a run is
+    // pinned to — checks and points, nothing operational — and is derived from
+    // this, so the two can never disagree.
+    manifest: jsonb('manifest').$type<Record<string, unknown>>().notNull(),
     createdAt: created(),
   },
-  (t) => [primaryKey({ columns: [t.family, t.version] })],
+  (t) => [primaryKey({ columns: [t.graderId, t.version] })],
 );
 export const gradeRuns = pgTable(
   'grade_runs',
@@ -678,7 +682,7 @@ export const gradeRuns = pgTable(
     repositoryId: text('repository_id')
       .notNull()
       .references(() => repositories.id),
-    family: text('family').notNull(),
+    graderId: text('grader_id').notNull(),
     rubricVersion: text('rubric_version').notNull(),
     evaluatorVersion: text('evaluator_version').notNull(),
     requestedBy: text('requested_by')
@@ -705,7 +709,7 @@ export const gradeRuns = pgTable(
       sql`(${t.state} = 'complete' AND ${t.sha} IS NOT NULL AND ${t.completedAt} IS NOT NULL AND ${t.result} IS NOT NULL AND ${t.result}->>'score' IS NOT NULL) OR (${t.state} <> 'complete' AND ${t.result} IS NULL)`,
     ),
     uniqueIndex('grade_runs_one_active')
-      .on(t.repositoryId, t.family)
+      .on(t.repositoryId, t.graderId)
       .where(sql`${t.state} IN ('queued','running')`),
     index('grade_runs_latest').on(t.repositoryId, t.createdAt.desc()),
   ],

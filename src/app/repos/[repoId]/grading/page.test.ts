@@ -66,7 +66,7 @@ test('latest completed score remains visible alongside failed current attempt', 
 test('historical selection is scoped to the authorized repository', async () => {
   deps.get.mockResolvedValue({ ...completed, score: 20, rubricVersion: '0.0.1' });
   const html = renderToStaticMarkup(await call('old'));
-  expect(deps.get).toHaveBeenCalledWith('repo', 'old');
+  expect(deps.get).toHaveBeenCalledWith('repo', 'old', 'fieldnote/agent-readiness');
   expect(html).toContain('20 out of 100');
   expect(html).toContain('0.0.1');
   expect(html).toContain('Viewing a saved report');

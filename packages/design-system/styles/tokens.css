@@ -107,10 +107,9 @@
 
   /* ---------------------------------------------------------------- *
    * Finish tier — one colour per grade band.                          *
-   * Lifted from gradePresentation(). The identifier `rainbow` is the   *
-   * domain's; `prismatic` is the name users read. Both appear here on  *
-   * purpose: the token follows the user-facing name, the data          *
-   * attribute follows the domain one.                                  *
+   * Lifted from gradePresentation(). The token, the data attribute and *
+   * the name users read all say prismatic; the domain identifier said   *
+   * `rainbow` until the grader contract landed, and no longer does.     *
    * ---------------------------------------------------------------- */
   --fn-grade-common: #b54740;
   --fn-grade-shimmer: #548eae;

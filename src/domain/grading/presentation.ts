@@ -1,6 +1,6 @@
 export type GradePresentation = {
   label: string;
-  finish: 'common' | 'shimmer' | 'bronze' | 'silver' | 'gold' | 'rainbow';
+  finish: 'common' | 'shimmer' | 'bronze' | 'silver' | 'gold' | 'prismatic';
   color: string;
   symbol: 'circle' | 'star';
   count: number;
@@ -8,7 +8,7 @@ export type GradePresentation = {
 export function gradePresentation(score: number): GradePresentation {
   if (!Number.isInteger(score) || score < 0 || score > 100) throw new Error('Invalid grade score');
   if (score === 100)
-    return { label: 'Excellent', finish: 'rainbow', color: '#7359a3', symbol: 'star', count: 3 };
+    return { label: 'Excellent', finish: 'prismatic', color: '#7359a3', symbol: 'star', count: 3 };
   if (score >= 90)
     return { label: 'Excellent', finish: 'gold', color: '#a77a13', symbol: 'star', count: 3 };
   if (score >= 80)

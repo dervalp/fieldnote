@@ -16,6 +16,7 @@ import { floorAuthorVersion, type ProposedRemedy } from '../../domain/act/remedi
 import { actEnabled } from './act-settings';
 import { fetchGrantedPermissions } from '../../github/installation-permissions';
 import { latestGrade } from './grade-runs';
+import { AGENT_READINESS } from '../../domain/grading/graders/agent-readiness';
 
 export type AuthoringRun = typeof runs.$inferSelect;
 export type Remedy = typeof authoringRemedies.$inferSelect;
@@ -32,7 +33,10 @@ export async function requestPlan(
   // a network round-trip and must not be held inside one. It throws rather
   // than returning a safe default, and we let it — a permission check that
   // cannot complete must not quietly read as "unavailable".
-  const [enabled, grade] = await Promise.all([actEnabled(repositoryId), latestGrade(repositoryId)]);
+  const [enabled, grade] = await Promise.all([
+    actEnabled(repositoryId),
+    latestGrade(repositoryId, AGENT_READINESS),
+  ]);
   const permissions = enabled ? await fetchGrantedPermissions(repositoryId) : nothingGranted;
   const availability = actAvailability({
     enabled,

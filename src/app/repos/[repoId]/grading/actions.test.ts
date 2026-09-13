@@ -12,7 +12,7 @@ beforeEach(() => {
 });
 test('member may queue a grader and receives only its run id', async () => {
   expect(await runGrade('repo')).toEqual({ runId: 'run' });
-  expect(requestGrade).toHaveBeenCalledWith('repo');
+  expect(requestGrade).toHaveBeenCalledWith('repo', 'fieldnote/agent-readiness');
   expect(dispatchGrade).toHaveBeenCalledWith('run');
 });
 test.each(['outsider', 'disconnected repository', 'demo workspace'])(

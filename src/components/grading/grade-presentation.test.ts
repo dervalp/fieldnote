@@ -5,6 +5,7 @@ import type { GradePresentation } from '../../domain/grading/presentation';
 import { gradePresentation } from '../../domain/grading/presentation';
 import { finishNames } from '../../domain/grading/finish-names';
 import type { CheckResult } from '../../domain/grading/types';
+import { AGENT_READINESS } from '../../domain/grading/graders/agent-readiness';
 
 // The package declares its own GradeFinish because it cannot import the
 // domain's. This assignment is the pin: if either union gains, loses or
@@ -32,6 +33,7 @@ const props = (score: number, checks: CheckResult[] = []): GradeCardProps =>
     sha: '6b1f0a4abcdef',
     rubricVersion: '0.1.0',
     checks,
+    graderId: AGENT_READINESS,
   });
 
 describe('gradeCardProps', () => {
@@ -44,7 +46,7 @@ describe('gradeCardProps', () => {
     [74, 'bronze', 'Good', 'star', 1],
     [84, 'silver', 'Very good', 'star', 2],
     [95, 'gold', 'Excellent', 'star', 3],
-    [100, 'rainbow', 'Excellent', 'star', 3],
+    [100, 'prismatic', 'Excellent', 'star', 3],
   ] as const)('resolves %i to the %s finish', (score, finish, label, symbol, count) => {
     const resolved = props(score, [check('root-readme', 'fail')]);
     expect(resolved.finish).toBe(finish);
@@ -65,9 +67,12 @@ describe('gradeCardProps', () => {
     expect(props(84).finishName).toBe(finishNames.silver);
   });
 
-  it('carries the flavour line for the band', () => {
-    expect(props(32).flavour).toContain('An agent will guess');
-    expect(props(100).flavour).toBe('Nothing the rubric asks for is missing.');
+  // Under the grader contract a grader supplies one tagline, not six lines by
+  // finish. The landing page's per-band copy lives in marketing and is swapped
+  // in there; the product card shows the manifest's sentence at every finish.
+  it("carries the grader's tagline, the same at every finish", () => {
+    expect(props(32).flavour).toBe('Can an agent work in this repository at all?');
+    expect(props(100).flavour).toBe('Can an agent work in this repository at all?');
   });
 
   it('offers no next tier at 100, whatever the checks say', () => {

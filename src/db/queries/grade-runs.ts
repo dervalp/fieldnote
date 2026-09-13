@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { isDeepStrictEqual } from 'node:util';
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db } from '../index';
 import {
@@ -16,7 +15,10 @@ import {
   requireWorkspace,
 } from '../../workspaces/access';
 import { currentUser } from '../../auth/session';
-import { readinessRubric } from '../../domain/grading/readiness-v01';
+import { getGrader } from '../../domain/grading/registry';
+import { manifestHash } from '../../domain/grading/manifest-hash';
+import { rubricView } from '../../domain/grading/rubric-view';
+import type { GraderManifest } from '../../domain/grading/manifest';
 import type { GradeResult } from '../../domain/grading/types';
 export type GradeRun = typeof runs.$inferSelect;
 export type CompletedGrade = GradeResult & { id: string; sha: string; computedAt: Date };
@@ -25,49 +27,52 @@ export type GradeSummary = {
   latest: CompletedGrade | null;
   status: Pick<GradeRun, 'id' | 'state' | 'errorCode' | 'createdAt'> | null;
 };
-export async function registerRubric(
-  definition: { family: string; version: string; evaluatorVersion: string } & Record<
-    string,
-    unknown
-  > = readinessRubric,
-) {
+export async function registerRubric(manifest: GraderManifest) {
+  const definition = rubricView(manifest);
   await db()
     .insert(gradingRubrics)
     .values({
-      family: definition.family,
-      version: definition.version,
-      evaluatorVersion: definition.evaluatorVersion,
+      graderId: manifest.id,
+      version: manifest.version,
+      evaluatorVersion: manifest.evaluatorVersion,
       definition,
+      manifest,
     })
     .onConflictDoNothing();
   const [stored] = await db()
     .select()
     .from(gradingRubrics)
     .where(
-      and(
-        eq(gradingRubrics.family, definition.family),
-        eq(gradingRubrics.version, definition.version),
-      ),
+      and(eq(gradingRubrics.graderId, manifest.id), eq(gradingRubrics.version, manifest.version)),
     );
+  // A canonical hash rather than a deep equality: JSONB hands back plain
+  // objects with no key order and no frozen identity, and the question being
+  // asked is whether the stored rubric is the same rubric, not the same object.
   if (
     !stored ||
-    stored.evaluatorVersion !== definition.evaluatorVersion ||
-    !isDeepStrictEqual(stored.definition, definition)
+    stored.evaluatorVersion !== manifest.evaluatorVersion ||
+    manifestHash(stored.definition) !== manifestHash(definition) ||
+    manifestHash(stored.manifest) !== manifestHash(manifest)
   )
     throw new Error('Rubric version definition mismatch');
   return stored;
 }
 export async function requestGrade(
   repositoryId: string,
+  graderId: string,
 ): Promise<{ id: string; state: GradeRun['state'] }> {
+  const manifest = getGrader(graderId);
   const repository = await requireRepository(repositoryId);
   const workspace = await requireWorkspace();
   if (workspace.id === 'demo' || repository.isDemo) throw new Error('Demo workspace is read-only');
   const user = await currentUser();
-  await registerRubric();
+  await registerRubric(manifest);
   return db().transaction(async (tx) => {
+    // The lock key names the grader too: two graders on one repository must
+    // not serialise against each other now that the unique index no longer
+    // makes them conflict.
     await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${repositoryId + ':grade'},0))`,
+      sql`select pg_advisory_xact_lock(hashtextextended(${`${repositoryId}:grade:${graderId}`},0))`,
     );
     // Match workspace mutations' lock and recheck membership/link after initial authorization.
     await tx.execute(sql`select id from workspaces where id = ${workspace.id} for update`);
@@ -101,7 +106,7 @@ export async function requestGrade(
     const [latest] = await tx
       .select()
       .from(runs)
-      .where(and(eq(runs.repositoryId, repositoryId), eq(runs.family, readinessRubric.family)))
+      .where(and(eq(runs.repositoryId, repositoryId), eq(runs.graderId, graderId)))
       .orderBy(desc(runs.createdAt), desc(runs.id))
       .limit(1);
     const [inserted] = await tx
@@ -109,9 +114,9 @@ export async function requestGrade(
       .values({
         id: randomUUID(),
         repositoryId,
-        family: readinessRubric.family,
-        rubricVersion: readinessRubric.version,
-        evaluatorVersion: readinessRubric.evaluatorVersion,
+        graderId,
+        rubricVersion: manifest.version,
+        evaluatorVersion: manifest.evaluatorVersion,
         requestedBy: user.id,
         requestedWorkspaceId: workspace.id,
         retryOf: latest?.state === 'failed' ? latest.id : null,
@@ -128,7 +133,7 @@ export async function requestGrade(
           .where(
             and(
               eq(runs.repositoryId, repositoryId),
-              eq(runs.family, readinessRubric.family),
+              eq(runs.graderId, graderId),
               inArray(runs.state, ['queued', 'running']),
             ),
           )
@@ -142,11 +147,17 @@ function completed(run: GradeRun): CompletedGrade | null {
     ? { ...run.result, id: run.id, sha: run.sha, computedAt: run.completedAt }
     : null;
 }
-export async function latestGrade(repositoryId: string): Promise<CompletedGrade | null> {
+export async function latestGrade(
+  repositoryId: string,
+  graderId: string,
+): Promise<CompletedGrade | null> {
   await requireRepository(repositoryId);
-  return latestCompletedGrade(repositoryId);
+  return latestCompletedGrade(repositoryId, graderId);
 }
-export async function gradeHistory(repositoryId: string): Promise<CompletedGrade[]> {
+export async function gradeHistory(
+  repositoryId: string,
+  graderId: string,
+): Promise<CompletedGrade[]> {
   await requireRepository(repositoryId);
   return (
     await db()
@@ -155,7 +166,7 @@ export async function gradeHistory(repositoryId: string): Promise<CompletedGrade
       .where(
         and(
           eq(runs.repositoryId, repositoryId),
-          eq(runs.family, readinessRubric.family),
+          eq(runs.graderId, graderId),
           eq(runs.state, 'complete'),
         ),
       )
@@ -169,28 +180,28 @@ export async function gradeHistory(repositoryId: string): Promise<CompletedGrade
 export async function getGrade(
   repositoryId: string,
   runId: string,
+  graderId: string,
 ): Promise<CompletedGrade | null> {
   await requireRepository(repositoryId);
   const [run] = await db()
     .select()
     .from(runs)
     .where(
-      and(
-        eq(runs.repositoryId, repositoryId),
-        eq(runs.id, runId),
-        eq(runs.family, readinessRubric.family),
-      ),
+      and(eq(runs.repositoryId, repositoryId), eq(runs.id, runId), eq(runs.graderId, graderId)),
     );
   return run ? completed(run) : null;
 }
-export async function gradeSummaries(repositoryIds: string[]): Promise<GradeSummary[]> {
+export async function gradeSummaries(
+  repositoryIds: string[],
+  graderId: string,
+): Promise<GradeSummary[]> {
   const allowed = new Set((await accessibleRepositories()).map((repo) => repo.id));
   const ids = [...new Set(repositoryIds)].filter((id) => allowed.has(id));
   if (!ids.length) return [];
   const records = await db()
     .select()
     .from(runs)
-    .where(and(inArray(runs.repositoryId, ids), eq(runs.family, readinessRubric.family)))
+    .where(and(inArray(runs.repositoryId, ids), eq(runs.graderId, graderId)))
     .orderBy(desc(runs.createdAt), desc(runs.id));
   return ids.map((repositoryId) => {
     const history = records.filter((run) => run.repositoryId === repositoryId);
@@ -217,14 +228,17 @@ export async function loadGradeRun(runId: string) {
 // Trusted worker primitive: no session and no workspace, because a background
 // job has neither. Callers must have authorized by another route first —
 // validateGradeRun or validateAuthoringRun.
-export async function latestCompletedGrade(repositoryId: string): Promise<CompletedGrade | null> {
+export async function latestCompletedGrade(
+  repositoryId: string,
+  graderId: string,
+): Promise<CompletedGrade | null> {
   const [run] = await db()
     .select()
     .from(runs)
     .where(
       and(
         eq(runs.repositoryId, repositoryId),
-        eq(runs.family, readinessRubric.family),
+        eq(runs.graderId, graderId),
         eq(runs.state, 'complete'),
       ),
     )
@@ -260,19 +274,27 @@ export async function validateGradeRun(run: GradeRun) {
       ),
     );
   if (!available || process.env.DEMO_MODE === 'true') throw new Error('Grade access revoked');
+  let manifest: GraderManifest;
+  try {
+    manifest = getGrader(run.graderId);
+  } catch {
+    throw new Error('Unsupported rubric version');
+  }
   const [rubric] = await db()
     .select()
     .from(gradingRubrics)
     .where(
-      and(eq(gradingRubrics.family, run.family), eq(gradingRubrics.version, run.rubricVersion)),
+      and(eq(gradingRubrics.graderId, run.graderId), eq(gradingRubrics.version, run.rubricVersion)),
     );
   if (
     !rubric ||
-    run.family !== readinessRubric.family ||
-    run.rubricVersion !== readinessRubric.version ||
-    run.evaluatorVersion !== readinessRubric.evaluatorVersion ||
+    run.rubricVersion !== manifest.version ||
+    run.evaluatorVersion !== manifest.evaluatorVersion ||
     rubric.evaluatorVersion !== run.evaluatorVersion ||
-    !isDeepStrictEqual(rubric.definition, readinessRubric)
+    // A grade must not complete against a manifest that changed after the run
+    // was queued.
+    manifestHash(rubric.manifest) !== manifestHash(manifest) ||
+    manifestHash(rubric.definition) !== manifestHash(rubricView(manifest))
   )
     throw new Error('Unsupported rubric version');
 }
