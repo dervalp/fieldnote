@@ -86,6 +86,53 @@ test('a failed file collection is reported as a collection failure', async () =>
   expect(collected.incompleteCode).toBe('incomplete_collection');
 });
 
+// No real manifest needs both families yet, but the dispatcher's merge and its
+// needs invariants have to hold the day one does — this is the path the next
+// slice leans on hardest. Synthesized here rather than borrowed from a
+// built-in grader, which each read exactly one family today.
+const bothFamiliesManifest = {
+  ...agentReadinessManifest,
+  needs: {
+    'repo.files': agentReadinessManifest.needs['repo.files'],
+    'fieldnote.metrics': deliveryHealthManifest.needs['fieldnote.metrics'],
+  },
+} as typeof agentReadinessManifest;
+
+test('a manifest needing both families calls both collectors and merges their evidence', async () => {
+  collectReadiness.mockResolvedValue({
+    sha: 'abc',
+    complete: true,
+    documents: [{ path: 'README.md', blobSha: 'x', text: 'hi' }],
+  });
+  collectMetrics.mockResolvedValue({ metrics, complete: true });
+  const collected = await collectEvidence(bothFamiliesManifest, 'repo', 'abc');
+  expect(collectReadiness).toHaveBeenCalledWith('repo', 'abc');
+  expect(collectMetrics).toHaveBeenCalledWith(
+    'repo',
+    bothFamiliesManifest.needs['fieldnote.metrics'],
+  );
+  expect(collected.snapshot.documents).toEqual([{ path: 'README.md', blobSha: 'x', text: 'hi' }]);
+  expect(collected.snapshot.metrics).toEqual(metrics);
+  expect(collected.snapshot.complete).toBe(true);
+  expect(collected.incompleteCode).toBeNull();
+});
+
+test('a failed file collection outranks an unmet metrics floor', async () => {
+  collectReadiness.mockResolvedValue({ sha: 'abc', complete: false, documents: [] });
+  collectMetrics.mockResolvedValue({
+    metrics,
+    complete: false,
+    incompleteReason: 'Not enough merged work to judge.',
+    incompleteCode: 'insufficient_evidence',
+  });
+  const collected = await collectEvidence(bothFamiliesManifest, 'repo', 'abc');
+  expect(collected.snapshot.complete).toBe(false);
+  // fieldnote's own collection failing is reported, not the grader's floor,
+  // even though the metrics collector also had something to say.
+  expect(collected.snapshot.incompleteReason).toBe(INCOMPLETE);
+  expect(collected.incompleteCode).toBe('incomplete_collection');
+});
+
 // Unreachable through normal validation: parseManifest's needs_mismatch
 // invariant already refuses a manifest that declares a family no check reads,
 // and the schema itself has no key for a third family. This pins the
