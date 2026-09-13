@@ -34,3 +34,28 @@ export type GradeResult = {
   evaluatorVersion: string;
   incompleteReason?: string;
 };
+
+export type MetricReading = {
+  /** Percentage on a 0–100 scale, unrounded. Null when nothing was measurable. */
+  value: number | null;
+  numerator: number;
+  denominator: number;
+};
+
+export type MetricsWindow = {
+  days: number;
+  start: string;
+  endExclusive: string;
+  mergedPullRequests: number;
+  // Keyed by the primitive's own metric names, so runCheck is a lookup rather
+  // than a switch and a new metric is a change in one place.
+  'first-pass-rate': MetricReading;
+  'ci-success-rate': MetricReading;
+  'ci-recovery-rate': MetricReading;
+};
+
+/** What a primitive is allowed to see: the evidence, never the manifest. */
+export type CheckEvidence = {
+  documents: SourceDocument[];
+  metrics?: MetricsWindow | null;
+};

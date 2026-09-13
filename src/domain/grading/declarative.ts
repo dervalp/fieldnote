@@ -25,7 +25,9 @@ export function runDeclarative(
   snapshot: RepositorySnapshot,
 ): GradeResult {
   const documents = ordered(snapshot.documents);
-  const checks = manifest.checks.map((check) => runCheck(check, documents, manifest.disclaimer));
+  const checks = manifest.checks.map((check) =>
+    runCheck(check, { documents: ordered(snapshot.documents) }, manifest.disclaimer),
+  );
   return {
     score: snapshot.complete ? checks.reduce((sum, check) => sum + check.points, 0) : null,
     checks,
