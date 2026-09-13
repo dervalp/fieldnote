@@ -175,7 +175,9 @@ try {
   console.log('Seeded 21 PRs. Demo signal: /prs/demo-pr-4');
   console.log('AI involvement: /repos/demo-repository/ai-involvement');
   console.log(`Readiness ${demoGrade.score}/100: /repos/demo-repository`);
-  console.log(`Delivery ${demoDeliveryGrade.score}/100: /repos/demo-repository/grading`);
+  console.log(
+    `Delivery ${demoDeliveryGrade.score}/100 seeded (not yet shown — the Grades tab is on hold)`,
+  );
 } finally {
   await closeDb();
 }
