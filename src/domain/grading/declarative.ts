@@ -28,23 +28,7 @@ export function runDeclarative(
     documents: ordered(snapshot.documents),
     metrics: snapshot.metrics ?? null,
   };
-  const checks = manifest.checks.map((check) => {
-    try {
-      return runCheck(check, evidence, manifest.disclaimer);
-    } catch (error) {
-      // If a check fails due to missing evidence (e.g., metrics that were not
-      // collected), treat it as a failed check so the grader can complete.
-      return {
-        id: check.id,
-        points: 0,
-        maxPoints: check.points,
-        status: 'fail' as const,
-        paths: [],
-        lineRanges: [],
-        explanation: `${check.explain.fail} ${manifest.disclaimer}`,
-      };
-    }
-  });
+  const checks = manifest.checks.map((check) => runCheck(check, evidence, manifest.disclaimer));
   const metrics = snapshot.metrics;
   return {
     score: snapshot.complete ? checks.reduce((sum, check) => sum + check.points, 0) : null,
