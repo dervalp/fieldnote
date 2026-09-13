@@ -24,7 +24,7 @@ export async function issueToken(
 
 export async function resolveToken(
   token: string,
-): Promise<Principal | { error: 'revoked' | 'unknown' }> {
+): Promise<(Principal & { scope: string }) | { error: 'revoked' | 'unknown' }> {
   const [row] = await db()
     .select()
     .from(cliTokens)
@@ -36,7 +36,7 @@ export async function resolveToken(
   if (!row.lastUsedAt || Date.now() - row.lastUsedAt.getTime() > TOUCH_INTERVAL) {
     await db().update(cliTokens).set({ lastUsedAt: new Date() }).where(eq(cliTokens.id, row.id));
   }
-  return { userId: row.userId, workspaceId: row.workspaceId, source: 'cli' };
+  return { userId: row.userId, workspaceId: row.workspaceId, source: 'cli', scope: row.scope };
 }
 
 export async function revokeToken(id: string, userId: string): Promise<void> {

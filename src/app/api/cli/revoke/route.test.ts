@@ -50,7 +50,12 @@ test('revoked token is indistinguishable from a missing header', async () => {
 
 test('valid token revokes the hash, never the raw token', async () => {
   const token = 'fn_the-raw-secret';
-  resolveToken.mockResolvedValue({ userId: 'u_1', workspaceId: 'w_1', source: 'cli' });
+  resolveToken.mockResolvedValue({
+    userId: 'u_1',
+    workspaceId: 'w_1',
+    source: 'cli',
+    scope: 'grade',
+  });
   const response = await call({ authorization: `Bearer ${token}` });
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({ revoked: true });

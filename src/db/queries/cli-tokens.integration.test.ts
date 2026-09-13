@@ -32,6 +32,7 @@ describe('cli token lifecycle', () => {
       userId,
       workspaceId,
       source: 'cli',
+      scope: 'grade',
     });
   });
 
