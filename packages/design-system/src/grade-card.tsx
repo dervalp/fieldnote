@@ -75,7 +75,7 @@ export function GradeCard({
       className="grade-card"
       data-finish={finish}
       style={{ '--grade': color } as CSSProperties}
-      aria-label={`${title}: ${score} out of 100, ${label}`}
+      aria-label={`${title} by ${author}, version ${rubricVersion}, ${mode}, ${category}. ${score} out of 100, ${label}`}
     >
       <div className="grade-card-inner">
         <div className="grade-card-heading">
@@ -108,8 +108,12 @@ export function GradeCard({
         <h2>{title}</h2>
         {/* Author, version, mode and category. Four facts that were implicit
             while there was one grader and become load-bearing the moment a
-            reader sees two cards side by side. */}
-        <p className="grade-card-identity">
+            reader sees two cards side by side. Hidden from assistive tech:
+            it is a visual restatement of what the section's aria-label
+            already carries, and a CSS ::before separator is not reliably
+            exposed to it anyway — announcing the same facts twice, one of
+            them unreliably, would be worse than announcing them once. */}
+        <p className="grade-card-identity" aria-hidden="true">
           <span>{author}</span>
           <span>v{rubricVersion}</span>
           <span>{mode}</span>

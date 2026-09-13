@@ -12,6 +12,10 @@ import {
   AGENT_READINESS,
   agentReadinessManifest,
 } from '../../domain/grading/graders/agent-readiness';
+import {
+  DELIVERY_HEALTH,
+  deliveryHealthManifest,
+} from '../../domain/grading/graders/delivery-health';
 import { graderCheckTitles } from '../../domain/grading/registry';
 const titles = graderCheckTitles(agentReadinessManifest.id);
 const sha = 'a'.repeat(40);
@@ -95,6 +99,32 @@ test.each([0, 49, 50, 69, 70, 79, 80, 89, 90, 99, 100])(
     expect(html.includes('Prismatic · Perfect score')).toBe(score === 100);
   },
 );
+
+// The identity strip beneath the heading is hidden from assistive tech (its
+// `·` separators are CSS-generated, which is not reliably exposed), so the
+// facts it carries — author, version, mode, category — have to reach a
+// screen reader through the section's own accessible name instead. This
+// pins that they do, using a second grader so a hardcoded "Agent Readiness"
+// slipping back in would be caught even though it also happens to satisfy
+// the identity-strip test above.
+test('the accessible name carries author, version, mode and category, not just the score', () => {
+  const html = renderToStaticMarkup(
+    createElement(
+      GradeCard,
+      gradeCardProps({
+        score: 70,
+        repositoryName: 'acme/checkout',
+        sha,
+        rubricVersion: deliveryHealthManifest.version,
+        checks: [],
+        graderId: DELIVERY_HEALTH,
+      }),
+    ),
+  );
+  expect(html).toContain(
+    'aria-label="Delivery Health by fieldnote, version 0.1.0, Deterministic, Delivery health. 70 out of 100, Good"',
+  );
+});
 
 // The rubric is five 20-point checks, so only 0/20/40/60/80/100 occur today —
 // Bronze (70-79) and Gold (90-99) are unreachable. The spec requires the card
