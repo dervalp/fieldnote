@@ -1,0 +1,11 @@
+{
+  "name": "fieldnote",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "description": "Grade what your agents work in, from the repository you are standing in.",
+  "type": "module",
+  "bin": { "fieldnote": "./src/bin.ts" },
+  "engines": { "node": ">=24" },
+  "exports": { ".": "./src/bin.ts" }
+}
