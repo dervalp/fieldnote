@@ -5,7 +5,7 @@ import { Button } from '@fieldnote/design-system';
 import {
   historyInterestStatus,
   registerHistoryInterest,
-} from '../../app/dashboard/history-actions';
+} from '../../app/app/dashboard/history-actions';
 
 type State = 'loading' | 'unregistered' | 'signed-out' | 'registered' | 'load-error' | 'save-error';
 

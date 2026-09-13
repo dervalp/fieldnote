@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Button, Surface } from '@fieldnote/design-system';
 import type { RepositoryChoice } from '../../domain/import/types';
 import { filterRepositoryChoices } from '../../domain/import/onboarding';
-import { startFirstAnalysis, refreshRepositoryAccess } from '../../app/onboarding/actions';
+import { startFirstAnalysis, refreshRepositoryAccess } from '../../app/app/onboarding/actions';
 import { ImportProgress } from './import-progress';
 export function RepositoryPicker({
   repositories,

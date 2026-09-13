@@ -2,7 +2,7 @@ import { expect, test, vi } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-vi.mock('../../app/repos/[repoId]/grading/actions', () => ({
+vi.mock('../../app/app/repos/[repoId]/grading/actions', () => ({
   requestPlanRun: vi.fn(),
   runGrade: vi.fn(),
 }));

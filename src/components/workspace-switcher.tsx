@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { switchWorkspace } from '../app/settings/actions';
+import { switchWorkspace } from '../app/app/settings/actions';
 import { Menu } from './menu';
 type Workspace = { id: string; name: string; role: 'owner' | 'member' };
 export function WorkspaceSwitcher({

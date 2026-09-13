@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { Button } from '@fieldnote/design-system';
-import { requestPlanRun } from '../../app/repos/[repoId]/grading/actions';
+import { requestPlanRun } from '../../app/app/repos/[repoId]/grading/actions';
 import type { ActAvailability } from '../../domain/act/availability';
 
 // Nothing is rendered when Act is unavailable: the grading page already shows

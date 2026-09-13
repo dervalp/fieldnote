@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { Button, Surface } from '@fieldnote/design-system';
 import { useActionState, useEffect, useRef } from 'react';
 import type { ImportSnapshot, StartResult } from '../../domain/import/types';
-import { retryAnalysis } from '../../app/onboarding/actions';
+import { retryAnalysis } from '../../app/app/onboarding/actions';
 import { useImportStatus } from './use-import-status';
 import { progressPercent } from './polling';
 export function ImportProgress({

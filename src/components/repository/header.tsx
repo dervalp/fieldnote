@@ -1,5 +1,5 @@
 import { Button } from '@fieldnote/design-system';
-import { refreshImport } from '../../app/repos/[repoId]/actions';
+import { refreshImport } from '../../app/app/repos/[repoId]/actions';
 import { githubRepositoryUrl } from '../dashboard/repository-metadata';
 import { canRefreshImport } from '../../domain/import/progress';
 import type { RepositoryHeader } from '../../db/queries/repository-header';
