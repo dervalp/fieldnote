@@ -40,9 +40,9 @@ test('file-exists with nonempty rejects a blank file and explains the failure', 
 
 test('file-exists honours caseInsensitive', () => {
   const args = { root: true, nonempty: true, anyOf: ['README.md'], caseInsensitive: true };
-  expect(runCheck(fileExists(args), { documents: [doc('readME.MD', '# Project')] }, DISCLAIMER).paths).toEqual([
-    'readME.MD',
-  ]);
+  expect(
+    runCheck(fileExists(args), { documents: [doc('readME.MD', '# Project')] }, DISCLAIMER).paths,
+  ).toEqual(['readME.MD']);
 });
 
 test('glob-count counts matching nonempty documents against min', () => {
@@ -69,7 +69,11 @@ test('heading-has-fence scans its scope in the order the scope names it', () => 
     },
   });
   const body = ['## Setup', '```sh', 'pnpm install', '```'].join('\n');
-  const result = runCheck(scoped, { documents: [doc('AGENTS.md', body), doc('README.md', body)] }, DISCLAIMER);
+  const result = runCheck(
+    scoped,
+    { documents: [doc('AGENTS.md', body), doc('README.md', body)] },
+    DISCLAIMER,
+  );
   expect(result.paths).toEqual(['README.md', 'AGENTS.md']);
   expect(result.status).toBe('pass');
 });

@@ -15,7 +15,11 @@ const manifest = (over: Record<string, unknown> = {}) => ({
   kind: 'declarative',
   needs: { 'repo.files': ['README.md'] },
   disclaimer: 'Evidence, not certification.',
-  card: { title: 'Example', tagline: 'Is anything written down?', groups: [{ title: 'Docs', checks: ['readme'] }] },
+  card: {
+    title: 'Example',
+    tagline: 'Is anything written down?',
+    groups: [{ title: 'Docs', checks: ['readme'] }],
+  },
   checks: [
     {
       id: 'readme',
@@ -90,7 +94,11 @@ test('runDeclarative emits checks in manifest order over path-sorted documents',
   const grader = registerGrader(
     manifest({
       id: 'fieldnote/order-fixture',
-      card: { title: 'Order Test', tagline: 'Order', groups: [{ title: 'All', checks: ['readme', 'agents'] }] },
+      card: {
+        title: 'Order Test',
+        tagline: 'Order',
+        groups: [{ title: 'All', checks: ['readme', 'agents'] }],
+      },
       checks: [
         {
           id: 'readme',

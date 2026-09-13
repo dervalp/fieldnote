@@ -10,7 +10,13 @@ import {
   gradeRuns,
 } from '../src/db/schema';
 import { persistPr } from '../src/db/queries/persist-pr';
-import { demoFacts, demoGrade, demoDeliveryGrade, demoGradeSha, demoPolicy } from '../src/demo/fixtures';
+import {
+  demoFacts,
+  demoGrade,
+  demoDeliveryGrade,
+  demoGradeSha,
+  demoPolicy,
+} from '../src/demo/fixtures';
 import { agentReadinessManifest } from '../src/domain/grading/graders/agent-readiness';
 import { deliveryHealthManifest } from '../src/domain/grading/graders/delivery-health';
 import { rubricView } from '../src/domain/grading/rubric-view';

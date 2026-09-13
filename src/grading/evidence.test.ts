@@ -37,7 +37,10 @@ test('a metrics grader calls only the metrics collector', async () => {
   collectMetrics.mockResolvedValue({ metrics, complete: true });
   const { snapshot } = await collectEvidence(deliveryHealthManifest, 'repo', 'abc');
   expect(collectReadiness).not.toHaveBeenCalled();
-  expect(collectMetrics).toHaveBeenCalledWith('repo', deliveryHealthManifest.needs['fieldnote.metrics']);
+  expect(collectMetrics).toHaveBeenCalledWith(
+    'repo',
+    deliveryHealthManifest.needs['fieldnote.metrics'],
+  );
   expect(snapshot).toMatchObject({ sha: 'abc', complete: true, documents: [], metrics });
 });
 

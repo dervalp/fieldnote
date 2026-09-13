@@ -6,7 +6,10 @@ import { gradePresentation } from '../../domain/grading/presentation';
 import { finishNames } from '../../domain/grading/finish-names';
 import type { CheckResult } from '../../domain/grading/types';
 import { AGENT_READINESS } from '../../domain/grading/graders/agent-readiness';
-import { DELIVERY_HEALTH, deliveryHealthManifest } from '../../domain/grading/graders/delivery-health';
+import {
+  DELIVERY_HEALTH,
+  deliveryHealthManifest,
+} from '../../domain/grading/graders/delivery-health';
 
 // The package declares its own GradeFinish because it cannot import the
 // domain's. This assignment is the pin: if either union gains, loses or
