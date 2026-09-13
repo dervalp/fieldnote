@@ -201,9 +201,9 @@ test('read authorization, repository/run association, and batch filtering protec
   await expect(gradeHistory(repo, AGENT_READINESS)).rejects.toThrow('not found');
   await expect(getGrade(repo, run.id, AGENT_READINESS)).rejects.toThrow('not found');
   await expect(requestGrade(repo, AGENT_READINESS)).rejects.toThrow('not found');
-  expect((await gradeSummaries([repo, other], AGENT_READINESS)).map((x) => x.repositoryId)).toEqual(
-    [other],
-  );
+  expect(
+    (await gradeSummaries([repo, other], [AGENT_READINESS])).map((x) => x.repositoryId),
+  ).toEqual([other]);
 });
 test('rubric definitions cannot change in place and unknown pinned versions never use latest evaluator', async () => {
   await registerRubric(agentReadinessManifest);

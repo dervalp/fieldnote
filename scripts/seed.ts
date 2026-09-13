@@ -176,7 +176,7 @@ try {
   console.log('AI involvement: /app/repos/demo-repository/ai-involvement');
   console.log(`Readiness ${demoGrade.score}/100: /app/repos/demo-repository`);
   console.log(
-    `Delivery ${demoDeliveryGrade.score}/100 seeded (not yet shown — the Grades tab is on hold)`,
+    `Delivery ${demoDeliveryGrade.score}/100: /app/repos/demo-repository/grading?grader=fieldnote%2Fdelivery-health`,
   );
 } finally {
   await closeDb();

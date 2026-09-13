@@ -26,12 +26,18 @@ vi.mock('../../../../../components/act/act-entry', () => ({
     createElement('p', null, availability.available ? 'act-available' : 'act-unavailable'),
 }));
 vi.mock('../../../../../components/grading/report', () => ({
-  GradeControls: ({ initial }: { initial: { state: string } | null }) =>
-    createElement('p', null, initial?.state),
-  GradeReport: ({ grade }: { grade: { rubricVersion: string } }) =>
-    createElement('p', null, grade.rubricVersion),
+  GradeControls: ({ graderId, initial }: { graderId: string; initial: { state: string } | null }) =>
+    createElement('p', null, `controls:${graderId}:${initial?.state ?? 'none'}`),
+  GradeReport: ({
+    grade,
+    graderTitle,
+  }: {
+    grade: { rubricVersion: string };
+    graderTitle: string;
+  }) => createElement('p', null, `${graderTitle}:${grade.rubricVersion}`),
 }));
 import Grading from './page';
+import { DELIVERY_HEALTH } from '../../../../../domain/grading/graders/delivery-health';
 const completed = {
   id: 'old',
   score: 60,
@@ -41,8 +47,11 @@ const completed = {
   computedAt: new Date('2026-09-08'),
   checks: [],
 };
-const call = (run?: string) =>
-  Grading({ params: Promise.resolve({ repoId: 'repo' }), searchParams: Promise.resolve({ run }) });
+const call = (run?: string, grader?: string) =>
+  Grading({
+    params: Promise.resolve({ repoId: 'repo' }),
+    searchParams: Promise.resolve({ run, grader }),
+  });
 beforeEach(() => {
   vi.resetAllMocks();
   deps.authorize.mockResolvedValue({
@@ -51,7 +60,14 @@ beforeEach(() => {
     name: 'repo',
     isDemo: false,
   });
-  deps.summaries.mockResolvedValue([{ latest: completed, status: { id: 'new', state: 'failed' } }]);
+  deps.summaries.mockResolvedValue([
+    {
+      graderId: 'fieldnote/agent-readiness',
+      latest: completed,
+      status: { id: 'new', state: 'failed' },
+    },
+    { graderId: DELIVERY_HEALTH, latest: null, status: null },
+  ]);
   deps.history.mockResolvedValue([completed]);
   deps.get.mockResolvedValue(null);
   deps.actEnabled.mockResolvedValue(false);
@@ -81,11 +97,59 @@ test('outsider fails before any grade read', async () => {
   expect(deps.history).not.toHaveBeenCalled();
 });
 test('incomplete evidence has an ungraded state with no numeric card', async () => {
-  deps.summaries.mockResolvedValue([{ latest: null, status: { id: 'new', state: 'running' } }]);
+  deps.summaries.mockResolvedValue([
+    {
+      graderId: 'fieldnote/agent-readiness',
+      latest: null,
+      status: { id: 'new', state: 'running' },
+    },
+    { graderId: DELIVERY_HEALTH, latest: null, status: null },
+  ]);
   deps.history.mockResolvedValue([]);
   const html = renderToStaticMarkup(await call());
   expect(html).toContain('Not graded yet');
   expect(html).not.toContain('out of 100');
+});
+
+test('both graders render a card region', async () => {
+  const html = renderToStaticMarkup(await call());
+  // Agent Readiness has a completed grade and renders the real GradeCard;
+  // Delivery Health has never run and renders its own ungraded tile — both
+  // rows come from listGraders(), not from a hardcoded pair.
+  expect(html).toContain('Agent Readiness');
+  expect(html).toContain('Delivery Health');
+  expect(html).toContain('Not graded yet');
+});
+
+test('?grader= selects which report is shown', async () => {
+  deps.summaries.mockResolvedValue([
+    { graderId: 'fieldnote/agent-readiness', latest: completed, status: null },
+    {
+      graderId: DELIVERY_HEALTH,
+      latest: { ...completed, id: 'delivery-run', rubricVersion: '9.9.9' },
+      status: null,
+    },
+  ]);
+  const html = renderToStaticMarkup(await call(undefined, DELIVERY_HEALTH));
+  expect(deps.history).toHaveBeenCalledWith('repo', DELIVERY_HEALTH);
+  expect(html).toContain(`controls:${DELIVERY_HEALTH}:`);
+  expect(html).toContain('Delivery Health:9.9.9');
+});
+
+test('an unregistered ?grader= is a 404', async () => {
+  await expect(call(undefined, 'fieldnote/does-not-exist')).rejects.toThrow(
+    'NEXT_HTTP_ERROR_FALLBACK;404',
+  );
+  expect(deps.summaries).not.toHaveBeenCalled();
+});
+
+test('a grader that has never run renders its tile and its Run button', async () => {
+  const html = renderToStaticMarkup(await call(undefined, DELIVERY_HEALTH));
+  expect(html).toContain('Not graded yet');
+  // The mocked GradeControls stands in for the real Run button; asserting it
+  // is parameterised with the selected grader's id is what proves the button
+  // targets that grader rather than whichever one was on screen before.
+  expect(html).toContain(`controls:${DELIVERY_HEALTH}:none`);
 });
 
 test('escaped route id is decoded before authorization', async () => {

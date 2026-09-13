@@ -13,10 +13,12 @@ type Status = {
 };
 export function GradeControls({
   repositoryId,
+  graderId,
   initial,
   canRun,
 }: {
   repositoryId: string;
+  graderId: string;
   initial: Status | null;
   canRun: boolean;
 }) {
@@ -25,7 +27,7 @@ export function GradeControls({
   const [connection, setConnection] = useState('');
   const [result, action, pending] = useActionState(async () => {
     try {
-      const next = await runGrade(repositoryId);
+      const next = await runGrade(repositoryId, graderId);
       setConnection('');
       setRun({ id: next.runId, state: 'queued' });
       return '';

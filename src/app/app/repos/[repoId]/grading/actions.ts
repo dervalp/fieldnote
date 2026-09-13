@@ -1,12 +1,13 @@
 'use server';
 import { requestGrade } from '../../../../../db/queries/grade-runs';
-import { AGENT_READINESS } from '../../../../../domain/grading/graders/agent-readiness';
 import { dispatchGrade } from '../../../../../inngest/dispatch-grade';
 import { requestPlan } from '../../../../../db/queries/authoring-runs';
 import { dispatchAuthoringPlan } from '../../../../../inngest/dispatch-authoring';
-export async function runGrade(repositoryId: string): Promise<{ runId: string }> {
-  // requestGrade checks current workspace membership, repository connection and demo mode.
-  const run = await requestGrade(repositoryId, AGENT_READINESS);
+export async function runGrade(repositoryId: string, graderId: string): Promise<{ runId: string }> {
+  // requestGrade resolves the grader through the registry, which throws on an
+  // unknown id, and checks workspace membership, repository connection and
+  // demo mode.
+  const run = await requestGrade(repositoryId, graderId);
   try {
     await dispatchGrade(run.id);
   } catch {

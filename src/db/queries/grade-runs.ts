@@ -24,6 +24,7 @@ export type GradeRun = typeof runs.$inferSelect;
 export type CompletedGrade = GradeResult & { id: string; sha: string; computedAt: Date };
 export type GradeSummary = {
   repositoryId: string;
+  graderId: string;
   latest: CompletedGrade | null;
   status: Pick<GradeRun, 'id' | 'state' | 'errorCode' | 'createdAt'> | null;
 };
@@ -215,33 +216,41 @@ export async function getGrade(
 }
 export async function gradeSummaries(
   repositoryIds: string[],
-  graderId: string,
+  graderIds: string[],
 ): Promise<GradeSummary[]> {
   const allowed = new Set((await accessibleRepositories()).map((repo) => repo.id));
   const ids = [...new Set(repositoryIds)].filter((id) => allowed.has(id));
-  if (!ids.length) return [];
+  if (!ids.length || !graderIds.length) return [];
   const records = await db()
     .select()
     .from(runs)
-    .where(and(inArray(runs.repositoryId, ids), eq(runs.graderId, graderId)))
+    .where(and(inArray(runs.repositoryId, ids), inArray(runs.graderId, graderIds)))
     .orderBy(desc(runs.createdAt), desc(runs.id));
-  return ids.map((repositoryId) => {
-    const history = records.filter((run) => run.repositoryId === repositoryId);
-    const current = history[0];
-    const latest = history.find((run) => run.state === 'complete');
-    return {
-      repositoryId,
-      latest: latest ? completed(latest) : null,
-      status: current
-        ? {
-            id: current.id,
-            state: current.state,
-            errorCode: current.errorCode,
-            createdAt: current.createdAt,
-          }
-        : null,
-    };
-  });
+  // One summary per (repository, grader) pair: a repository with two graders
+  // shows both, and a grader that has never run for a repository still gets
+  // an entry (latest and status both null) rather than being missing.
+  return ids.flatMap((repositoryId) =>
+    graderIds.map((graderId) => {
+      const history = records.filter(
+        (run) => run.repositoryId === repositoryId && run.graderId === graderId,
+      );
+      const current = history[0];
+      const latest = history.find((run) => run.state === 'complete');
+      return {
+        repositoryId,
+        graderId,
+        latest: latest ? completed(latest) : null,
+        status: current
+          ? {
+              id: current.id,
+              state: current.state,
+              errorCode: current.errorCode,
+              createdAt: current.createdAt,
+            }
+          : null,
+      };
+    }),
+  );
 }
 // Trusted worker primitives; never expose these directly as browser actions.
 export async function loadGradeRun(runId: string) {

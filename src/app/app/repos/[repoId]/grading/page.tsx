@@ -1,11 +1,15 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { Surface } from '@fieldnote/design-system';
+import { Surface, GradeCard } from '@fieldnote/design-system';
 import { requireRepository } from '../../../../../workspaces/access';
 import { getGrade, gradeHistory, gradeSummaries } from '../../../../../db/queries/grade-runs';
-import { AGENT_READINESS } from '../../../../../domain/grading/graders/agent-readiness';
-import { getGrader, graderCheckTitles } from '../../../../../domain/grading/registry';
-import { GradeCard } from '@fieldnote/design-system';
+// Importing the barrel (not just agent-readiness) registers every built-in
+// grader as a side effect, the way registry.ts's own docstring on
+// listGraders() asks a caller to. This is the one page that needs the full
+// roster; every other caller still names the one grader it means.
+import { AGENT_READINESS } from '../../../../../domain/grading/graders';
+import { getGrader, graderCheckTitles, listGraders } from '../../../../../domain/grading/registry';
+import { ManifestError } from '../../../../../domain/grading/manifest';
 import { gradeCardProps } from '../../../../../components/grading/grade-presentation';
 import { GradeControls, GradeReport } from '../../../../../components/grading/report';
 import { pageRouteId } from '../../../../../lib/page-route-id';
@@ -17,34 +21,63 @@ import { availabilityMessage } from '../../../../../domain/act/availability-copy
 import { latestPlan } from '../../../../../db/queries/authoring-runs';
 import { ActEntry } from '../../../../../components/act/act-entry';
 export const dynamic = 'force-dynamic';
+
+// A row of cards, one per registered grader, whether or not it has ever run —
+// so a second grader advertises itself before anyone has used it. `?grader=`
+// selects which card's report and history render beneath the row, defaulting
+// to the built-in readiness grader; an id nothing registers is a 404 rather
+// than a silent fallback to the default. There is no primary grader and no
+// composite score: the graders answer different questions, and a mean of
+// "can an agent work here" and "does work reach green cleanly" is a number
+// about nothing.
 export default async function Grading({
   params,
   searchParams,
 }: {
   params: Promise<{ repoId: string }>;
-  searchParams: Promise<{ run?: string }>;
+  searchParams: Promise<{ run?: string; grader?: string }>;
 }) {
-  // The built-in is named here rather than assumed inside the queries, so the
-  // single-grader assumption is visible. A second grader already exists and
-  // is gradeable, but is deliberately not surfaced here: turning this into a
-  // row of cards with a grader selector is on hold while another team moves
-  // every route under /app, so it stays a decision for that slice to make.
-  const readinessGrader = getGrader(AGENT_READINESS);
-  const checkTitles = graderCheckTitles(AGENT_READINESS);
   const repoId = pageRouteId((await params).repoId);
   const repo = await requireRepository(repoId);
-  const { run } = await searchParams;
-  const [summaries, history, selected, enabled, plan] = await Promise.all([
-    gradeSummaries([repoId], AGENT_READINESS),
-    gradeHistory(repoId, AGENT_READINESS),
-    run ? getGrade(repoId, run, AGENT_READINESS) : Promise.resolve(null),
+  const { run, grader } = await searchParams;
+  const graders = listGraders();
+  let selectedGrader;
+  try {
+    selectedGrader = getGrader(grader ?? AGENT_READINESS);
+  } catch (error) {
+    if (error instanceof ManifestError) notFound();
+    throw error;
+  }
+  const checkTitles = graderCheckTitles(selectedGrader.id);
+  // The one place the /app prefix is spelled is repoSectionPath; the grader
+  // selection rides on the query string it already carries.
+  const gradingHref = (query = '') => repoSectionPath(repoId, 'grading', query);
+  const hrefFor = (graderId: string) =>
+    graderId === AGENT_READINESS
+      ? gradingHref()
+      : gradingHref(`?${new URLSearchParams({ grader: graderId })}`);
+  const historyHref = (graderId: string, runId: string) => {
+    const query = new URLSearchParams();
+    if (graderId !== AGENT_READINESS) query.set('grader', graderId);
+    query.set('run', runId);
+    return gradingHref(`?${query}`);
+  };
+  const [summaries, history, historical, enabled, plan] = await Promise.all([
+    gradeSummaries(
+      [repoId],
+      graders.map((entry) => entry.id),
+    ),
+    gradeHistory(repoId, selectedGrader.id),
+    run ? getGrade(repoId, run, selectedGrader.id) : Promise.resolve(null),
     actEnabled(repoId),
     latestPlan(repoId),
   ]);
-  if (run && !selected) notFound();
-  const summary = summaries[0];
-  const grade = run ? selected : summary?.latest;
-  const href = repoSectionPath(repoId, 'grading');
+  if (run && !historical) notFound();
+  const summaryFor = (graderId: string) => summaries.find((entry) => entry.graderId === graderId);
+  const summary = summaryFor(selectedGrader.id);
+  const isReadiness = selectedGrader.id === AGENT_READINESS;
+  const grade = run ? historical : summary?.latest;
+  const href = hrefFor(selectedGrader.id);
   // The installation lookup is a network round-trip, so it only runs once
   // the repository has opted in — a demo repository has no real
   // installation and must not 500 this page over a fetch nobody asked for.
@@ -60,19 +93,67 @@ export default async function Grading({
   const availability = actAvailability({
     enabled,
     permissions,
-    failingCheckCount: grade?.checks.filter((check) => check.status === 'fail').length ?? 0,
+    // Named from the readiness grader's own summary, never from whichever
+    // card is on screen: switching cards, or viewing a historical readiness
+    // run, must not change what Act says. Nothing an agent writes into a
+    // repository raises a first-pass rate.
+    failingCheckCount:
+      summaryFor(AGENT_READINESS)?.latest?.checks.filter((check) => check.status === 'fail')
+        .length ?? 0,
   });
   const message = availabilityMessage(availability);
   return (
     <div className="metrics-page">
       {/* Identity and the back-link live in the repository layout header; the
           tagline is demoted to h2 as this tab panel's own heading. */}
-      <div className="eyebrow panel-eyebrow">Repository / Readiness</div>
-      <h2>A record of readiness.</h2>
-      <p className="page-intro">Understand the foundations your agents build on.</p>
+      <div className="eyebrow panel-eyebrow">Repository / Grades</div>
+      <h2>Every grader&rsquo;s read on this repository.</h2>
+      <p className="page-intro">Select a card to see that grader&rsquo;s evidence and history.</p>
+      <div className="grade-row">
+        {graders.map((entry) => {
+          const isSelected = entry.id === selectedGrader.id;
+          // The selected card tracks whatever is on screen, including a
+          // historical `?run=` selection; every other card shows its own
+          // latest, since `?run=` only ever names a run of the selected
+          // grader.
+          const entryGrade = isSelected ? grade : summaryFor(entry.id)?.latest;
+          return (
+            <div
+              key={entry.id}
+              className="grade-row-item"
+              aria-current={isSelected ? 'true' : undefined}
+            >
+              <Link href={hrefFor(entry.id)} className="grade-row-link">
+                {entryGrade?.score !== null && entryGrade?.score !== undefined ? (
+                  <GradeCard
+                    {...gradeCardProps({
+                      score: entryGrade.score,
+                      repositoryName: `${repo.owner} / ${repo.name}`,
+                      sha: entryGrade.sha,
+                      rubricVersion: entryGrade.rubricVersion,
+                      checks: entryGrade.checks,
+                      graderId: entry.id,
+                    })}
+                  />
+                ) : (
+                  <Surface className="grading-ungraded">
+                    <h2>{entry.card.title}</h2>
+                    <p>{entry.card.tagline}</p>
+                    <p>
+                      Not graded yet. A score appears only after all evidence is collected. Run the
+                      grader to create the first report.
+                    </p>
+                  </Surface>
+                )}
+              </Link>
+            </div>
+          );
+        })}
+      </div>
       <GradeControls
-        key={repoId}
+        key={`${repoId}:${selectedGrader.id}`}
         repositoryId={repoId}
+        graderId={selectedGrader.id}
         initial={summary?.status ?? null}
         canRun={!repo.isDemo}
       />
@@ -82,9 +163,11 @@ export default async function Grading({
         </p>
       )}
       {/* A team that opted in should learn why Act cannot proceed; nobody
-          else should be told about a switch that does nothing. */}
-      {grade && enabled && message && <p className="muted">{message}</p>}
-      {grade && (
+          else should be told about a switch that does nothing. Act names
+          only the readiness grader, so neither this line nor the entry below
+          it belongs under any other card. */}
+      {isReadiness && grade && enabled && message && <p className="muted">{message}</p>}
+      {isReadiness && grade && (
         <ActEntry
           repositoryId={repoId}
           availability={availability}
@@ -93,26 +176,6 @@ export default async function Grading({
       )}
       <div className="grading-layout">
         <div>
-          {grade?.score !== null && grade?.score !== undefined ? (
-            <GradeCard
-              {...gradeCardProps({
-                score: grade.score,
-                repositoryName: `${repo.owner} / ${repo.name}`,
-                sha: grade.sha,
-                rubricVersion: grade.rubricVersion,
-                checks: grade.checks,
-                graderId: AGENT_READINESS,
-              })}
-            />
-          ) : (
-            <Surface className="grading-ungraded">
-              <h2>Not graded yet.</h2>
-              <p>
-                A score appears only after all evidence is collected. Run the grader to create your
-                first report.
-              </p>
-            </Surface>
-          )}
           {history.length > 0 && (
             <details className="grading-history">
               <summary>Completed reports ({history.length})</summary>
@@ -120,7 +183,7 @@ export default async function Grading({
                 {history.map((item) => (
                   <li key={item.id}>
                     <Link
-                      href={`${href}?run=${encodeURIComponent(item.id)}`}
+                      href={historyHref(selectedGrader.id, item.id)}
                       aria-current={grade?.id === item.id ? 'page' : undefined}
                     >
                       {item.score} / 100 · {item.sha.slice(0, 7)} ·{' '}
@@ -138,11 +201,11 @@ export default async function Grading({
             owner={repo.owner}
             name={repo.name}
             checkTitles={checkTitles}
-            graderTitle={readinessGrader.card.title}
-            disclaimer={readinessGrader.disclaimer}
+            graderTitle={selectedGrader.card.title}
+            disclaimer={selectedGrader.disclaimer}
             outdated={
-              grade.rubricVersion !== readinessGrader.version ||
-              grade.evaluatorVersion !== readinessGrader.evaluatorVersion
+              grade.rubricVersion !== selectedGrader.version ||
+              grade.evaluatorVersion !== selectedGrader.evaluatorVersion
             }
           />
         )}

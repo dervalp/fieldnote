@@ -314,6 +314,7 @@ test('a run that failed for insufficient evidence tells the team it is their rec
   const html = renderToStaticMarkup(
     createElement(GradeControls, {
       repositoryId: 'repo',
+      graderId: AGENT_READINESS,
       initial: { id: 'run', state: 'failed', errorCode: 'insufficient_evidence' },
       canRun: true,
     }),
@@ -325,6 +326,7 @@ test('a run that failed to collect evidence tells the team fieldnote could not f
   const html = renderToStaticMarkup(
     createElement(GradeControls, {
       repositoryId: 'repo',
+      graderId: AGENT_READINESS,
       initial: { id: 'run', state: 'failed', errorCode: 'incomplete_collection' },
       canRun: true,
     }),
@@ -336,6 +338,7 @@ test('a failed run with no error code, as an older row would look, reads as the 
   const html = renderToStaticMarkup(
     createElement(GradeControls, {
       repositoryId: 'repo',
+      graderId: AGENT_READINESS,
       initial: { id: 'run', state: 'failed', errorCode: null },
       canRun: true,
     }),
