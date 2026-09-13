@@ -7,6 +7,7 @@ import { cliVersion } from './version.ts';
 import { helpText } from './help.ts';
 import { clearAuth, readAuth, writeAuth } from './config.ts';
 import { awaitCallback, openBrowser } from './login.ts';
+import { exchangeCliToken } from './api.ts';
 
 const COMING_SOON = [
   '  fieldnote over MCP — coming soon',
@@ -128,25 +129,18 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
 
     let body: { token: string; login: string; workspace: string };
     try {
-      const response = await fetch(new URL('/api/cli/token', base), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code: result.code,
-          verifier,
-          label: env.HOSTNAME ?? hostname(),
-        }),
+      body = await exchangeCliToken(base, {
+        code: result.code,
+        verifier,
+        label: env.HOSTNAME ?? hostname(),
       });
-      if (!response.ok) {
-        out.line('  Sign-in failed. Run `fieldnote login` again.');
-        return 2;
-      }
-      body = (await response.json()) as { token: string; login: string; workspace: string };
       await writeAuth(body);
     } catch {
       // Deliberately generic: the cause is a network or disk condition the user
       // cannot act on differently, and the response body may carry detail that
-      // does not belong on a terminal.
+      // does not belong on a terminal. exchangeCliToken's own exit code and
+      // message are ignored here on purpose — this branch always reports the
+      // same thing regardless of what actually failed.
       out.line('  Sign-in failed. Run `fieldnote login` again.');
       return 2;
     }
