@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SEAL, WORDMARK, lockup } from './brand';
+import { SEAL, WORDMARK, lockup, DISCLAIMER, banner, disclaimer } from './brand';
 
 const width = (line: string) => [...line].length;
 
@@ -63,5 +63,51 @@ describe('lockup', () => {
     // eslint-disable-next-line no-control-regex
     expect(rendered).toMatch(/^[\x00-\x7F\n]*$/);
     expect(rendered).toContain('fieldnote');
+  });
+});
+
+describe('disclaimer', () => {
+  it('never truncates a trust claim', () => {
+    for (const columns of [100, 80, 46, 38, 30, 24]) {
+      const rendered = disclaimer(columns).join(' ').replace(/\s+/g, ' ');
+      for (const word of DISCLAIMER.join(' ').split(/\s+/)) {
+        expect(rendered).toContain(word);
+      }
+    }
+  });
+
+  it('wraps inside the measured width', () => {
+    for (const columns of [100, 80, 46, 38, 30, 24]) {
+      for (const line of disclaimer(columns)) {
+        expect([...line].length).toBeLessThanOrEqual(columns);
+      }
+    }
+  });
+
+  it('says the house is not exempt, which is the whole point of the paragraph', () => {
+    expect(DISCLAIMER.join(' ')).toContain('including for the graders we wrote ourselves');
+  });
+
+  it('claims nothing is uploaded, which the server-side execution decision makes true', () => {
+    expect(DISCLAIMER.join(' ')).toContain('Nothing on this machine is uploaded');
+  });
+});
+
+describe('banner', () => {
+  it('opens with the lockup and carries the disclaimer', () => {
+    const lines = banner({ columns: 80, unicode: true });
+    const text = lines.map((line) => line.seal + line.mark).join('\n');
+    // The wordmark is one line and must match exactly; the disclaimer is
+    // wrapped to the measure, so it is compared as flowed text.
+    expect(text).toContain(WORDMARK[0]);
+    expect(text.replace(/\s+/g, ' ')).toContain('Nothing on this machine is uploaded');
+  });
+
+  it('fits any terminal it is given', () => {
+    for (const columns of [100, 80, 46, 38, 30, 24]) {
+      for (const line of banner({ columns, unicode: true })) {
+        expect([...(line.seal + line.mark)].length).toBeLessThanOrEqual(columns);
+      }
+    }
   });
 });

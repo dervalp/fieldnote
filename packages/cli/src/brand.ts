@@ -49,3 +49,51 @@ export function lockup(caps: Capabilities): LockupLine[] {
   const marks = ['', WORDMARK[0], WORDMARK[1], WORDMARK[2], licence];
   return seal.map((row, i) => ({ seal: row, mark: marks[i] }));
 }
+
+// Three claims, and the constraint is that each one is checkable. The first is
+// true because fieldnote fetches the commit from GitHub rather than reading
+// this machine. The second is true for a deterministic grader. The third is
+// enforced by the manifest's `mode`, not by an author's manners — and it does
+// not exempt our own graders, which is the only reason it is worth printing.
+export const DISCLAIMER = [
+  'fieldnote grades the repository you are standing in. Nothing on this machine is uploaded — fieldnote fetches the commit from GitHub, through the App you already installed.',
+  'Every score is recomputed from that commit and replays the same way twice. Where a grader calls a model it has to declare it, and this terminal prints the declaration above the score — including for the graders we wrote ourselves.',
+] as const;
+
+const MARGIN = '  ';
+const MEASURE = 64;
+
+function wrap(text: string, width: number): string[] {
+  const lines: string[] = [];
+  let line = '';
+  for (const word of text.split(/\s+/)) {
+    if (line === '') line = word;
+    else if ([...line].length + 1 + [...word].length <= width) line += ' ' + word;
+    else {
+      lines.push(line);
+      line = word;
+    }
+  }
+  if (line !== '') lines.push(line);
+  return lines;
+}
+
+export function disclaimer(columns: number): string[] {
+  const width = Math.max(1, Math.min(MEASURE, columns - MARGIN.length));
+  const out: string[] = [];
+  DISCLAIMER.forEach((paragraph, index) => {
+    if (index > 0) out.push('');
+    // A word longer than the measure still gets its own line rather than a
+    // cut: the claim survives a narrow terminal even when the layout does not.
+    for (const line of wrap(paragraph, width)) out.push(MARGIN + line);
+  });
+  return out;
+}
+
+export function banner(caps: Capabilities): LockupLine[] {
+  return [
+    ...lockup(caps),
+    { seal: '', mark: '' },
+    ...disclaimer(caps.columns).map((mark) => ({ seal: '', mark })),
+  ];
+}
