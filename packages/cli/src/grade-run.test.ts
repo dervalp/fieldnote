@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { gradeRun } from './grade-run.ts';
-import { ApiError, type GradeComplete } from './api.ts';
+import { ApiError } from './api.ts';
+import { CLEAN_STATE, REQUESTED, completeFixture } from './fixtures.ts';
 
 const { readGitState, gradeBlocker, expandSha, requestGradeRun, pollGradeRun } = vi.hoisted(() => ({
   readGitState: vi.fn(),
@@ -20,43 +21,6 @@ afterEach(() => {
   vi.clearAllMocks();
   vi.useRealTimers();
 });
-
-const CLEAN_STATE = {
-  slug: 'dervalp/fieldnote',
-  sha: 'a'.repeat(40),
-  upstreamSha: 'a'.repeat(40),
-  dirtyCount: 0,
-  unpushedCount: 0,
-  hasUpstream: true,
-};
-
-const REQUESTED = {
-  runId: 'r1',
-  graderId: 'agent-brief',
-  mode: 'deterministic' as const,
-  requestedSha: CLEAN_STATE.sha,
-};
-
-function completeFixture(overrides: Partial<GradeComplete> = {}): GradeComplete {
-  return {
-    state: 'complete',
-    score: 92,
-    checks: [],
-    titles: {},
-    graderId: 'agent-brief',
-    graderVersion: '1',
-    rubricVersion: '1',
-    evaluatorVersion: '1',
-    mode: 'deterministic',
-    tagline: 'reads like a brief',
-    disclaimer: 'This grader uses a language model.',
-    gradedSha: CLEAN_STATE.sha,
-    presentation: { label: 'Solid', finish: 'green' },
-    nextTier: null,
-    url: 'https://fieldnote.dev/g/1',
-    ...overrides,
-  };
-}
 
 const baseOptions = { base: 'http://x', token: 't', cwd: '/repo' };
 

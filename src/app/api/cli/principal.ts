@@ -3,7 +3,14 @@ import { resolveToken } from '../../../db/queries/cli-tokens';
 import { withPrincipal } from '../../../auth/principal';
 
 const headers = { 'Cache-Control': 'private, no-store' };
-const unauthorized = () => Response.json({ error: 'Not signed in.' }, { status: 401, headers });
+
+// The 401 every CLI route answers with, exported so that the one route that
+// authenticates outside withCliPrincipal (revoke) says the same sentence.
+// The remedy is part of the sentence: the CLI already tells the developer to
+// run `fieldnote login` when it notices this itself, and the same condition
+// should not read differently depending on which side noticed it.
+export const unauthorized = () =>
+  Response.json({ error: 'Not signed in. Run `fieldnote login`.' }, { status: 401, headers });
 
 // next/navigation's own `isRedirectError` / `isHTTPAccessFallbackError` live
 // under a `client/components` path that is meant for client components, not
@@ -30,7 +37,13 @@ const isNotFoundThrow = (error: unknown) => digestOf(error) === 'NEXT_HTTP_ERROR
 // wrong scheme, or an empty token all come back undefined and 401 the same
 // way a missing header does — resolveToken() never sees anything that was
 // not actually offered as a bearer token.
-function bearerToken(request: Request): string | undefined {
+//
+// Exported because the revoke route authenticates the same bearer token
+// without going through withCliPrincipal. It used to carry its own copy of
+// this regex under a comment asking the two not to drift; two definitions of
+// "what counts as a credential" is the shape of a future auth bug, and a
+// comment is not a constraint.
+export function bearerToken(request: Request): string | undefined {
   return request.headers.get('authorization')?.match(/^Bearer\s+(\S+)\s*$/i)?.[1];
 }
 

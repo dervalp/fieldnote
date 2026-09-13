@@ -1,6 +1,7 @@
 import { unstable_rethrow } from 'next/navigation';
 import { tokenHash } from '../../../../auth/crypto';
 import { resolveToken, revokeToken } from '../../../../db/queries/cli-tokens';
+import { bearerToken, unauthorized } from '../principal';
 
 const headers = { 'Cache-Control': 'private, no-store' };
 
@@ -12,13 +13,13 @@ const headers = { 'Cache-Control': 'private, no-store' };
 // unauthenticated caller: "Not signed in."
 export async function POST(request: Request) {
   try {
-    // Must match src/app/api/cli/principal.ts's bearerToken() exactly — the
-    // two must not drift on what counts as a well-formed bearer token.
-    const token = request.headers.get('authorization')?.match(/^Bearer\s+(\S+)\s*$/i)?.[1];
-    if (!token) return Response.json({ error: 'Not signed in.' }, { status: 401, headers });
+    // Shared with withCliPrincipal rather than re-spelled: this route and
+    // every other CLI route must agree on what counts as a credential, and
+    // on what a caller without one is told.
+    const token = bearerToken(request);
+    if (!token) return unauthorized();
     const principal = await resolveToken(token);
-    if ('error' in principal)
-      return Response.json({ error: 'Not signed in.' }, { status: 401, headers });
+    if ('error' in principal) return unauthorized();
     await revokeToken(tokenHash(token), principal.userId);
     return Response.json({ revoked: true }, { headers });
   } catch (error) {

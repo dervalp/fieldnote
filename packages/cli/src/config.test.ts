@@ -22,6 +22,7 @@ describe('auth file', () => {
       token: 'fn_abc',
       login: 'octocat',
       workspace: 'vertuoza',
+      source: 'file',
     });
   });
 
@@ -33,6 +34,15 @@ describe('auth file', () => {
 
   it('is null when nothing has been written', async () => {
     expect(await readAuth({})).toBeNull();
+  });
+
+  it('says where the credential came from, so logout can tell a stored token from a CI one', async () => {
+    // `fieldnote logout` revokes what it finds. A token synthesised from
+    // FIELDNOTE_TOKEN lives in someone's secret store, not here, and
+    // revoking it server-side kills a credential this machine never owned.
+    await writeAuth({ token: 'fn_abc', login: 'octocat', workspace: 'vertuoza' });
+    expect((await readAuth({}))?.source).toBe('file');
+    expect((await readAuth({ FIELDNOTE_TOKEN: 'fn_from_env' }))?.source).toBe('env');
   });
 
   it('lets FIELDNOTE_TOKEN win, so CI never touches disk', async () => {

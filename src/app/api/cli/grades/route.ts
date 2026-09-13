@@ -13,6 +13,25 @@ import { AGENT_READINESS } from '../../../../domain/grading/graders/agent-readin
 
 const headers = { 'Cache-Control': 'private, no-store' };
 
+// One sentence for one condition, written once. An unknown repository and one
+// this workspace cannot see are deliberately the same answer, and both reach
+// the developer from two different places in the handler below.
+//
+// The link is built from the request's own origin, the way the poll route
+// builds its result URL: the CLI authenticated against this origin, so that
+// is where its reader should be sent. /settings/workspace is where connected
+// repositories are listed, and where an owner finds "Connect a repository".
+const notConnected = (request: Request, repository: string) =>
+  Response.json(
+    {
+      error: `fieldnote is not connected to ${repository}. Connect it at ${new URL(
+        '/settings/workspace',
+        request.url,
+      ).toString()}.`,
+    },
+    { status: 404, headers },
+  );
+
 const bodySchema = z.object({
   repository: z.string().regex(/^[^/\s]+\/[^/\s]+$/),
   sha: z.string().regex(/^[0-9a-f]{40}$/),
@@ -37,11 +56,7 @@ export async function POST(request: Request) {
     const repository = repositories.find(
       (r) => r.owner.toLowerCase() === owner && r.name.toLowerCase() === name,
     );
-    if (!repository)
-      return Response.json(
-        { error: `fieldnote is not connected to ${body.data.repository}.` },
-        { status: 404, headers },
-      );
+    if (!repository) return notConnected(request, body.data.repository);
 
     const graderId = body.data.grader ?? AGENT_READINESS;
     let manifest;
@@ -78,10 +93,7 @@ export async function POST(request: Request) {
           { status: 409, headers },
         );
       if (error instanceof Error && error.message === REPOSITORY_UNAVAILABLE)
-        return Response.json(
-          { error: `fieldnote is not connected to ${body.data.repository}.` },
-          { status: 404, headers },
-        );
+        return notConnected(request, body.data.repository);
       throw error;
     }
 

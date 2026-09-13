@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { run } from './bin.ts';
-import { ApiError, type GradeComplete } from './api.ts';
+import { ApiError } from './api.ts';
+import { CLEAN_STATE, REQUESTED, completeFixture } from './fixtures.ts';
 
 const {
   readGitState,
@@ -10,6 +11,8 @@ const {
   pollGradeRun,
   listGraders,
   readAuth,
+  clearAuth,
+  revokeCliToken,
 } = vi.hoisted(() => ({
   readGitState: vi.fn(),
   gradeBlocker: vi.fn(),
@@ -18,17 +21,23 @@ const {
   pollGradeRun: vi.fn(),
   listGraders: vi.fn(),
   readAuth: vi.fn(),
+  clearAuth: vi.fn(),
+  revokeCliToken: vi.fn(),
 }));
 vi.mock('./git.ts', () => ({ readGitState, gradeBlocker, expandSha }));
 vi.mock('./config.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./config.ts')>()),
   readAuth,
+  // Mocked, not real: the real one removes ~/.fieldnote/auth.json, and these
+  // tests do not set FIELDNOTE_HOME.
+  clearAuth,
 }));
 vi.mock('./api.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./api.ts')>()),
   requestGradeRun,
   pollGradeRun,
   listGraders,
+  revokeCliToken,
 }));
 
 afterEach(() => {
@@ -46,42 +55,44 @@ function capture(env: Record<string, string | undefined> = {}) {
 
 const AUTH = { token: 't', login: 'pierre', workspace: 'vertuoza' };
 
-const CLEAN_STATE = {
-  slug: 'dervalp/fieldnote',
-  sha: 'a'.repeat(40),
-  upstreamSha: 'a'.repeat(40),
-  dirtyCount: 0,
-  unpushedCount: 0,
-  hasUpstream: true,
-};
+describe('logout', () => {
+  it('refuses to revoke a token it never stored, and names where it came from', async () => {
+    // config.ts synthesises an auth record from FIELDNOTE_TOKEN. Revoking
+    // that kills a credential living in someone's secret store — a shared CI
+    // token, for every job on the box — and "Signed out on this machine."
+    // would be a lie about a variable that is still set.
+    readAuth.mockResolvedValue({
+      token: 't',
+      login: 'FIELDNOTE_TOKEN',
+      workspace: 'FIELDNOTE_TOKEN',
+      source: 'env',
+    });
+    const c = capture({ FIELDNOTE_TOKEN: 't' });
+    expect(await run(['logout'], c.sink, c.env)).toBe(2);
+    expect(c.text()).toContain('FIELDNOTE_TOKEN');
+    expect(revokeCliToken).not.toHaveBeenCalled();
+    expect(clearAuth).not.toHaveBeenCalled();
+  });
 
-const REQUESTED = {
-  runId: 'r1',
-  graderId: 'agent-brief',
-  mode: 'deterministic' as const,
-  requestedSha: CLEAN_STATE.sha,
-};
+  it('revokes and clears a token that was stored here', async () => {
+    readAuth.mockResolvedValue({ ...AUTH, source: 'file' });
+    revokeCliToken.mockResolvedValue(undefined);
+    const c = capture();
+    expect(await run(['logout'], c.sink, c.env)).toBe(0);
+    expect(revokeCliToken).toHaveBeenCalledWith(expect.any(String), AUTH.token);
+    expect(clearAuth).toHaveBeenCalled();
+    expect(c.text()).toContain('Signed out on this machine');
+  });
 
-function completeFixture(overrides: Partial<GradeComplete> = {}): GradeComplete {
-  return {
-    state: 'complete',
-    score: 92,
-    checks: [],
-    titles: {},
-    graderId: 'agent-brief',
-    graderVersion: '1',
-    rubricVersion: '1',
-    evaluatorVersion: '1',
-    mode: 'deterministic',
-    tagline: 'reads like a brief',
-    disclaimer: 'This grader uses a language model.',
-    gradedSha: CLEAN_STATE.sha,
-    presentation: { label: 'Solid', finish: 'green' },
-    nextTier: null,
-    url: 'https://fieldnote.dev/g/1',
-    ...overrides,
-  };
-}
+  it('still clears locally when the revoke itself fails', async () => {
+    readAuth.mockResolvedValue({ ...AUTH, source: 'file' });
+    revokeCliToken.mockRejectedValue(new ApiError('Could not reach fieldnote. Try again.', 2));
+    const c = capture();
+    expect(await run(['logout'], c.sink, c.env)).toBe(0);
+    expect(clearAuth).toHaveBeenCalled();
+    expect(c.text()).toContain('may still be live');
+  });
+});
 
 describe('run', () => {
   it('prints the banner and a next step for a bare invocation', async () => {

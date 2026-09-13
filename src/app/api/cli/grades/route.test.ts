@@ -108,6 +108,18 @@ describe('POST /api/cli/grades', () => {
     expect(response.status).toBe(409);
   });
 
+  it('names where to connect the repository, rather than stopping at the refusal', async () => {
+    // A refusal with no next step is homework. The link is built from the
+    // request's own origin — the CLI authenticated against it, so that is
+    // where its reader should be sent.
+    accessibleRepositories.mockResolvedValue([]);
+    const response = await POST(post({ repository: 'dervalp/fieldnote', sha: 'a'.repeat(40) }));
+    expect(response.status).toBe(404);
+    expect((await response.json()).error).toBe(
+      'fieldnote is not connected to dervalp/fieldnote. Connect it at http://localhost/settings/workspace.',
+    );
+  });
+
   it('404s a repository made unavailable by post-lock re-authorization, instead of 503ing', async () => {
     requestGrade.mockRejectedValueOnce(new Error(REPOSITORY_UNAVAILABLE));
     const response = await POST(post({ repository: 'dervalp/fieldnote', sha: 'a'.repeat(40) }));

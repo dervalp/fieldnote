@@ -151,6 +151,21 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
   if (command === 'logout') {
     const base = baseUrl(env);
     const auth = await readAuth(env);
+
+    // A FIELDNOTE_TOKEN credential was never stored here, so there is nothing
+    // on this machine to clear and nothing this machine owns to revoke. It is
+    // typically one shared CI token: revoking it server-side would break every
+    // other job on the box, and clearing a shadowed file while the variable is
+    // still set would report a sign-out that did not happen.
+    if (auth?.source === 'env') {
+      return fail(out, json, 2, {
+        error: 'env-token',
+        message:
+          'This machine is signed in through FIELDNOTE_TOKEN. Revoke that token where it is stored — fieldnote will not revoke a token it did not store.',
+        source: 'env',
+      });
+    }
+
     let revoked = false;
     if (auth) {
       try {

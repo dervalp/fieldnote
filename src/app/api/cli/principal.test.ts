@@ -15,9 +15,13 @@ const req = (auth?: string) =>
 beforeEach(() => resolveToken.mockReset());
 
 describe('withCliPrincipal', () => {
-  it('401s with no header', async () => {
+  it('401s with no header, and names the command that fixes it', async () => {
     const response = await withCliPrincipal(req(), 'grade', ok);
     expect(response.status).toBe(401);
+    // The same condition the CLI reports on its own already says how to
+    // recover. A server copy that stops at the diagnosis reads like a
+    // different problem depending on which side noticed it.
+    expect((await response.json()).error).toBe('Not signed in. Run `fieldnote login`.');
   });
 
   it('401s identically for an unknown and a revoked token', async () => {
