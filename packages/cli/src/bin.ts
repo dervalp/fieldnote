@@ -7,18 +7,9 @@ import { cliVersion } from './version.ts';
 import { helpText } from './help.ts';
 import { clearAuth, readAuth, writeAuth } from './config.ts';
 import { awaitCallback, openBrowser } from './login.ts';
-import {
-  ApiError,
-  exchangeCliToken,
-  hasResult,
-  listGraders,
-  pollGradeRun,
-  requestGradeRun,
-  revokeCliToken,
-  type GradePoll,
-} from './api.ts';
-import { gradeBlocker, readGitState } from './git.ts';
-import { gradeLines, type GradeView } from './grade-view.ts';
+import { ApiError, exchangeCliToken, listGraders, revokeCliToken } from './api.ts';
+import { gradeRun, type GradeRunOutcome } from './grade-run.ts';
+import { gradeLines } from './grade-view.ts';
 
 // --sha and --min are the only flags this dispatch reads that take a value —
 // every other token that follows them is that value, not a positional or a
@@ -59,8 +50,6 @@ function flagGivenWithNoValue(argv: string[], name: string): boolean {
   const i = argv.indexOf(name);
   return i !== -1 && flagValue(argv, name) === undefined;
 }
-
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 function baseUrl(env: Env): string {
   return env.FIELDNOTE_URL ?? 'https://fieldnote.dev';
@@ -296,128 +285,68 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
     }
 
     const grader = positionals(argv)[1];
-
-    // Order is the spec's: credential, git state, blocker, request, poll, render.
-    const state = await readGitState(process.cwd());
-    const blocker = gradeBlocker(state);
-    // --sha is the developer naming a commit explicitly — exactly what the
-    // dirty and unpushed refusals themselves suggest doing. It cannot
-    // conjure a slug, so not-a-repo and no-remote still refuse.
-    const bypassed =
-      sha !== undefined && (blocker?.reason === 'dirty' || blocker?.reason === 'unpushed');
-    if (blocker && !bypassed) {
-      return fail(
-        out,
-        json,
-        2,
-        {
-          error: 'blocked',
-          message: blocker.lines[0]?.trim() ?? 'Blocked.',
-          reason: blocker.reason,
-          lines: blocker.lines,
-        },
-        blocker.lines,
-      );
-    }
-
-    // Reachable here only because gradeBlocker already refused (and refused
-    // without a bypass) whenever slug or sha could be null — not-a-repo and
-    // no-remote returned above and are never bypassed.
-    if (state.slug === null || state.sha === null) {
-      throw new Error('unreachable: git state missing slug or sha past the blocker above');
-    }
-    const slug = state.slug;
-    // What is sent to the server: the developer's own --sha, or the git-
-    // resolved HEAD. Not what ends up in the rendered view — see below.
-    const shaToRequest = sha ?? state.sha;
-
-    const base = baseUrl(env);
-    let requested: Awaited<ReturnType<typeof requestGradeRun>>;
-    try {
-      requested = await requestGradeRun(base, auth.token, {
-        repository: slug,
-        sha: shaToRequest,
-        grader,
-      });
-    } catch (error) {
-      return reportApiError(out, error, json);
-    }
-
+    // Order is the spec's: credential, git state, blocker, request, poll,
+    // render — gradeRun() owns everything from git state through the poll
+    // loop; this dispatch owns the credential, the flags above, and turning
+    // its outcome into lines and an exit code below.
     const progress = json ? null : out.progress();
-    const POLL_INTERVAL_MS = 1_000;
-    const POLL_TIMEOUT_MS = 10 * 60_000;
-    // A transient failure (a timeout, a dropped connection) should not cost a
-    // ten-minute run its whole result — but an exitCode 3 means the token
-    // itself was rejected mid-run, and no amount of retrying fixes that.
-    const MAX_CONSECUTIVE_POLL_FAILURES = 3;
-    const deadline = Date.now() + POLL_TIMEOUT_MS;
-    let consecutiveFailures = 0;
 
-    let poll: GradePoll;
+    let outcome: GradeRunOutcome;
     try {
-      for (;;) {
-        try {
-          poll = await pollGradeRun(base, auth.token, requested.runId);
-        } catch (error) {
-          if (error instanceof ApiError && error.exitCode === 2) {
-            consecutiveFailures += 1;
-            if (consecutiveFailures > MAX_CONSECUTIVE_POLL_FAILURES) throw error;
-            if (Date.now() >= deadline) {
-              progress?.done();
-              return fail(out, json, 2, {
-                error: 'timeout',
-                message: 'The grade did not finish in time. Try again.',
-              });
-            }
-            await sleep(POLL_INTERVAL_MS);
-            continue;
-          }
-          throw error;
-        }
-        consecutiveFailures = 0;
-        progress?.state(poll.state);
-        if (poll.state !== 'queued' && poll.state !== 'running') break;
-        // A CLI that can hang forever is a CLI people stop trusting: the poll
-        // ticks once a second and gives up after a ten-minute ceiling.
-        if (Date.now() >= deadline) {
-          progress?.done();
-          return fail(out, json, 2, {
-            error: 'timeout',
-            message: 'The grade did not finish in time. Try again.',
-          });
-        }
-        await sleep(POLL_INTERVAL_MS);
-      }
+      outcome = await gradeRun({
+        base: baseUrl(env),
+        token: auth.token,
+        cwd: process.cwd(),
+        sha,
+        grader,
+        onProgress: (state) => progress?.state(state),
+      });
     } catch (error) {
       progress?.done();
       return reportApiError(out, error, json);
     }
     progress?.done();
 
-    if (poll.state === 'failed') {
+    if (outcome.kind === 'blocked') {
+      return fail(
+        out,
+        json,
+        2,
+        {
+          error: 'blocked',
+          message: outcome.lines[0]?.trim() ?? 'Blocked.',
+          reason: outcome.reason,
+          lines: outcome.lines,
+        },
+        outcome.lines,
+      );
+    }
+
+    if (outcome.kind === 'timeout') {
+      return fail(out, json, 2, {
+        error: 'timeout',
+        message: 'The grade did not finish in time. Try again.',
+      });
+    }
+
+    if (outcome.kind === 'failed') {
       // The column is nullable and nothing ties it to the failed state — say
       // what is known and no more. Never invent a reason that was not
       // recorded.
-      const message = poll.errorCode
-        ? `The grade failed: ${poll.errorCode}`
+      const message = outcome.errorCode
+        ? `The grade failed: ${outcome.errorCode}`
         : 'The grade failed. No reason was recorded.';
-      return fail(out, json, 2, { error: 'failed', message, errorCode: poll.errorCode });
+      return fail(out, json, 2, { error: 'failed', message, errorCode: outcome.errorCode });
     }
 
-    if (!hasResult(poll)) {
+    if (outcome.kind === 'no-result') {
       return fail(out, json, 2, {
         error: 'no-result',
         message: 'The grade finished but recorded no result.',
       });
     }
 
-    // slug is what only the CLI knows (git.ts); requestedSha is what the POST
-    // echoed back (api.ts) — not shaToRequest above. The server is the
-    // authority on what it received, and grade-view.ts's own mismatch
-    // disclosure only means what it says if this is the real echo rather
-    // than a client-side reconstruction of it.
-    const view: GradeView = { ...poll, slug, requestedSha: requested.requestedSha };
-
+    const { view } = outcome;
     if (json) out.line(JSON.stringify(view));
     else out.lines(gradeLines(view));
 
