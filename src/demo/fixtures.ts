@@ -142,3 +142,33 @@ export const demoGrade = runDeclarative(agentReadinessManifest, {
   complete: true,
   documents: demoDocuments,
 });
+
+import { deliveryHealthManifest } from '../domain/grading/graders/delivery-health';
+import type { MetricsWindow } from '../domain/grading/types';
+
+// The window the demo delivery grade is scored over. It is written out rather
+// than aggregated from the seeded pull requests: the seed's dates move with
+// whatever the demo fixture says, and the card should show a stable number.
+export const demoDeliveryWindow: MetricsWindow = {
+  days: 30,
+  start: '2026-08-31T00:00:00.000Z',
+  endExclusive: '2026-09-30T00:00:00.000Z',
+  mergedPullRequests: 24,
+  // 17 of 24 merged clean — a repository that ships, with room to improve.
+  'first-pass-rate': { numerator: 17, denominator: 24, value: (100 * 17) / 24 },
+  'ci-success-rate': { numerator: 38, denominator: 40, value: 95 },
+  // Two runs went red and neither came back. This is the failing check, and
+  // the one that makes the delivery card read differently from the readiness
+  // card beside it.
+  'ci-recovery-rate': { numerator: 0, denominator: 2, value: 0 },
+};
+
+// Graded by the real evaluator, for the same reason demoGrade is: a seeded
+// card must not claim a score, a check id or an explanation the rubric would
+// not produce.
+export const demoDeliveryGrade = runDeclarative(deliveryHealthManifest, {
+  sha: demoGradeSha,
+  complete: true,
+  documents: [],
+  metrics: demoDeliveryWindow,
+});

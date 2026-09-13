@@ -10,8 +10,9 @@ import {
   gradeRuns,
 } from '../src/db/schema';
 import { persistPr } from '../src/db/queries/persist-pr';
-import { demoFacts, demoGrade, demoGradeSha, demoPolicy } from '../src/demo/fixtures';
+import { demoFacts, demoGrade, demoDeliveryGrade, demoGradeSha, demoPolicy } from '../src/demo/fixtures';
 import { agentReadinessManifest } from '../src/domain/grading/graders/agent-readiness';
+import { deliveryHealthManifest } from '../src/domain/grading/graders/delivery-health';
 import { rubricView } from '../src/domain/grading/rubric-view';
 import { recomputeExecutedDetections } from '../src/db/queries/ai-involvement';
 import type { AgentMarker } from '../src/domain/ai-involvement/types';
@@ -69,6 +70,16 @@ try {
       manifest: agentReadinessManifest,
     })
     .onConflictDoNothing();
+  await db()
+    .insert(gradingRubrics)
+    .values({
+      graderId: deliveryHealthManifest.id,
+      version: deliveryHealthManifest.version,
+      evaluatorVersion: deliveryHealthManifest.evaluatorVersion,
+      definition: rubricView(deliveryHealthManifest),
+      manifest: deliveryHealthManifest,
+    })
+    .onConflictDoNothing();
   const graded = new Date('2026-09-30T09:12:00Z');
   await db()
     .insert(gradeRuns)
@@ -83,6 +94,24 @@ try {
       state: 'complete',
       sha: demoGradeSha,
       result: demoGrade,
+      dispatchedAt: graded,
+      startedAt: graded,
+      completedAt: graded,
+    })
+    .onConflictDoNothing();
+  await db()
+    .insert(gradeRuns)
+    .values({
+      id: 'demo-delivery-grade-run',
+      repositoryId: 'demo-repository',
+      graderId: deliveryHealthManifest.id,
+      rubricVersion: deliveryHealthManifest.version,
+      evaluatorVersion: deliveryHealthManifest.evaluatorVersion,
+      requestedBy: 'demo-user',
+      requestedWorkspaceId: 'demo-workspace',
+      state: 'complete',
+      sha: demoGradeSha,
+      result: demoDeliveryGrade,
       dispatchedAt: graded,
       startedAt: graded,
       completedAt: graded,
@@ -140,6 +169,7 @@ try {
   console.log('Seeded 21 PRs. Demo signal: /prs/demo-pr-4');
   console.log('AI involvement: /repos/demo-repository/ai-involvement');
   console.log(`Readiness ${demoGrade.score}/100: /repos/demo-repository`);
+  console.log(`Delivery ${demoDeliveryGrade.score}/100: /repos/demo-repository/grading`);
 } finally {
   await closeDb();
 }
