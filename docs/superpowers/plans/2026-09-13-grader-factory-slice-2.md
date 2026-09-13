@@ -2454,3 +2454,193 @@ git diff --cached --quiet || git commit -m "style: prettier
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
+
+---
+
+### Task 13: A version freezes the rubric, not the copy
+
+> **Ordering:** this task was added mid-run and is executed immediately after
+> Task 4, before Task 5. It fixes a latent slice 1 defect that Task 1 surfaced.
+
+**Files:**
+- Modify: `src/db/queries/grade-runs.ts` (`registerRubric`, `validateGradeRun`)
+- Test: `src/db/grade-runs.integration.test.ts`
+
+**Interfaces:**
+- Consumes: `manifestHash`, `rubricView`, `GraderManifest` (all existing).
+- Produces: no new exports. `registerRubric` gains the behaviour of refreshing a
+  stored manifest whose difference is confined to `card`.
+
+#### The defect
+
+`registerRubric` inserts with `onConflictDoNothing`, re-reads the stored row, and
+throws `'Rubric version definition mismatch'` when
+`manifestHash(stored.manifest) !== manifestHash(manifest)`. The whole manifest is
+version-critical, presentation copy included.
+
+Task 1 added `card.title` to the readiness manifest without changing its version
+— it could not change it, because `readiness-v01.test.ts` pins `0.1.0` and is
+byte-identical to `main`. Every database that has ever registered readiness
+v0.1.0 now holds a row whose manifest has no `card.title`, so **every grade
+request throws**. Confirmed against the test database: `fieldnote/agent-readiness`
+v0.1.0 stored with `manifest->card->>'title'` null, and all nine tests in
+`src/db/grade-runs.integration.test.ts` failing inside `registerRubric`.
+
+Under the current rule, fixing a typo in a tagline bricks every installation.
+
+#### Why the fix is not "compare the definition instead"
+
+`rubricView()` reduces each check to `{ id, maxPoints }`. It does **not** carry
+`args`. So a grader could change a `metric-threshold` from `atLeastPercent: 60`
+to `70` — moving every score it produces — without changing the definition hash.
+Trusting the definition alone would swap one silent failure for a worse one.
+
+The correct rule is narrower: **everything except `card` stays frozen under a
+version.** `card` is title, tagline and grouping — copy a reader sees, which no
+score and no collection depends on. Everything else — `checks` including their
+`args`, `needs`, `disclaimer`, `mode`, `category`, `kind`, `subject` and both
+versions — still fails hard.
+
+- [ ] **Step 1: Write the failing test**
+
+Append to `src/db/grade-runs.integration.test.ts`, following that file's existing
+harness and fixture style:
+
+```ts
+test('a version freezes the rubric, not the card copy', async () => {
+  await registerRubric(agentReadinessManifest);
+  // Presentation-only drift: the reader-facing copy changes, nothing that
+  // decides a score does.
+  const recopied = {
+    ...agentReadinessManifest,
+    card: { ...agentReadinessManifest.card, tagline: 'Reworded for the card.' },
+  };
+  const stored = await registerRubric(recopied);
+  expect(stored.manifest.card.tagline).toBe('Reworded for the card.');
+});
+
+test('a version still freezes a threshold that would move every score', async () => {
+  await registerRubric(agentReadinessManifest);
+  // rubricView carries only { id, maxPoints }, so this change is invisible to
+  // the definition hash — and it is exactly the kind of change that must not
+  // pass silently.
+  const reweighted = {
+    ...agentReadinessManifest,
+    checks: agentReadinessManifest.checks.map((check, index) =>
+      index === 0 ? { ...check, args: { ...check.args, nonempty: false } } : check,
+    ),
+  } as typeof agentReadinessManifest;
+  await expect(registerRubric(reweighted)).rejects.toThrow('Rubric version definition mismatch');
+});
+
+test('a stored manifest from before card.title still registers', async () => {
+  // The row every existing installation holds: same rubric, no card title.
+  const { card, ...rest } = agentReadinessManifest;
+  const { title: _title, ...cardWithoutTitle } = card;
+  await db()
+    .insert(gradingRubrics)
+    .values({
+      graderId: agentReadinessManifest.id,
+      version: agentReadinessManifest.version,
+      evaluatorVersion: agentReadinessManifest.evaluatorVersion,
+      definition: rubricView(agentReadinessManifest),
+      manifest: { ...rest, card: cardWithoutTitle },
+    });
+  const stored = await registerRubric(agentReadinessManifest);
+  expect(stored.manifest.card.title).toBe('Agent Readiness');
+});
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `DEMO_MODE=false pnpm test:integration`
+Expected: the three new tests fail, and the nine pre-existing tests in that file
+still fail inside `registerRubric` — that is the defect this task removes.
+
+- [ ] **Step 3: Implement**
+
+In `src/db/queries/grade-runs.ts`, add above `registerRubric`:
+
+```ts
+// A version freezes what a grade means, not how it is captioned. `card` is
+// title, tagline and grouping — copy a reader sees, which no score and no
+// collection depends on. Everything else is frozen, including each check's
+// `args`: rubricView keeps only { id, maxPoints }, so a moved threshold is
+// invisible to the definition hash and must be caught here.
+function withoutCard(manifest: GraderManifest) {
+  const { card: _card, ...rest } = manifest;
+  return rest;
+}
+```
+
+Replace the guard in `registerRubric`:
+
+```ts
+  if (
+    !stored ||
+    stored.evaluatorVersion !== manifest.evaluatorVersion ||
+    manifestHash(stored.definition) !== manifestHash(definition) ||
+    manifestHash(withoutCard(stored.manifest)) !== manifestHash(withoutCard(manifest))
+  )
+    throw new Error('Rubric version definition mismatch');
+  // Copy-only drift refreshes the stored record rather than failing. Without
+  // this, adding a card title to a built-in throws on every grade request in
+  // every database that already holds the old row.
+  if (manifestHash(stored.manifest) !== manifestHash(manifest)) {
+    await db()
+      .update(gradingRubrics)
+      .set({ manifest })
+      .where(
+        and(eq(gradingRubrics.graderId, manifest.id), eq(gradingRubrics.version, manifest.version)),
+      );
+    return { ...stored, manifest };
+  }
+  return stored;
+```
+
+Apply the same narrowing in `validateGradeRun`, which carries an identical
+comparison at line 296 and would otherwise fail a queued run for the same
+reason:
+
+```ts
+    manifestHash(withoutCard(rubric.manifest)) !== manifestHash(withoutCard(manifest)) ||
+```
+
+Leave the `rubric.definition` comparison on the next line exactly as it is.
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `DEMO_MODE=false pnpm test:integration`
+Expected: the three new tests pass, and all nine pre-existing tests in
+`src/db/grade-runs.integration.test.ts` pass again.
+
+Two other files fail in this suite for reasons unrelated to grading —
+`src/db/history-backfill.integration.test.ts` (1) and
+`src/inngest/dispatch-import.integration.test.ts` (2). Do not fix them and do
+not let them stop you; report their counts so the controller can confirm they
+are unchanged.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/db/queries/grade-runs.ts src/db/grade-runs.integration.test.ts
+git commit -m "fix(grading): a version freezes the rubric, not the copy
+
+registerRubric hashed the whole manifest, so presentation copy was
+version-critical: adding card.title to a built-in threw 'Rubric version
+definition mismatch' on every grade request in every database that
+already held the old row. Fixing a typo in a tagline bricked every
+installation.
+
+card is now excluded from the identity comparison and refreshed in
+place when it is the only thing that moved. Everything that can change
+a score or the evidence collected stays frozen, including each check's
+args — rubricView keeps only { id, maxPoints }, so a moved threshold is
+invisible to the definition hash and is caught by the manifest
+comparison instead.
+
+validateGradeRun carried the same comparison and would have failed a
+queued run for the same reason.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+```
