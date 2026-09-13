@@ -20,6 +20,18 @@ export const GRADER_CATEGORIES = [
 export const GRADER_METRICS = ['first-pass-rate', 'ci-success-rate', 'ci-recovery-rate'] as const;
 export type GraderMetric = (typeof GRADER_METRICS)[number];
 
+// A lookup, not a conditional, on purpose: with two families a binary else
+// reads fine, but it silently classifies any future third family's checks as
+// 'repo.files'. Keying this by primitive makes adding a primitive without
+// deciding its family a compile error — TypeScript rejects a Record missing a
+// key of its declared key type — instead of a runtime needs_mismatch.
+const FAMILY_OF: Record<GraderCheck['primitive'], 'repo.files' | 'fieldnote.metrics'> = {
+  'file-exists': 'repo.files',
+  'glob-count': 'repo.files',
+  'heading-has-fence': 'repo.files',
+  'metric-threshold': 'fieldnote.metrics',
+};
+
 export type ManifestErrorCode =
   | 'schema'
   | 'subject_unsupported'
@@ -180,11 +192,7 @@ export function parseManifest(input: unknown): GraderManifest {
   if (declared.length === 0)
     throw new ManifestError('needs_empty', 'A grader must declare at least one evidence family.');
 
-  const required = new Set(
-    manifest.checks.map((check) =>
-      check.primitive === 'metric-threshold' ? 'fieldnote.metrics' : 'repo.files',
-    ),
-  );
+  const required = new Set(manifest.checks.map((check) => FAMILY_OF[check.primitive]));
   const undeclared = [...required].find((family) => !declared.includes(family));
   if (undeclared)
     throw new ManifestError(
