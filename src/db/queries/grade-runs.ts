@@ -382,9 +382,9 @@ export async function latestCompletedGrade(
 export async function latestFinishedGrade(
   repositoryId: string,
   graderId: string,
-): Promise<{ sha: string; rubricVersion: string } | null> {
+): Promise<{ id: string; sha: string; rubricVersion: string } | null> {
   const [run] = await db()
-    .select({ sha: runs.sha, rubricVersion: runs.rubricVersion })
+    .select({ id: runs.id, sha: runs.sha, rubricVersion: runs.rubricVersion })
     .from(runs)
     .where(
       and(
@@ -396,7 +396,21 @@ export async function latestFinishedGrade(
     )
     .orderBy(desc(runs.createdAt), desc(runs.id))
     .limit(1);
-  return run?.sha ? { sha: run.sha, rubricVersion: run.rubricVersion } : null;
+  return run?.sha ? { id: run.id, sha: run.sha, rubricVersion: run.rubricVersion } : null;
+}
+
+/**
+ * Trusted worker primitive: record that a finished run still describes its
+ * repository. The nightly skip is the evidence — same head commit, same grader
+ * version — and this is where that evidence is kept, so a badge can say `stale`
+ * without a GitHub call. Only a run that finished with a result can be
+ * confirmed; nothing about the stored result changes.
+ */
+export async function confirmGrade(runId: string, at = new Date()): Promise<void> {
+  await db()
+    .update(runs)
+    .set({ confirmedAt: at })
+    .where(and(eq(runs.id, runId), inArray(runs.state, ['complete', 'insufficient'])));
 }
 export async function validateGradeRun(run: GradeRun) {
   const [available] = await db()

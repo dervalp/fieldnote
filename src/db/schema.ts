@@ -663,6 +663,12 @@ export const gradeRuns = pgTable(
     createdAt: created(),
     startedAt: timestamp('started_at', { withTimezone: true }),
     completedAt: timestamp('completed_at', { withTimezone: true }),
+    // The last time fieldnote confirmed this run still describes its
+    // repository: its own completion, or a nightly skip that matched it —
+    // same head commit, same grader version. Outside `result`, so a completed
+    // grade's content never changes. The public badge's staleness rule is its
+    // only reader.
+    confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
   },
   (t) => [
     check(

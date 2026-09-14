@@ -1,0 +1,1 @@
+ALTER TABLE "grade_runs" ADD COLUMN "confirmed_at" timestamp with time zone;

@@ -7,6 +7,7 @@ import {
 } from '../../db/queries/grade-schedules';
 import {
   activeGradeRun,
+  confirmGrade,
   latestFinishedGrade,
   scheduleGrade,
 } from '../../db/queries/grade-runs';
@@ -60,7 +61,12 @@ export async function scheduleIfDue(row: GradeScheduleRow): Promise<string | nul
       return null;
     }
     const latest = await latestFinishedGrade(row.repositoryId, row.graderId);
-    if (latest?.sha === head && latest.rubricVersion === manifest.version) return null;
+    if (latest?.sha === head && latest.rubricVersion === manifest.version) {
+      // The skip is the evidence that this grade still holds, and the public
+      // badge's staleness rule reads it.
+      await confirmGrade(latest.id);
+      return null;
+    }
   }
   // Step 5.
   const run = await scheduleGrade(row);

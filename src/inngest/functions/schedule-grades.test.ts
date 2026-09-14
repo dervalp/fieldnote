@@ -5,6 +5,7 @@ const runs = vi.hoisted(() => ({
   scheduleGrade: vi.fn(),
   activeGradeRun: vi.fn(),
   latestFinishedGrade: vi.fn(),
+  confirmGrade: vi.fn(),
 }));
 const github = vi.hoisted(() => ({ resolveHeadSha: vi.fn() }));
 vi.mock('../../db/queries/grade-schedules', () => schedules);
@@ -56,6 +57,7 @@ test('an active run creates nothing', async () => {
 
 test('a repository grader skips an unchanged head sha', async () => {
   runs.latestFinishedGrade.mockResolvedValue({
+    id: 'run-old',
     sha: 'a'.repeat(40),
     rubricVersion: agentReadinessManifest.version,
   });
@@ -65,6 +67,7 @@ test('a repository grader skips an unchanged head sha', async () => {
 
 test('a repository grader runs when the head sha moved', async () => {
   runs.latestFinishedGrade.mockResolvedValue({
+    id: 'run-old',
     sha: 'b'.repeat(40),
     rubricVersion: agentReadinessManifest.version,
   });
@@ -109,13 +112,18 @@ test('a sha lookup failure skips this schedule and not the whole pass', async ()
 });
 
 test('a repository grader runs on an unchanged commit when its version moved', async () => {
-  runs.latestFinishedGrade.mockResolvedValue({ sha: 'a'.repeat(40), rubricVersion: '0.0.9' });
+  runs.latestFinishedGrade.mockResolvedValue({
+    id: 'run-old',
+    sha: 'a'.repeat(40),
+    rubricVersion: '0.0.9',
+  });
   expect(await scheduleIfDue(readinessRow)).toBe('run-1');
 });
 
 test('the skip is keyed off the evidence labels, not the subject field', async () => {
   // A with-commits grader skips an unchanged commit at the same version...
   runs.latestFinishedGrade.mockResolvedValue({
+    id: 'run-old',
     sha: 'a'.repeat(40),
     rubricVersion: agentReadinessManifest.version,
   });
@@ -146,4 +154,29 @@ test('a declarative grader is scheduled without asking for a sandbox', async () 
   expect(await scheduleIfDue(readinessRow)).toBe('run-1');
   expect(await scheduleIfDue(deliveryRow)).toBe('run-1');
   expect(sandbox.selectSandbox).not.toHaveBeenCalled();
+});
+
+test('a skip confirms the finished run it matched', async () => {
+  runs.latestFinishedGrade.mockResolvedValue({
+    id: 'run-old',
+    sha: 'a'.repeat(40),
+    rubricVersion: agentReadinessManifest.version,
+  });
+  expect(await scheduleIfDue(readinessRow)).toBeNull();
+  expect(runs.confirmGrade).toHaveBeenCalledWith('run-old');
+});
+
+test('a run that is scheduled is not confirmed', async () => {
+  runs.latestFinishedGrade.mockResolvedValue({
+    id: 'run-old',
+    sha: 'b'.repeat(40),
+    rubricVersion: agentReadinessManifest.version,
+  });
+  expect(await scheduleIfDue(readinessRow)).toBe('run-1');
+  expect(runs.confirmGrade).not.toHaveBeenCalled();
+});
+
+test('a grader whose evidence changes over time confirms nothing', async () => {
+  expect(await scheduleIfDue(deliveryRow)).toBe('run-1');
+  expect(runs.confirmGrade).not.toHaveBeenCalled();
 });

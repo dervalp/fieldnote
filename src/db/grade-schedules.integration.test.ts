@@ -22,6 +22,7 @@ import {
 import {
   beginGrade,
   completeGrade,
+  confirmGrade,
   failGrade,
   insufficientGrade,
   loadGradeRun,
@@ -274,6 +275,12 @@ test('the second night skips a repository whose head sha has not moved', async (
     evaluatorVersion: agentReadinessManifest.evaluatorVersion,
   });
   expect(await scheduleIfDue(row)).toBeNull();
+  const confirmed = await loadGradeRun(runId);
+  expect(confirmed?.confirmedAt).toBeInstanceOf(Date);
+  // Confirmation is provenance, not content: the stored result is untouched.
+  expect(confirmed?.result).toEqual(
+    expect.objectContaining({ rubricVersion: agentReadinessManifest.version }),
+  );
 });
 
 test('a scheduled run is created and completes end to end with no session', async () => {
@@ -367,4 +374,16 @@ test('a code grader run goes through the worker and its program, and is scored',
     if (previousKey === undefined) delete process.env.E2B_API_KEY;
     else process.env.E2B_API_KEY = previousKey;
   }
+});
+
+test('a failed run is never confirmed', async () => {
+  const repositoryId = await fixtureRepository();
+  await writeGradeSchedule(repositoryId, AGENT_READINESS, true);
+  const row = (await listGradeSchedules()).find((entry) => entry.repositoryId === repositoryId)!;
+  const runId = (await scheduleIfDue(row))!;
+  await beginGrade(runId);
+  await pinGradeSha(runId, HEAD_SHA);
+  await failGrade(runId, 'grader_failed');
+  await confirmGrade(runId);
+  expect((await loadGradeRun(runId))?.confirmedAt).toBeNull();
 });
