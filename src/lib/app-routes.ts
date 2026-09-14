@@ -80,3 +80,15 @@ export function accountSettingsPath(): string {
 export function workspaceSettingsPath(hash = ''): string {
   return `${appPrefix}/settings/workspace${hash}`;
 }
+
+// The public surface. Readable on purpose: a badge has to be recognisable in a
+// README to do its job. A grader id is `owner/name`, and it stays two segments
+// here so a route beneath it (badge.svg) is possible at all.
+export function publicGradePath(owner: string, repo: string, graderId: string): string {
+  const [graderOwner, graderName] = graderId.split('/');
+  return `/r/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(graderOwner)}/${encodeURIComponent(graderName)}`;
+}
+
+export function publicBadgePath(owner: string, repo: string, graderId: string): string {
+  return `${publicGradePath(owner, repo, graderId)}/badge.svg`;
+}

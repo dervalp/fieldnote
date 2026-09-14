@@ -13,6 +13,8 @@ import {
   onboardingPath,
   accountSettingsPath,
   workspaceSettingsPath,
+  publicGradePath,
+  publicBadgePath,
 } from './app-routes';
 
 // Paths are spelled out here rather than composed from appPrefix. Building an
@@ -81,5 +83,17 @@ test('an empty query leaves no trailing question mark', () => {
 test('workspace settings can carry the new-workspace hash', () => {
   expect(workspaceSettingsPath('#new-workspace')).toBe(
     '/app/settings/workspace#new-workspace',
+  );
+});
+
+test('a public grade has one readable address, and its badge sits beneath it', () => {
+  expect(publicGradePath('acme', 'widgets', 'fieldnote/agent-readiness')).toBe(
+    '/r/acme/widgets/fieldnote/agent-readiness',
+  );
+  expect(publicBadgePath('acme', 'widgets', 'fieldnote/agent-readiness')).toBe(
+    '/r/acme/widgets/fieldnote/agent-readiness/badge.svg',
+  );
+  expect(publicGradePath('a c', 'w/d', 'fieldnote/agent-readiness')).toBe(
+    '/r/a%20c/w%2Fd/fieldnote/agent-readiness',
   );
 });
