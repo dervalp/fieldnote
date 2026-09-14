@@ -62,6 +62,32 @@ test('one folder without tests fails tests-in-every-folder', () => {
   });
 });
 
+test('source files at the root form one folder', () => {
+  const answer = run(
+    'main.go', 'main_test.go', 'util.go',
+    'cmd/serve.go', 'cmd/serve_test.go', 'cmd/flags.go',
+  );
+  // The root (no directory segments) is one folder, alongside cmd: both have
+  // a matching test, so both count.
+  expect(check(answer, 'tests-in-every-folder')).toMatchObject({
+    status: 'pass',
+    count: { matched: 2, of: 2 },
+  });
+});
+
+test('the root folder without a test fails tests-in-every-folder', () => {
+  const answer = run(
+    'main.go', 'util.go', 'helper.go',
+    'cmd/serve.go', 'cmd/serve_test.go', 'cmd/flags.go',
+  );
+  // The root has source (main.go, util.go, helper.go) but no test file in it;
+  // cmd has one. Only cmd counts.
+  expect(check(answer, 'tests-in-every-folder')).toMatchObject({
+    status: 'fail',
+    count: { matched: 1, of: 2 },
+  });
+});
+
 test("each language's test naming is recognised", () => {
   const answer = run(
     'pkg/store.go', 'pkg/store_test.go',
