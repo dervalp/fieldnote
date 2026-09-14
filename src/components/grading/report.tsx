@@ -136,7 +136,9 @@ export function GradeReport({
   graderTitle,
   disclaimer,
 }: {
-  grade: CompletedGrade;
+  // Omit<…, 'id'>: the public page builds its own narrow grade with no run id,
+  // and this component never reads one.
+  grade: Omit<CompletedGrade, 'id'>;
   owner: string;
   name: string;
   outdated: boolean;

@@ -379,7 +379,6 @@ test('an unscored report prints measurements and no points', () => {
   const html = renderToStaticMarkup(
     createElement(GradeReport, {
       grade: {
-        id: 'run-1',
         sha,
         computedAt: new Date('2026-09-14T03:00:00Z'),
         score: null,
