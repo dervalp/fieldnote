@@ -28,7 +28,11 @@ beforeEach(() => {
 test('a file grader calls only the file collector', async () => {
   collectFiles.mockResolvedValue({ sha: 'abc', complete: true, documents: [] });
   const collected = await collectEvidence(agentReadinessManifest, 'repo', 'abc');
-  expect(collectFiles).toHaveBeenCalledWith('repo', 'abc');
+  expect(collectFiles).toHaveBeenCalledWith(
+    'repo',
+    'abc',
+    agentReadinessManifest.needs['repo.files'],
+  );
   expect(collectMetrics).not.toHaveBeenCalled();
   expect(collected.snapshot.metrics).toBeNull();
   // A complete snapshot has no failure to name.
@@ -106,7 +110,11 @@ test('a manifest needing both families calls both collectors and merges their ev
   });
   collectMetrics.mockResolvedValue({ metrics, complete: true });
   const collected = await collectEvidence(bothFamiliesManifest, 'repo', 'abc');
-  expect(collectFiles).toHaveBeenCalledWith('repo', 'abc');
+  expect(collectFiles).toHaveBeenCalledWith(
+    'repo',
+    'abc',
+    agentReadinessManifest.needs['repo.files'],
+  );
   expect(collectMetrics).toHaveBeenCalledWith(
     'repo',
     bothFamiliesManifest.needs['fieldnote.metrics'],

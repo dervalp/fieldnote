@@ -1,3 +1,4 @@
+import { globToRegExp } from '../domain/grading/glob';
 import type { RepositorySnapshot, SourceDocument } from '../domain/grading/types';
 import { repositoryClient } from './repositories';
 
@@ -94,21 +95,24 @@ export async function resolveHeadSha(repositoryId: string): Promise<string> {
   }
 }
 type TreeEntry = { path?: string; sha?: string; mode?: string; type?: string; size?: number };
-function relevant(path: string) {
-  return (
-    path === 'AGENTS.md' ||
-    path === 'CLAUDE.md' ||
-    /^readme\.md$/i.test(path) ||
-    (/^docs\//i.test(path) && /\.(?:md|markdown)$/i.test(path))
-  );
+// Always case-insensitive. The `needs` globs say what to fetch; each check
+// carries its own caseInsensitive flag and does the real matching. Over-
+// fetching a case variant of a file the grader explicitly asked for is
+// within what it asked for, and it is what the hardcoded predicate already
+// did for README.md and docs/.
+function matcher(patterns: string[]): (path: string) => boolean {
+  const expressions = patterns.map((pattern) => globToRegExp(pattern, true));
+  return (path) => expressions.some((expression) => expression.test(path));
 }
 /** Server-side evidence collection only; callers must not serialize raw documents to clients. */
 export async function collectFiles(
   repositoryId: string,
-  sha?: string,
+  sha: string,
+  patterns: string[],
 ): Promise<RepositorySnapshot> {
+  const relevant = matcher(patterns);
   try {
-    const pinnedSha = sha ?? (await resolveHeadSha(repositoryId));
+    const pinnedSha = sha;
     const { repo, client } = await context(repositoryId);
     const identity = { owner: repo.owner, repo: repo.name };
     const { data: commit } = await withDeadline((signal) =>
