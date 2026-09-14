@@ -14,7 +14,9 @@ import {
   gradeRuns,
 } from './schema';
 import { publicGradeSettings, writePublicGrade } from './queries/public-grade-settings';
-import { AGENT_READINESS } from '../domain/grading/graders/agent-readiness';
+import { publicGrade } from './queries/public-grades';
+import { AGENT_READINESS, agentReadinessManifest } from '../domain/grading/graders/agent-readiness';
+import { runDeclarative } from '../domain/grading/declarative';
 
 // A signed-out visitor is a session that throws, which is what currentUser()
 // does in the real application; requireWorkspace() calls it first.
@@ -180,4 +182,161 @@ test('an unknown grader cannot be shared', async () => {
 test('a repository the workspace is not connected to cannot be shared', async () => {
   const repositoryId = await fixtureRepository({ linked: false });
   await expect(writePublicGrade(repositoryId, AGENT_READINESS, true)).rejects.toThrow();
+});
+
+async function completedRun(
+  repositoryId: string,
+  options: { completedAt: Date; confirmedAt?: Date; state?: 'complete' | 'insufficient' | 'failed'; score?: number } = {
+    completedAt: new Date('2026-09-01T00:00:00.000Z'),
+  },
+): Promise<string> {
+  const id = randomUUID();
+  const state = options.state ?? 'complete';
+  const result = runDeclarative(agentReadinessManifest, {
+    sha: 'a'.repeat(40),
+    complete: state === 'complete',
+    documents: [{ path: 'README.md', blobSha: 'b'.repeat(40), text: 'hello' }],
+  });
+  await db()
+    .insert(gradeRuns)
+    .values({
+      id,
+      repositoryId,
+      graderId: AGENT_READINESS,
+      rubricVersion: agentReadinessManifest.version,
+      evaluatorVersion: agentReadinessManifest.evaluatorVersion,
+      requestedBy: owner,
+      requestedWorkspaceId: workspace,
+      state,
+      sha: 'a'.repeat(40),
+      result: state === 'failed' ? null : result,
+      completedAt: options.completedAt,
+      confirmedAt: options.confirmedAt ?? null,
+      createdAt: options.completedAt,
+    });
+  return id;
+}
+
+test('a shared, graded, public repository is readable by anyone', async () => {
+  const repositoryId = await fixtureRepository({ owner: 'Acme', name: 'Widgets' });
+  await completedRun(repositoryId);
+  await writePublicGrade(repositoryId, AGENT_READINESS, true);
+  const view = await publicGrade('acme', 'widgets', AGENT_READINESS, new Date('2026-09-10T00:00:00.000Z'));
+  expect(view.state).toBe('graded');
+  if (view.state !== 'graded') throw new Error('expected a graded view');
+  expect(view.repository).toEqual({ owner: 'Acme', name: 'Widgets', isPrivate: false });
+  expect(view.grader.title).toBe(agentReadinessManifest.card.title);
+  expect(view.stale).toBe(false);
+  expect(view.grade.checks.some((check) => check.paths.includes('README.md'))).toBe(true);
+});
+
+test('a private repository shares its score and never its file names', async () => {
+  const repositoryId = await fixtureRepository({ isPrivate: true });
+  await completedRun(repositoryId);
+  await writePublicGrade(repositoryId, AGENT_READINESS, true);
+  const [repo] = await db().select().from(repositories).where(eq(repositories.id, repositoryId));
+  const view = await publicGrade(repo.owner, repo.name, AGENT_READINESS);
+  if (view.state !== 'graded') throw new Error('expected a graded view');
+  for (const check of view.grade.checks) {
+    expect(check.paths).toEqual([]);
+    expect(check.lineRanges).toEqual([]);
+  }
+  expect(view.grade.score).toBeGreaterThan(0);
+});
+
+test('a later unscored run does not replace the public grade', async () => {
+  const repositoryId = await fixtureRepository();
+  await completedRun(repositoryId, { completedAt: new Date('2026-09-01T00:00:00.000Z') });
+  await completedRun(repositoryId, { completedAt: new Date('2026-09-05T00:00:00.000Z'), state: 'insufficient' });
+  await completedRun(repositoryId, { completedAt: new Date('2026-09-06T00:00:00.000Z'), state: 'failed' });
+  await writePublicGrade(repositoryId, AGENT_READINESS, true);
+  const [repo] = await db().select().from(repositories).where(eq(repositories.id, repositoryId));
+  const view = await publicGrade(repo.owner, repo.name, AGENT_READINESS);
+  if (view.state !== 'graded') throw new Error('expected a graded view');
+  expect(view.grade.computedAt).toEqual(new Date('2026-09-01T00:00:00.000Z'));
+});
+
+test('staleness counts from the last confirmation', async () => {
+  const completedAt = new Date('2026-09-01T00:00:00.000Z');
+  const thirtyOneDays = new Date(completedAt.getTime() + 31 * 86_400_000);
+  const stale = await fixtureRepository();
+  await completedRun(stale, { completedAt });
+  await writePublicGrade(stale, AGENT_READINESS, true);
+  const [staleRepo] = await db().select().from(repositories).where(eq(repositories.id, stale));
+  const staleView = await publicGrade(staleRepo.owner, staleRepo.name, AGENT_READINESS, thirtyOneDays);
+  expect(staleView.state === 'graded' && staleView.stale).toBe(true);
+
+  const confirmed = await fixtureRepository();
+  await completedRun(confirmed, {
+    completedAt,
+    confirmedAt: new Date(completedAt.getTime() + 20 * 86_400_000),
+  });
+  await writePublicGrade(confirmed, AGENT_READINESS, true);
+  const [freshRepo] = await db().select().from(repositories).where(eq(repositories.id, confirmed));
+  const freshView = await publicGrade(freshRepo.owner, freshRepo.name, AGENT_READINESS, thirtyOneDays);
+  expect(freshView.state === 'graded' && freshView.stale).toBe(false);
+});
+
+test('a shared repository that has never scored is ungraded, not private', async () => {
+  const repositoryId = await fixtureRepository();
+  await writePublicGrade(repositoryId, AGENT_READINESS, true);
+  const [repo] = await db().select().from(repositories).where(eq(repositories.id, repositoryId));
+  expect((await publicGrade(repo.owner, repo.name, AGENT_READINESS)).state).toBe('ungraded');
+});
+
+test('every reason to refuse gives the same private answer', async () => {
+  const shared = await fixtureRepository();
+  await completedRun(shared);
+  await writePublicGrade(shared, AGENT_READINESS, true);
+  const [sharedRepo] = await db().select().from(repositories).where(eq(repositories.id, shared));
+
+  const revoked = await fixtureRepository();
+  await completedRun(revoked);
+  await writePublicGrade(revoked, AGENT_READINESS, true);
+  await writePublicGrade(revoked, AGENT_READINESS, false);
+  const [revokedRepo] = await db().select().from(repositories).where(eq(repositories.id, revoked));
+
+  const never = await fixtureRepository();
+  const [neverRepo] = await db().select().from(repositories).where(eq(repositories.id, never));
+
+  const inactive = await fixtureRepository({ active: false });
+  const [inactiveRepo] = await db().select().from(repositories).where(eq(repositories.id, inactive));
+
+  const uninstalled = await fixtureRepository({ installationActive: false });
+  const [uninstalledRepo] = await db().select().from(repositories).where(eq(repositories.id, uninstalled));
+
+  // writePublicGrade refuses an unconnected repository, so this row is written
+  // directly: the lookup must refuse it too, not rely on the writer having.
+  const unlinked = await fixtureRepository({ linked: false });
+  await db()
+    .insert(publicGradeRows)
+    .values({ repositoryId: unlinked, graderId: AGENT_READINESS, enabledBy: owner, workspaceId: workspace });
+  const [unlinkedRepo] = await db().select().from(repositories).where(eq(repositories.id, unlinked));
+
+  const views = [
+    await publicGrade('nobody', 'nothing', AGENT_READINESS),
+    await publicGrade(sharedRepo.owner, 'not-this-repo', AGENT_READINESS),
+    await publicGrade(sharedRepo.owner, sharedRepo.name, 'nobody/nothing'),
+    await publicGrade(revokedRepo.owner, revokedRepo.name, AGENT_READINESS),
+    await publicGrade(neverRepo.owner, neverRepo.name, AGENT_READINESS),
+    await publicGrade(inactiveRepo.owner, inactiveRepo.name, AGENT_READINESS),
+    await publicGrade(uninstalledRepo.owner, uninstalledRepo.name, AGENT_READINESS),
+    await publicGrade(unlinkedRepo.owner, unlinkedRepo.name, AGENT_READINESS),
+  ];
+  for (const view of views) expect(view).toEqual({ state: 'private' });
+});
+
+test('demo mode shares nothing', async () => {
+  const repositoryId = await fixtureRepository();
+  await completedRun(repositoryId);
+  await writePublicGrade(repositoryId, AGENT_READINESS, true);
+  const [repo] = await db().select().from(repositories).where(eq(repositories.id, repositoryId));
+  const previous = process.env.DEMO_MODE;
+  process.env.DEMO_MODE = 'true';
+  try {
+    expect(await publicGrade(repo.owner, repo.name, AGENT_READINESS)).toEqual({ state: 'private' });
+  } finally {
+    if (previous === undefined) delete process.env.DEMO_MODE;
+    else process.env.DEMO_MODE = previous;
+  }
 });
