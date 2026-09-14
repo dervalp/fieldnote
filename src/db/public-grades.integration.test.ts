@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from 'vitest';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { eq, inArray } from 'drizzle-orm';
 import { db, closeDb } from './index';
@@ -37,6 +38,26 @@ vi.mock('next/navigation', () => ({
   },
 }));
 vi.mock('../lib/env', () => ({ env: () => ({ DEMO_MODE: context.demo ? 'true' : 'false' }) }));
+
+const { default: PublicGradePage } = await import(
+  '../app/r/[owner]/[repo]/[graderOwner]/[graderName]/page'
+);
+const { GET: badge } = await import(
+  '../app/r/[owner]/[repo]/[graderOwner]/[graderName]/badge.svg/route'
+);
+
+const address = (owner: string, repo: string, graderId = AGENT_READINESS) => {
+  const [graderOwner, graderName] = graderId.split('/');
+  return Promise.resolve({ owner, repo, graderOwner, graderName });
+};
+const pageHtml = async (owner: string, repo: string, graderId = AGENT_READINESS) =>
+  renderToStaticMarkup(await PublicGradePage({ params: address(owner, repo, graderId) }));
+const badgeSvg = async (owner: string, repo: string, graderId = AGENT_READINESS) => {
+  const response = await badge(new Request('https://fieldnote.dev/badge.svg'), {
+    params: address(owner, repo, graderId),
+  });
+  return { status: response.status, body: await response.text() };
+};
 
 let owner = '';
 let secondOwner = '';
@@ -339,4 +360,83 @@ test('demo mode shares nothing', async () => {
     if (previous === undefined) delete process.env.DEMO_MODE;
     else process.env.DEMO_MODE = previous;
   }
+});
+
+test('every private answer is byte-identical, page and badge alike', async () => {
+  const revoked = await fixtureRepository();
+  await completedRun(revoked);
+  await writePublicGrade(revoked, AGENT_READINESS, true);
+  await writePublicGrade(revoked, AGENT_READINESS, false);
+  const [revokedRepo] = await db().select().from(repositories).where(eq(repositories.id, revoked));
+  const never = await fixtureRepository();
+  const [neverRepo] = await db().select().from(repositories).where(eq(repositories.id, never));
+  const inactive = await fixtureRepository({ active: false });
+  const [inactiveRepo] = await db().select().from(repositories).where(eq(repositories.id, inactive));
+  const uninstalled = await fixtureRepository({ installationActive: false });
+  const [uninstalledRepo] = await db()
+    .select()
+    .from(repositories)
+    .where(eq(repositories.id, uninstalled));
+  const unlinked = await fixtureRepository({ linked: false });
+  await db()
+    .insert(publicGradeRows)
+    .values({ repositoryId: unlinked, graderId: AGENT_READINESS, enabledBy: owner, workspaceId: workspace });
+  const [unlinkedRepo] = await db().select().from(repositories).where(eq(repositories.id, unlinked));
+
+  const cases: [string, string, string?][] = [
+    ['nobody', 'nothing'],
+    [revokedRepo.owner, revokedRepo.name],
+    [neverRepo.owner, neverRepo.name],
+    [inactiveRepo.owner, inactiveRepo.name],
+    [uninstalledRepo.owner, uninstalledRepo.name],
+    [unlinkedRepo.owner, unlinkedRepo.name],
+    [revokedRepo.owner, revokedRepo.name, 'nobody/nothing'],
+  ];
+  const pages = await Promise.all(cases.map(([owner, repo, grader]) => pageHtml(owner, repo, grader)));
+  const badges = await Promise.all(cases.map(([owner, repo, grader]) => badgeSvg(owner, repo, grader)));
+  for (const html of pages) expect(html).toBe(pages[0]);
+  for (const svg of badges) expect(svg).toEqual(badges[0]);
+  expect(pages[0]).toContain('This grade is private.');
+  expect(badges[0].status).toBe(200);
+  expect(badges[0].body).toContain('private');
+});
+
+test('sharing, revoking and sharing again is visible end to end', async () => {
+  const repositoryId = await fixtureRepository();
+  await completedRun(repositoryId);
+  const [repo] = await db().select().from(repositories).where(eq(repositories.id, repositoryId));
+
+  expect(await pageHtml(repo.owner, repo.name)).toContain('This grade is private.');
+
+  await writePublicGrade(repositoryId, AGENT_READINESS, true);
+  const shared = await pageHtml(repo.owner, repo.name);
+  expect(shared).toContain(agentReadinessManifest.card.title);
+  expect((await badgeSvg(repo.owner, repo.name)).body).toContain('·');
+
+  await writePublicGrade(repositoryId, AGENT_READINESS, false);
+  expect(await pageHtml(repo.owner, repo.name)).toContain('This grade is private.');
+
+  await writePublicGrade(repositoryId, AGENT_READINESS, true);
+  expect(await pageHtml(repo.owner, repo.name)).toContain(agentReadinessManifest.card.title);
+});
+
+test("a private repository's public page shows no file name", async () => {
+  const repositoryId = await fixtureRepository({ isPrivate: true });
+  await completedRun(repositoryId);
+  await writePublicGrade(repositoryId, AGENT_READINESS, true);
+  const [repo] = await db().select().from(repositories).where(eq(repositories.id, repositoryId));
+  const html = await pageHtml(repo.owner, repo.name);
+  expect(html).toContain(agentReadinessManifest.card.title);
+  // "No file name" means no evidence path or line range is disclosed — not
+  // that the grader's own fixed prose can never contain a filename. The
+  // readiness manifest's explanation sentence says "README.md" for every
+  // repository alike (see readiness-v01.test.ts and Task 5's private-repo
+  // test, which assert on paths/lineRanges for the same reason), so it
+  // reveals nothing about this repository and is not what this test guards.
+  // What must never appear is a link into the repository's own files: the
+  // evidence anchors GradeReport builds are
+  // `https://github.com/<owner>/<repo>/blob/<sha>/<path>`, and for a private
+  // repository every check's paths are empty, so that <details> block never
+  // renders at all.
+  expect(html).not.toContain(`https://github.com/${repo.owner}/${repo.name}/blob/`);
 });
