@@ -8,6 +8,7 @@ import {
   validateGradeRun,
   completeGrade,
   failGrade,
+  insufficientGrade,
 } from '../../db/queries/grade-runs';
 import { resolveHeadSha, FileCollectionError } from '../../github/collect-files';
 import { collectEvidence } from '../../grading/evidence';
@@ -57,10 +58,17 @@ export async function evaluateGradeRun(runId: string) {
     );
     const result = runDeclarative(manifest, snapshot);
     if (result.score === null) {
-      // incompleteCode is null only when collection reported a complete
-      // snapshot, which runDeclarative never pairs with a null score — but the
-      // type now says so explicitly, so fall back to failGrade's own default
-      // rather than assert it away.
+      // Two reasons a run has no score, and they belong to different authors.
+      // "Not enough merged work to judge" is the grader's, and its result is
+      // worth storing and reading. Collection failing is fieldnote's, and its
+      // check results are noise — they failed for want of evidence, not for
+      // want of the thing they measure.
+      if (incompleteCode === 'insufficient_evidence') {
+        // Recheck authorization before storing, as the complete path does.
+        if (!(await validated(runId))) return;
+        await insufficientGrade(runId, result);
+        return;
+      }
       await failGrade(runId, incompleteCode ?? undefined);
       return;
     }
