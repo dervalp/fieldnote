@@ -8,7 +8,7 @@ import { rangeEnd } from '../dashboard/range-query';
 import './report.css';
 type Status = {
   id: string;
-  state: 'queued' | 'running' | 'complete' | 'failed';
+  state: 'queued' | 'running' | 'complete' | 'failed' | 'insufficient';
   errorCode?: string | null;
 };
 export function GradeControls({

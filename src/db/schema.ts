@@ -650,7 +650,9 @@ export const gradeRuns = pgTable(
       .notNull()
       .references(() => workspaces.id),
     retryOf: text('retry_of').references((): AnyPgColumn => gradeRuns.id),
-    state: text('state').$type<'queued' | 'running' | 'complete' | 'failed'>().notNull(),
+    state: text('state')
+      .$type<'queued' | 'running' | 'complete' | 'failed' | 'insufficient'>()
+      .notNull(),
     sha: text('sha'),
     result: jsonb('result').$type<import('../domain/grading/types').GradeResult>(),
     errorCode: text('error_code'),
@@ -660,11 +662,16 @@ export const gradeRuns = pgTable(
     completedAt: timestamp('completed_at', { withTimezone: true }),
   },
   (t) => [
-    check('grade_runs_state', sql`${t.state} IN ('queued','running','complete','failed')`),
+    check(
+      'grade_runs_state',
+      sql`${t.state} IN ('queued','running','complete','failed','insufficient')`,
+    ),
+    // Unchanged: a SQL check passes on NULL, so this already tolerates the
+    // null score an insufficient run stores.
     check('grade_runs_score', sql`(${t.result}->>'score')::integer BETWEEN 0 AND 100`),
     check(
       'grade_runs_result',
-      sql`(${t.state} = 'complete' AND ${t.sha} IS NOT NULL AND ${t.completedAt} IS NOT NULL AND ${t.result} IS NOT NULL AND ${t.result}->>'score' IS NOT NULL) OR (${t.state} <> 'complete' AND ${t.result} IS NULL)`,
+      sql`(${t.state} = 'complete' AND ${t.sha} IS NOT NULL AND ${t.completedAt} IS NOT NULL AND ${t.result} IS NOT NULL AND ${t.result}->>'score' IS NOT NULL) OR (${t.state} = 'insufficient' AND ${t.sha} IS NOT NULL AND ${t.completedAt} IS NOT NULL AND ${t.result} IS NOT NULL AND ${t.result}->>'score' IS NULL) OR (${t.state} NOT IN ('complete','insufficient') AND ${t.result} IS NULL)`,
     ),
     uniqueIndex('grade_runs_one_active')
       .on(t.repositoryId, t.graderId)

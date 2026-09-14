@@ -35,10 +35,17 @@ import type { GraderManifest } from '../../domain/grading/manifest';
 import type { GradeResult } from '../../domain/grading/types';
 export type GradeRun = typeof runs.$inferSelect;
 export type CompletedGrade = GradeResult & { id: string; sha: string; computedAt: Date };
+/** Structurally the same as a CompletedGrade and deliberately not the same
+ *  thing: an insufficient run has a null score, is the repository's current
+ *  state, and never joins the history list. */
+export type UnscoredGrade = GradeResult & { id: string; sha: string; computedAt: Date };
 export type GradeSummary = {
   repositoryId: string;
   graderId: string;
   latest: CompletedGrade | null;
+  /** The current run when it ended without a score. Null otherwise — including
+   *  when an older run was insufficient and a newer one scored. */
+  unscored: UnscoredGrade | null;
   status: Pick<GradeRun, 'id' | 'state' | 'errorCode' | 'createdAt'> | null;
 };
 // A version freezes what a grade means, not how it is captioned. `card` is
@@ -183,6 +190,11 @@ function completed(run: GradeRun): CompletedGrade | null {
     ? { ...run.result, id: run.id, sha: run.sha, computedAt: run.completedAt }
     : null;
 }
+function unscored(run: GradeRun): UnscoredGrade | null {
+  return run.state === 'insufficient' && run.result && run.sha && run.completedAt
+    ? { ...run.result, id: run.id, sha: run.sha, computedAt: run.completedAt }
+    : null;
+}
 export async function latestGrade(
   repositoryId: string,
   graderId: string,
@@ -253,6 +265,7 @@ export async function gradeSummaries(
         repositoryId,
         graderId,
         latest: latest ? completed(latest) : null,
+        unscored: current ? unscored(current) : null,
         status: current
           ? {
               id: current.id,
@@ -374,12 +387,32 @@ export async function completeGrade(runId: string, result: GradeResult) {
     .set({ state: 'complete', result, completedAt: new Date() })
     .where(and(eq(runs.id, runId), eq(runs.state, 'running')));
 }
+// The mirror image of completeGrade: same guards, opposite assertion about
+// the score. A floor miss is not a failure — runDeclarative already built the
+// full result, and this is where it lands.
+export async function insufficientGrade(runId: string, result: GradeResult) {
+  const run = await loadGradeRun(runId);
+  if (!run || run.state !== 'running') return;
+  if (
+    result.score !== null ||
+    result.rubricVersion !== run.rubricVersion ||
+    result.evaluatorVersion !== run.evaluatorVersion
+  )
+    throw new Error('Invalid grade result');
+  await db()
+    .update(runs)
+    .set({ state: 'insufficient', result, completedAt: new Date() })
+    .where(and(eq(runs.id, runId), eq(runs.state, 'running')));
+}
 export async function failGrade(runId: string, code = 'collection_failed') {
   const safe = [
     'collection_failed',
     'access_revoked',
     'unsupported_version',
     'incomplete_collection',
+    // insufficient_evidence is unreachable from the declarative path after the
+    // insufficient state — kept because a kind: code grader in slice 4 can still
+    // fail a floor with no result to store.
     'insufficient_evidence',
   ].includes(code)
     ? code

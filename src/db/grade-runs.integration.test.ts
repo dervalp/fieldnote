@@ -54,7 +54,7 @@ afterAll(async () => {
   await db().delete(users).where(eq(users.id, context.user));
   await closeDb();
 });
-async function seed() {
+async function fixtureRepository() {
   const id = randomUUID();
   fixtureRepositories.push(id);
   await db()
@@ -75,7 +75,7 @@ async function seed() {
   return id;
 }
 test('concurrent clicks share one active run', async () => {
-  const id = await seed();
+  const id = await fixtureRepository();
   const [a, b] = await Promise.all([
     requestGrade(id, AGENT_READINESS),
     requestGrade(id, AGENT_READINESS),
@@ -92,17 +92,20 @@ import {
   failGrade,
   loadGradeRun,
   latestGrade,
+  latestCompletedGrade,
   getGrade,
   gradeHistory,
   gradeSummaries,
   registerRubric,
   listUndispatchedGrades,
   validateGradeRun,
+  insufficientGrade,
 } from './queries/grade-runs';
 import { dispatchGrade } from '../inngest/dispatch-grade';
 import { evaluateGradeRun, resolveGradeCommit } from '../inngest/functions/grade-repository';
 import { runDeclarative } from '../domain/grading/declarative';
 import { AGENT_READINESS, agentReadinessManifest } from '../domain/grading/graders/agent-readiness';
+import { DELIVERY_HEALTH, deliveryHealthManifest } from '../domain/grading/graders/delivery-health';
 import { registerGrader } from '../domain/grading/registry';
 import { rubricView } from '../domain/grading/rubric-view';
 const github = vi.hoisted(() => ({ resolve: vi.fn(), collect: vi.fn() }));
@@ -125,7 +128,7 @@ async function finished(repo: string) {
   return run;
 }
 test('completed records remain immutable and survive newer failures and results', async () => {
-  const repo = await seed();
+  const repo = await fixtureRepository();
   const a = await finished(repo);
   const original = await getGrade(repo, a.id, AGENT_READINESS);
   await failGrade(a.id);
@@ -148,7 +151,7 @@ test('completed records remain immutable and survive newer failures and results'
   expect((await loadGradeRun(b.id))?.errorCode).toBe('collection_failed');
 });
 test('dispatch failure before acknowledgement remains reconcilable with stable event id', async () => {
-  const run = await requestGrade(await seed(), AGENT_READINESS);
+  const run = await requestGrade(await fixtureRepository(), AGENT_READINESS);
   const send = vi
     .fn()
     .mockRejectedValueOnce(new Error('network after accepted'))
@@ -162,7 +165,7 @@ test('dispatch failure before acknowledgement remains reconcilable with stable e
   expect((await loadGradeRun(run.id))?.dispatchedAt).toBeInstanceOf(Date);
 });
 test('duplicate delivery and collection retry reuse the persisted SHA without source step output', async () => {
-  const run = await requestGrade(await seed(), AGENT_READINESS);
+  const run = await requestGrade(await fixtureRepository(), AGENT_READINESS);
   await beginGrade(run.id);
   github.resolve.mockResolvedValueOnce(sha).mockResolvedValue('c'.repeat(40));
   expect(await resolveGradeCommit(run.id)).toBe(sha);
@@ -180,21 +183,21 @@ test('duplicate delivery and collection retry reuse the persisted SHA without so
   expect((await loadGradeRun(run.id))?.state).toBe('complete');
 });
 test('revocation before start and inactive installation prevent work', async () => {
-  const repo = await seed();
+  const repo = await fixtureRepository();
   const run = await requestGrade(repo, AGENT_READINESS);
   await db().delete(workspaceRepositories).where(eq(workspaceRepositories.repositoryId, repo));
   await expect(beginGrade(run.id)).rejects.toThrow('Grade access revoked');
   await expect(resolveGradeCommit(run.id)).rejects.toThrow('Grade unavailable');
   expect((await loadGradeRun(run.id))?.state).toBe('failed');
-  const repo2 = await seed();
+  const repo2 = await fixtureRepository();
   const run2 = await requestGrade(repo2, AGENT_READINESS);
   await db().update(installations).set({ active: false }).where(eq(installations.id, repo2));
   await expect(beginGrade(run2.id)).rejects.toThrow();
 });
 test('read authorization, repository/run association, and batch filtering protect private evidence', async () => {
-  const repo = await seed();
+  const repo = await fixtureRepository();
   const run = await finished(repo);
-  const other = await seed();
+  const other = await fixtureRepository();
   expect(await getGrade(other, run.id, AGENT_READINESS)).toBeNull();
   await db().delete(workspaceRepositories).where(eq(workspaceRepositories.repositoryId, repo));
   await expect(latestGrade(repo, AGENT_READINESS)).rejects.toThrow('not found');
@@ -213,7 +216,7 @@ test('rubric definitions cannot change in place and unknown pinned versions neve
   );
   const definition = { ...agentReadinessManifest, version: 'future-test' };
   await registerRubric(definition);
-  const run = await requestGrade(await seed(), AGENT_READINESS);
+  const run = await requestGrade(await fixtureRepository(), AGENT_READINESS);
   await db()
     .update(gradeRuns)
     .set({ rubricVersion: definition.version })
@@ -221,7 +224,7 @@ test('rubric definitions cannot change in place and unknown pinned versions neve
   await expect(beginGrade(run.id)).rejects.toThrow('Unsupported rubric version');
 });
 test('incomplete collection fails with no score; demo mutation is rejected', async () => {
-  const repo = await seed();
+  const repo = await fixtureRepository();
   const run = await requestGrade(repo, AGENT_READINESS);
   await beginGrade(run.id);
   await pinGradeSha(run.id, sha);
@@ -242,7 +245,7 @@ test('incomplete collection fails with no score; demo mutation is rejected', asy
 });
 
 test('one active run per grader: a second grader may run alongside, the same one may not', async () => {
-  const repo = await seed();
+  const repo = await fixtureRepository();
   const first = await requestGrade(repo, AGENT_READINESS);
   expect((await requestGrade(repo, AGENT_READINESS)).id).toBe(first.id);
   const other = registerGrader({
@@ -315,7 +318,7 @@ test('a stored manifest from before card.title still registers', async () => {
 
 test('validateGradeRun accepts card drift but rejects frozen field changes', async () => {
   // Register the rubric and create a run.
-  const repo = await seed();
+  const repo = await fixtureRepository();
   await registerRubric(agentReadinessManifest);
   const runInfo = await requestGrade(repo, AGENT_READINESS);
   const run = await loadGradeRun(runInfo.id);
@@ -381,4 +384,104 @@ test('validateGradeRun accepts card drift but rejects frozen field changes', asy
         ),
       );
   }
+});
+
+test('an insufficient run stores its unscored result', async () => {
+  const repositoryId = await fixtureRepository();
+  const run = await requestGrade(repositoryId, DELIVERY_HEALTH);
+  await beginGrade(run.id);
+  await pinGradeSha(run.id, 'a'.repeat(40));
+  await insufficientGrade(run.id, {
+    score: null,
+    checks: [],
+    rubricVersion: deliveryHealthManifest.version,
+    evaluatorVersion: deliveryHealthManifest.evaluatorVersion,
+    incompleteReason: deliveryHealthManifest.needs['fieldnote.metrics']!.insufficientReason,
+  });
+  const stored = await loadGradeRun(run.id);
+  expect(stored?.state).toBe('insufficient');
+  expect(stored?.result?.score).toBeNull();
+  expect(stored?.result?.incompleteReason).toBe(
+    deliveryHealthManifest.needs['fieldnote.metrics']!.insufficientReason,
+  );
+  expect(stored?.completedAt).toBeInstanceOf(Date);
+});
+
+test('insufficientGrade refuses a result that has a score', async () => {
+  const repositoryId = await fixtureRepository();
+  const run = await requestGrade(repositoryId, DELIVERY_HEALTH);
+  await beginGrade(run.id);
+  await pinGradeSha(run.id, 'b'.repeat(40));
+  await expect(
+    insufficientGrade(run.id, {
+      score: 80,
+      checks: [],
+      rubricVersion: deliveryHealthManifest.version,
+      evaluatorVersion: deliveryHealthManifest.evaluatorVersion,
+    }),
+  ).rejects.toThrow('Invalid grade result');
+});
+
+test('a complete run still cannot store a null score', async () => {
+  const repositoryId = await fixtureRepository();
+  const run = await requestGrade(repositoryId, DELIVERY_HEALTH);
+  await beginGrade(run.id);
+  await pinGradeSha(run.id, 'c'.repeat(40));
+  await expect(
+    db()
+      .update(gradeRuns)
+      .set({
+        state: 'complete',
+        result: {
+          score: null,
+          checks: [],
+          rubricVersion: deliveryHealthManifest.version,
+          evaluatorVersion: deliveryHealthManifest.evaluatorVersion,
+        },
+        completedAt: new Date(),
+      })
+      .where(eq(gradeRuns.id, run.id)),
+  ).rejects.toThrow();
+});
+
+test('a failed run still cannot store a result', async () => {
+  const repositoryId = await fixtureRepository();
+  const run = await requestGrade(repositoryId, DELIVERY_HEALTH);
+  await beginGrade(run.id);
+  await pinGradeSha(run.id, 'd'.repeat(40));
+  await expect(
+    db()
+      .update(gradeRuns)
+      .set({
+        state: 'failed',
+        result: {
+          score: null,
+          checks: [],
+          rubricVersion: deliveryHealthManifest.version,
+          evaluatorVersion: deliveryHealthManifest.evaluatorVersion,
+        },
+        completedAt: new Date(),
+      })
+      .where(eq(gradeRuns.id, run.id)),
+  ).rejects.toThrow();
+});
+
+test('history and the latest grade ignore an insufficient run', async () => {
+  const repositoryId = await fixtureRepository();
+  const run = await requestGrade(repositoryId, DELIVERY_HEALTH);
+  await beginGrade(run.id);
+  await pinGradeSha(run.id, 'e'.repeat(40));
+  await insufficientGrade(run.id, {
+    score: null,
+    checks: [],
+    rubricVersion: deliveryHealthManifest.version,
+    evaluatorVersion: deliveryHealthManifest.evaluatorVersion,
+    incompleteReason: 'Not enough delivery record to judge.',
+  });
+  expect(await latestCompletedGrade(repositoryId, DELIVERY_HEALTH)).toBeNull();
+  expect(await gradeHistory(repositoryId, DELIVERY_HEALTH)).toEqual([]);
+  const [summary] = await gradeSummaries([repositoryId], [DELIVERY_HEALTH]);
+  expect(summary.latest).toBeNull();
+  // The current state, though, is exactly what `unscored` is for.
+  expect(summary.unscored?.incompleteReason).toBe('Not enough delivery record to judge.');
 });
