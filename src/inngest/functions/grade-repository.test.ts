@@ -19,8 +19,15 @@ vi.mock('../../github/collect-files', () => ({
 const code = vi.hoisted(() => ({ runCodeGrader: vi.fn() }));
 vi.mock('../../grading/run-code', () => code);
 vi.mock('../../grading/sandbox', () => ({ selectSandbox: () => ({}) }));
+const client = vi.hoisted(() => ({
+  createFunction: vi.fn((config: unknown, handler: unknown) => ({ config, handler })),
+}));
+vi.mock('../client', () => ({ inngest: client }));
 
 const { evaluateGradeRun, finalFailureCode } = await import('./grade-repository');
+const { config } = client.createFunction.mock.results[0].value as {
+  config: { onFailure: (context: { event: unknown; error: unknown }) => Promise<void> };
+};
 const { agentReadinessManifest } = await import('../../domain/grading/graders/agent-readiness');
 const { registerGrader } = await import('../../domain/grading/registry');
 const { GraderFailedError } = await import('../../domain/grading/code');
@@ -189,4 +196,19 @@ test('when retries run out, a sandbox outage is recorded as one and anything els
   expect(finalFailureCode({ name: 'SandboxUnavailableError' })).toBe('sandbox_unavailable');
   expect(finalFailureCode({ name: 'Error' })).toBeUndefined();
   expect(finalFailureCode(undefined)).toBeUndefined();
+});
+
+test("the function's failure handler stores a spent outage as sandbox_unavailable", async () => {
+  const error = new Error('vendor detail');
+  error.name = 'SandboxUnavailableError';
+  await config.onFailure({ event: { data: { event: { data: { runId: 'run-1' } } } }, error });
+  expect(queries.failGrade).toHaveBeenCalledWith('run-1', 'sandbox_unavailable');
+});
+
+test("the function's failure handler stores any other spent failure without a code", async () => {
+  await config.onFailure({
+    event: { data: { event: { data: { runId: 'run-1' } } } },
+    error: new Error('private stack'),
+  });
+  expect(queries.failGrade).toHaveBeenCalledWith('run-1', undefined);
 });
