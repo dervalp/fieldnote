@@ -1,7 +1,10 @@
 import { runDeclarative } from '../domain/grading/declarative';
+import { assembleCodeResult } from '../domain/grading/code';
 import { agentReadinessManifest } from '../domain/grading/graders/agent-readiness';
 import { deliveryHealthManifest } from '../domain/grading/graders/delivery-health';
-import type { MetricsWindow, SourceDocument } from '../domain/grading/types';
+import { testDisciplineManifest } from '../domain/grading/graders/test-discipline';
+import type { CodeManifest } from '../domain/grading/manifest';
+import type { MetricsWindow, SourceDocument, TreeEntry } from '../domain/grading/types';
 import type { CiCheck, Conclusion, PullRequestFacts } from '../domain/pull-request/types';
 export const demoPolicy = {
   version: 1,
@@ -170,3 +173,67 @@ export const demoDeliveryGrade = runDeclarative(deliveryHealthManifest, {
   documents: [],
   metrics: demoDeliveryWindow,
 });
+
+// The demo checkout service's file list. Seven source files in three folders;
+// four have tests, and the gateway folder has none — the failing check, and
+// what makes this card read differently from the other two.
+export const demoTestDisciplineTree: TreeEntry[] = [
+  'package.json',
+  'README.md',
+  'src/checkout/cart.test.ts',
+  'src/checkout/cart.ts',
+  'src/checkout/payment.test.ts',
+  'src/checkout/payment.ts',
+  'src/checkout/shipping.ts',
+  'src/gateway/routes.ts',
+  'src/gateway/session.ts',
+  'src/inventory/reservation.ts',
+  'src/inventory/stock.test.ts',
+  'src/inventory/stock.ts',
+  'tests/inventory/reservation.spec.ts',
+].map((path) => ({ path, size: 512 }));
+
+// A hand-written answer, not the program's output: the product only ever runs
+// a grader's program in a sandbox, and a fixture must not become the one place
+// it runs anywhere else. src/demo/fixtures.test.ts proves the program says
+// exactly this about the tree above.
+export const demoTestDisciplineAnswer = {
+  checks: [
+    {
+      id: 'tests-exist',
+      status: 'pass',
+      paths: [
+        'src/checkout/cart.test.ts',
+        'src/checkout/payment.test.ts',
+        'src/inventory/stock.test.ts',
+        'tests/inventory/reservation.spec.ts',
+      ],
+    },
+    {
+      id: 'tests-beside-source',
+      status: 'pass',
+      paths: [
+        'src/checkout/cart.test.ts',
+        'src/checkout/payment.test.ts',
+        'src/inventory/stock.test.ts',
+        'tests/inventory/reservation.spec.ts',
+      ],
+      count: { matched: 4, of: 7 },
+    },
+    {
+      id: 'tests-in-every-folder',
+      status: 'fail',
+      paths: ['src/checkout/cart.test.ts', 'src/inventory/stock.test.ts'],
+      count: { matched: 2, of: 3 },
+    },
+  ],
+};
+
+// Assembled by the real answer assembly, for the reason demoGrade is graded by
+// the real evaluator: a seeded card must not claim a score, a check id or an
+// explanation the contract would not produce.
+export const demoTestDisciplineGrade = assembleCodeResult(
+  testDisciplineManifest as CodeManifest,
+  { evidence: { tree: demoTestDisciplineTree } },
+  demoTestDisciplineAnswer,
+).result;

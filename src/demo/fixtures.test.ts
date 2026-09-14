@@ -1,9 +1,16 @@
 import { describe, expect, it, test } from 'vitest';
-import { demoGrade, demoDeliveryGrade } from './fixtures';
+import {
+  demoGrade,
+  demoDeliveryGrade,
+  demoTestDisciplineAnswer,
+  demoTestDisciplineGrade,
+  demoTestDisciplineTree,
+} from './fixtures';
 import { gradePresentation } from '../domain/grading/presentation';
 import { nextTier } from '../domain/grading/next-tier';
 import { AGENT_READINESS } from '../domain/grading/graders/agent-readiness';
 import { graderCheckTitles } from '../domain/grading/registry';
+import grade from '../domain/grading/graders/test-discipline/grader.mjs';
 describe('demoGrade', () => {
   it('grades the demo documents at 80, failing only documented-tests', () => {
     expect(demoGrade.score).toBe(80);
@@ -47,5 +54,20 @@ describe('demoDeliveryGrade', () => {
     const check = demoDeliveryGrade.checks[0];
     expect(check.paths).toEqual([]);
     expect(check.explanation).toContain('Measured');
+  });
+});
+
+describe('demoTestDisciplineGrade', () => {
+  test('the hand-written answer is exactly what the program says about the demo tree', () => {
+    // The product never runs a program outside a sandbox, so the fixture is a
+    // hand-written answer. This test is what keeps it honest.
+    expect(grade({ tree: demoTestDisciplineTree })).toEqual(demoTestDisciplineAnswer);
+  });
+  test('scores 60 and fails only tests-in-every-folder', () => {
+    expect(demoTestDisciplineGrade.score).toBe(60);
+    expect(
+      demoTestDisciplineGrade.checks.filter((check) => check.status === 'fail').map((c) => c.id),
+    ).toEqual(['tests-in-every-folder']);
+    expect(demoTestDisciplineGrade.rubricVersion).toBe('0.1.0');
   });
 });

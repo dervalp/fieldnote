@@ -14,11 +14,13 @@ import {
   demoFacts,
   demoGrade,
   demoDeliveryGrade,
+  demoTestDisciplineGrade,
   demoGradeSha,
   demoPolicy,
 } from '../src/demo/fixtures';
 import { agentReadinessManifest } from '../src/domain/grading/graders/agent-readiness';
 import { deliveryHealthManifest } from '../src/domain/grading/graders/delivery-health';
+import { testDisciplineManifest } from '../src/domain/grading/graders/test-discipline';
 import { rubricView } from '../src/domain/grading/rubric-view';
 import { recomputeExecutedDetections } from '../src/db/queries/ai-involvement';
 import type { AgentMarker } from '../src/domain/ai-involvement/types';
@@ -86,6 +88,16 @@ try {
       manifest: deliveryHealthManifest,
     })
     .onConflictDoNothing();
+  await db()
+    .insert(gradingRubrics)
+    .values({
+      graderId: testDisciplineManifest.id,
+      version: testDisciplineManifest.version,
+      evaluatorVersion: testDisciplineManifest.evaluatorVersion,
+      definition: rubricView(testDisciplineManifest),
+      manifest: testDisciplineManifest,
+    })
+    .onConflictDoNothing();
   const graded = new Date('2026-09-30T09:12:00Z');
   await db()
     .insert(gradeRuns)
@@ -118,6 +130,24 @@ try {
       state: 'complete',
       sha: demoGradeSha,
       result: demoDeliveryGrade,
+      dispatchedAt: graded,
+      startedAt: graded,
+      completedAt: graded,
+    })
+    .onConflictDoNothing();
+  await db()
+    .insert(gradeRuns)
+    .values({
+      id: 'demo-test-discipline-grade-run',
+      repositoryId: 'demo-repository',
+      graderId: testDisciplineManifest.id,
+      rubricVersion: testDisciplineManifest.version,
+      evaluatorVersion: testDisciplineManifest.evaluatorVersion,
+      requestedBy: 'demo-user',
+      requestedWorkspaceId: 'demo-workspace',
+      state: 'complete',
+      sha: demoGradeSha,
+      result: demoTestDisciplineGrade,
       dispatchedAt: graded,
       startedAt: graded,
       completedAt: graded,
@@ -177,6 +207,9 @@ try {
   console.log(`Readiness ${demoGrade.score}/100: /app/repos/demo-repository`);
   console.log(
     `Delivery ${demoDeliveryGrade.score}/100: /app/repos/demo-repository/grading?grader=fieldnote%2Fdelivery-health`,
+  );
+  console.log(
+    `Test discipline ${demoTestDisciplineGrade.score}/100: /app/repos/demo-repository/grading?grader=fieldnote%2Ftest-discipline`,
   );
 } finally {
   await closeDb();
