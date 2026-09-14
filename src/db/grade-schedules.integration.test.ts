@@ -11,6 +11,7 @@ import {
   workspaceMemberships,
   workspaceRepositories,
   gradeSchedules as scheduleRows,
+  gradeRuns,
 } from './schema';
 import {
   gradeSchedules,
@@ -18,8 +19,18 @@ import {
   listGradeSchedules,
   scheduleAvailable,
 } from './queries/grade-schedules';
-import { AGENT_READINESS } from '../domain/grading/graders/agent-readiness';
+import { beginGrade, completeGrade, loadGradeRun, pinGradeSha } from './queries/grade-runs';
+import { scheduleIfDue } from '../inngest/functions/schedule-grades';
+import {
+  AGENT_READINESS,
+  agentReadinessManifest,
+} from '../domain/grading/graders/agent-readiness';
 import { ManifestError } from '../domain/grading/manifest';
+const HEAD_SHA = 'a'.repeat(40);
+vi.mock('../github/collect-files', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../github/collect-files')>()),
+  resolveHeadSha: async () => HEAD_SHA,
+}));
 const context = vi.hoisted(() => ({ user: '', workspace: '', demo: false }));
 // A second, independent identity: their own user, their own default
 // workspace, their own membership — mirroring context's own setup — so the
@@ -71,6 +82,9 @@ afterAll(async () => {
     await db()
       .delete(scheduleRows)
       .where(inArray(scheduleRows.repositoryId, fixtureRepositories));
+    // The scheduling tests create real grade_runs rows against these
+    // repositories; they must go before the repository foreign key does.
+    await db().delete(gradeRuns).where(inArray(gradeRuns.repositoryId, fixtureRepositories));
     await db()
       .delete(workspaceRepositories)
       .where(inArray(workspaceRepositories.repositoryId, fixtureRepositories));
@@ -215,4 +229,33 @@ test('a schedule pauses when the enabler leaves the workspace', async () => {
   }
   // The row survives. Nothing is deleted, and it resumes by itself.
   expect(Object.keys(await gradeSchedules(repositoryId))).toEqual([AGENT_READINESS]);
+});
+
+test('a scheduled run reaches the queue with no session', async () => {
+  const repositoryId = await fixtureRepository();
+  await writeGradeSchedule(repositoryId, AGENT_READINESS, true);
+  const row = (await listGradeSchedules()).find((entry) => entry.repositoryId === repositoryId)!;
+  const runId = await scheduleIfDue(row);
+  expect(runId).not.toBeNull();
+  const stored = await loadGradeRun(runId!);
+  expect(stored?.state).toBe('queued');
+  expect(stored?.trigger).toBe('schedule');
+  expect(stored?.requestedBy).toBe(context.user);
+});
+
+test('the second night skips a repository whose head sha has not moved', async () => {
+  const repositoryId = await fixtureRepository();
+  await writeGradeSchedule(repositoryId, AGENT_READINESS, true);
+  const row = (await listGradeSchedules()).find((entry) => entry.repositoryId === repositoryId)!;
+  const runId = (await scheduleIfDue(row))!;
+  // Complete it at the sha the mocked resolveHeadSha returns, then ask again.
+  await beginGrade(runId);
+  await pinGradeSha(runId, HEAD_SHA);
+  await completeGrade(runId, {
+    score: 100,
+    checks: [],
+    rubricVersion: agentReadinessManifest.version,
+    evaluatorVersion: agentReadinessManifest.evaluatorVersion,
+  });
+  expect(await scheduleIfDue(row)).toBeNull();
 });
