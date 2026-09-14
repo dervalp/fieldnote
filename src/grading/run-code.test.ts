@@ -106,7 +106,8 @@ test('a substrate failure passes through as unavailable, and the box is still de
 
 test('a destroy that fails does not replace the outcome', async () => {
   const { sandbox } = watched({
-    destroy: async () => {
+    destroy: async (handle) => {
+      await localSandbox.destroy(handle);
       throw new Error('already gone');
     },
   });
