@@ -1,4 +1,4 @@
-import { collectReadiness } from '../github/collect-readiness';
+import { collectFiles } from '../github/collect-files';
 import { collectMetrics } from '../db/queries/grade-metrics';
 import { INCOMPLETE } from '../domain/grading/declarative';
 import type { GraderManifest } from '../domain/grading/manifest';
@@ -39,7 +39,7 @@ export async function collectEvidence(
   if (unhandled) throw new Error(`collectEvidence does not handle evidence family '${unhandled}'`);
   const filesNeed = manifest.needs['repo.files'];
   const metricsNeed = manifest.needs['fieldnote.metrics'];
-  const files = filesNeed ? await collectReadiness(repositoryId, sha) : null;
+  const files = filesNeed ? await collectFiles(repositoryId, sha) : null;
   const metrics = metricsNeed ? await collectMetrics(repositoryId, metricsNeed) : null;
   // Collection failing outranks a grader's floor: if fieldnote could not read
   // the evidence, what the grader would have made of it is unknown.

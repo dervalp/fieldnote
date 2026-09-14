@@ -32,7 +32,7 @@ const reading = (numerator: number, denominator: number): MetricReading => ({
  * the current request; a grade run has no session and is authorized instead by
  * validateGradeRun(), which re-checks installation, workspace link, membership
  * and demo mode before collection and again before completion — the same route
- * collectReadiness() already relies on. visiblePrIds() is a flat per-repository
+ * collectFiles() already relies on. visiblePrIds() is a flat per-repository
  * history cap with no session component, so the Free limit applies identically.
  */
 export async function collectMetrics(

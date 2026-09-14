@@ -1,8 +1,8 @@
 import { expect, test, vi, beforeEach } from 'vitest';
 
-const collectReadiness = vi.fn();
+const collectFiles = vi.fn();
 const collectMetrics = vi.fn();
-vi.mock('../github/collect-readiness', () => ({ collectReadiness }));
+vi.mock('../github/collect-files', () => ({ collectFiles }));
 vi.mock('../db/queries/grade-metrics', () => ({ collectMetrics }));
 
 const { collectEvidence } = await import('./evidence');
@@ -21,14 +21,14 @@ const metrics = {
 };
 
 beforeEach(() => {
-  collectReadiness.mockReset();
+  collectFiles.mockReset();
   collectMetrics.mockReset();
 });
 
 test('a file grader calls only the file collector', async () => {
-  collectReadiness.mockResolvedValue({ sha: 'abc', complete: true, documents: [] });
+  collectFiles.mockResolvedValue({ sha: 'abc', complete: true, documents: [] });
   const collected = await collectEvidence(agentReadinessManifest, 'repo', 'abc');
-  expect(collectReadiness).toHaveBeenCalledWith('repo', 'abc');
+  expect(collectFiles).toHaveBeenCalledWith('repo', 'abc');
   expect(collectMetrics).not.toHaveBeenCalled();
   expect(collected.snapshot.metrics).toBeNull();
   // A complete snapshot has no failure to name.
@@ -39,7 +39,7 @@ test('a metrics grader calls only the metrics collector', async () => {
   collectMetrics.mockResolvedValue({ metrics, complete: true });
   const collected = await collectEvidence(deliveryHealthManifest, 'repo', 'abc');
   const { snapshot } = collected;
-  expect(collectReadiness).not.toHaveBeenCalled();
+  expect(collectFiles).not.toHaveBeenCalled();
   expect(collectMetrics).toHaveBeenCalledWith(
     'repo',
     deliveryHealthManifest.needs['fieldnote.metrics'],
@@ -80,7 +80,7 @@ test("a metrics collection fieldnote itself failed is reported as a collection f
 });
 
 test('a failed file collection is reported as a collection failure', async () => {
-  collectReadiness.mockResolvedValue({ sha: 'abc', complete: false, documents: [] });
+  collectFiles.mockResolvedValue({ sha: 'abc', complete: false, documents: [] });
   const collected = await collectEvidence(agentReadinessManifest, 'repo', 'abc');
   expect(collected.snapshot.incompleteReason).toBe(INCOMPLETE);
   expect(collected.incompleteCode).toBe('incomplete_collection');
@@ -99,14 +99,14 @@ const bothFamiliesManifest = {
 } as typeof agentReadinessManifest;
 
 test('a manifest needing both families calls both collectors and merges their evidence', async () => {
-  collectReadiness.mockResolvedValue({
+  collectFiles.mockResolvedValue({
     sha: 'abc',
     complete: true,
     documents: [{ path: 'README.md', blobSha: 'x', text: 'hi' }],
   });
   collectMetrics.mockResolvedValue({ metrics, complete: true });
   const collected = await collectEvidence(bothFamiliesManifest, 'repo', 'abc');
-  expect(collectReadiness).toHaveBeenCalledWith('repo', 'abc');
+  expect(collectFiles).toHaveBeenCalledWith('repo', 'abc');
   expect(collectMetrics).toHaveBeenCalledWith(
     'repo',
     bothFamiliesManifest.needs['fieldnote.metrics'],
@@ -118,7 +118,7 @@ test('a manifest needing both families calls both collectors and merges their ev
 });
 
 test('a failed file collection outranks an unmet metrics floor', async () => {
-  collectReadiness.mockResolvedValue({ sha: 'abc', complete: false, documents: [] });
+  collectFiles.mockResolvedValue({ sha: 'abc', complete: false, documents: [] });
   collectMetrics.mockResolvedValue({
     metrics,
     complete: false,
@@ -145,6 +145,6 @@ test('a family the dispatcher does not handle is refused by name', async () => {
     needs: { ...agentReadinessManifest.needs, 'some.other.family': ['x'] },
   } as unknown as typeof agentReadinessManifest;
   await expect(collectEvidence(manifest, 'repo', 'abc')).rejects.toThrow(/some\.other\.family/);
-  expect(collectReadiness).not.toHaveBeenCalled();
+  expect(collectFiles).not.toHaveBeenCalled();
   expect(collectMetrics).not.toHaveBeenCalled();
 });

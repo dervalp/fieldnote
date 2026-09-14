@@ -106,10 +106,10 @@ import { AGENT_READINESS, agentReadinessManifest } from '../domain/grading/grade
 import { registerGrader } from '../domain/grading/registry';
 import { rubricView } from '../domain/grading/rubric-view';
 const github = vi.hoisted(() => ({ resolve: vi.fn(), collect: vi.fn() }));
-vi.mock('../github/collect-readiness', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../github/collect-readiness')>()),
-  resolveReadinessSha: github.resolve,
-  collectReadiness: github.collect,
+vi.mock('../github/collect-files', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../github/collect-files')>()),
+  resolveHeadSha: github.resolve,
+  collectFiles: github.collect,
 }));
 const sha = 'a'.repeat(40);
 const result = runDeclarative(agentReadinessManifest, {

@@ -9,7 +9,7 @@ import {
   completeGrade,
   failGrade,
 } from '../../db/queries/grade-runs';
-import { resolveReadinessSha, ReadinessCollectionError } from '../../github/collect-readiness';
+import { resolveHeadSha, FileCollectionError } from '../../github/collect-files';
 import { collectEvidence } from '../../grading/evidence';
 import { getGrader } from '../../domain/grading/registry';
 import { runDeclarative } from '../../domain/grading/declarative';
@@ -26,7 +26,7 @@ async function validated(runId: string) {
   return run;
 }
 async function collectionFailure(runId: string, error: unknown): Promise<never> {
-  if (error instanceof ReadinessCollectionError && !error.retryable) {
+  if (error instanceof FileCollectionError && !error.retryable) {
     await failGrade(runId);
     throw new NonRetriableError('Repository evidence unavailable');
   }
@@ -38,7 +38,7 @@ export async function resolveGradeCommit(runId: string) {
   if (!run) return null;
   if (run.sha) return run.sha;
   try {
-    return await pinGradeSha(runId, await resolveReadinessSha(run.repositoryId));
+    return await pinGradeSha(runId, await resolveHeadSha(run.repositoryId));
   } catch (error) {
     return collectionFailure(runId, error);
   }

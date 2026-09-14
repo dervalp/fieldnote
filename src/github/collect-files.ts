@@ -13,7 +13,7 @@ async function withDeadline<T>(operation: (signal: AbortSignal) => Promise<T>): 
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => {
-      reject(new ReadinessCollectionError('collection_failed', true));
+      reject(new FileCollectionError('collection_failed', true));
       controller.abort();
     }, 30_000);
   });
@@ -23,13 +23,13 @@ async function withDeadline<T>(operation: (signal: AbortSignal) => Promise<T>): 
     clearTimeout(timer);
   }
 }
-export type ReadinessCollectionErrorCode =
+export type FileCollectionErrorCode =
   | 'repository_unavailable'
   | 'installation_unavailable'
   | 'empty_repository'
   | 'github_unavailable'
   | 'collection_failed';
-const messages: Record<ReadinessCollectionErrorCode, string> = {
+const messages: Record<FileCollectionErrorCode, string> = {
   repository_unavailable: 'Repository or pinned commit is unavailable.',
   installation_unavailable: 'GitHub installation access is unavailable.',
   empty_repository: 'Repository has no commits to grade.',
@@ -37,17 +37,17 @@ const messages: Record<ReadinessCollectionErrorCode, string> = {
   collection_failed: 'Repository evidence could not be collected.',
 };
 /** Safe to persist: never retains provider errors, request metadata or content. */
-export class ReadinessCollectionError extends Error {
+export class FileCollectionError extends Error {
   constructor(
-    public readonly code: ReadinessCollectionErrorCode,
+    public readonly code: FileCollectionErrorCode,
     public readonly retryable: boolean,
   ) {
     super(messages[code]);
-    this.name = 'ReadinessCollectionError';
+    this.name = 'FileCollectionError';
   }
 }
-function safeError(error: unknown): ReadinessCollectionError {
-  if (error instanceof ReadinessCollectionError) return error;
+function safeError(error: unknown): FileCollectionError {
+  if (error instanceof FileCollectionError) return error;
   const status =
     typeof error === 'object' && error !== null && 'status' in error ? error.status : undefined;
   const permissionDenied =
@@ -58,14 +58,14 @@ function safeError(error: unknown): ReadinessCollectionError {
     typeof error.message === 'string' &&
     /^Resource not accessible by integration(?:$| - )/.test(error.message);
   if (status === 401 || permissionDenied)
-    return new ReadinessCollectionError('installation_unavailable', false);
+    return new FileCollectionError('installation_unavailable', false);
   if (status === 404 || status === 410)
-    return new ReadinessCollectionError('repository_unavailable', false);
-  if (status === 409) return new ReadinessCollectionError('empty_repository', false);
+    return new FileCollectionError('repository_unavailable', false);
+  if (status === 409) return new FileCollectionError('empty_repository', false);
   if (status === 403 || status === 429 || (typeof status === 'number' && status >= 500))
-    return new ReadinessCollectionError('github_unavailable', true);
+    return new FileCollectionError('github_unavailable', true);
   // Network and timeout failures have no HTTP status and can be retried durably.
-  return new ReadinessCollectionError('collection_failed', status === undefined);
+  return new FileCollectionError('collection_failed', status === undefined);
 }
 async function context(repositoryId: string) {
   try {
@@ -73,12 +73,12 @@ async function context(repositoryId: string) {
   } catch (error) {
     // The existing lookup uses this fixed prefix for missing/inactive/demo records.
     if (error instanceof Error && error.message.startsWith('Repository unavailable:'))
-      throw new ReadinessCollectionError('repository_unavailable', false);
+      throw new FileCollectionError('repository_unavailable', false);
     throw safeError(error);
   }
 }
-/** Resolve in a durable step, persist the SHA, then pass it to collectReadiness. */
-export async function resolveReadinessSha(repositoryId: string): Promise<string> {
+/** Resolve in a durable step, persist the SHA, then pass it to collectFiles. */
+export async function resolveHeadSha(repositoryId: string): Promise<string> {
   try {
     const { repo, client } = await context(repositoryId);
     const identity = { owner: repo.owner, repo: repo.name };
@@ -103,12 +103,12 @@ function relevant(path: string) {
   );
 }
 /** Server-side evidence collection only; callers must not serialize raw documents to clients. */
-export async function collectReadiness(
+export async function collectFiles(
   repositoryId: string,
   sha?: string,
 ): Promise<RepositorySnapshot> {
   try {
-    const pinnedSha = sha ?? (await resolveReadinessSha(repositoryId));
+    const pinnedSha = sha ?? (await resolveHeadSha(repositoryId));
     const { repo, client } = await context(repositoryId);
     const identity = { owner: repo.owner, repo: repo.name };
     const { data: commit } = await withDeadline((signal) =>
