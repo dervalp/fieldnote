@@ -2,7 +2,7 @@
 // importing a grader, ES modules evaluate imports in source order, and the
 // order assertion below is about the barrel's declared order — not about
 // which import this test file happens to list first.
-import { AGENT_READINESS, DELIVERY_HEALTH, deliveryHealthManifest } from './index';
+import { AGENT_READINESS, DELIVERY_HEALTH, TEST_DISCIPLINE, deliveryHealthManifest } from './index';
 import { expect, test } from 'vitest';
 import { runDeclarative } from '../declarative';
 import { getGrader, listGraders } from '../registry';
@@ -38,10 +38,14 @@ test('the grader registers and is an ordinary one', () => {
   expect(deliveryHealthManifest.category).toBe('delivery-health');
 });
 
-test('both built-ins are listed, readiness first', () => {
+test('all built-ins are listed, readiness first', () => {
   // The row on the Grades tab renders in this order, so it is a product
   // decision worth pinning rather than an accident of the module graph.
-  expect(listGraders().map((grader) => grader.id)).toEqual([AGENT_READINESS, DELIVERY_HEALTH]);
+  expect(listGraders().map((grader) => grader.id)).toEqual([
+    AGENT_READINESS,
+    DELIVERY_HEALTH,
+    TEST_DISCIPLINE,
+  ]);
 });
 
 test('a repository that merges cleanly and recovers scores 100', () => {

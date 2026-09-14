@@ -26,6 +26,7 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
     "github:sync": "tsx scripts/sync-repository.ts",
+    "graders:embed": "tsx scripts/embed-graders.ts",
     "inngest:dev": "inngest dev -u http://localhost:3000/api/inngest",
     "smoke:webhook": "tsx scripts/smoke-webhook.ts"
   },

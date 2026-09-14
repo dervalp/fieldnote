@@ -16,4 +16,5 @@ test('importing grade-runs alone registers every built-in grader', () => {
   const ids = listGraders().map((grader) => grader.id);
   expect(ids).toContain('fieldnote/agent-readiness');
   expect(ids).toContain('fieldnote/delivery-health');
+  expect(ids).toContain('fieldnote/test-discipline');
 });

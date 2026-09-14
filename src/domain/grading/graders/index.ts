@@ -3,3 +3,4 @@
 // import this barrel first or the row is short a card.
 export { AGENT_READINESS, agentReadinessManifest } from './agent-readiness';
 export { DELIVERY_HEALTH, deliveryHealthManifest } from './delivery-health';
+export { TEST_DISCIPLINE, testDisciplineManifest } from './test-discipline';
