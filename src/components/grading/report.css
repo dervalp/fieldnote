@@ -91,8 +91,8 @@
 .grade-schedule {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  margin-block-start: 0.75rem;
+  gap: 8px;
+  margin-top: 12px;
 }
 @media (max-width: 900px) {
   .grading-layout {
