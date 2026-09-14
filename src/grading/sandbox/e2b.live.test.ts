@@ -5,6 +5,7 @@ import { hostileGrader } from './hostile.fixture';
 import { runCodeGrader } from '../run-code';
 import { testDisciplineManifest } from '../../domain/grading/graders/test-discipline';
 import type { CodeManifest } from '../../domain/grading/manifest';
+import type { SandboxHandle } from './port';
 
 const key = process.env.E2B_API_KEY;
 const limits = { timeoutMs: 20_000, maxOutputBytes: 256 * 1024 };
@@ -15,8 +16,9 @@ const limits = { timeoutMs: 20_000, maxOutputBytes: 256 * 1024 };
 describe.skipIf(!key)('E2B, live', () => {
   test('the base template runs Node with the permission model', async () => {
     const sandbox = e2bSandbox(key!);
-    const handle = await sandbox.create();
+    let handle: SandboxHandle | undefined;
     try {
+      handle = await sandbox.create();
       const result = await sandbox.exec(
         handle,
         ['node', '--permission', '-e', 'process.stdout.write(process.version)'],
@@ -27,15 +29,16 @@ describe.skipIf(!key)('E2B, live', () => {
       const [major, minor] = result.stdout.replace(/^v/, '').split('.').map(Number);
       expect(major > 22 || (major === 22 && minor >= 13)).toBe(true);
     } finally {
-      await sandbox.destroy(handle);
+      if (handle) await sandbox.destroy(handle);
     }
   }, 60_000);
 
   test('the hostile program is refused the network, the environment, the filesystem and processes', async () => {
-    process.env.FIELDNOTE_SENTINEL = 'secret';
     const sandbox = e2bSandbox(key!);
-    const handle = await sandbox.create();
+    let handle: SandboxHandle | undefined;
     try {
+      process.env.FIELDNOTE_SENTINEL = 'secret';
+      handle = await sandbox.create();
       await sandbox.write(handle, 'grader.mjs', hostileGrader({ hostPath: '/etc/hostname', network: true }));
       await sandbox.write(handle, 'run.mjs', RUNNER_SOURCE);
       await sandbox.write(handle, 'input.json', JSON.stringify({ evidence: {} }));
@@ -53,7 +56,7 @@ describe.skipIf(!key)('E2B, live', () => {
       expect(report.env).not.toContain('E2B_API_KEY');
     } finally {
       delete process.env.FIELDNOTE_SENTINEL;
-      await sandbox.destroy(handle);
+      if (handle) await sandbox.destroy(handle);
     }
   }, 60_000);
 
