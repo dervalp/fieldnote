@@ -21,15 +21,22 @@ import {
 } from './queries/grade-schedules';
 import { beginGrade, completeGrade, loadGradeRun, pinGradeSha } from './queries/grade-runs';
 import { scheduleIfDue } from '../inngest/functions/schedule-grades';
+import { evaluateGradeRun, resolveGradeCommit } from '../inngest/functions/grade-repository';
 import {
   AGENT_READINESS,
   agentReadinessManifest,
 } from '../domain/grading/graders/agent-readiness';
 import { ManifestError } from '../domain/grading/manifest';
 const HEAD_SHA = 'a'.repeat(40);
+// collectFiles is mocked the way src/db/grade-runs.integration.test.ts mocks
+// it: resolveHeadSha stays a fixed stub, since the scheduler's own
+// skip-if-unchanged check depends on it too, and only collectFiles needs a
+// per-test return value to drive a run through the worker.
+const github = vi.hoisted(() => ({ collect: vi.fn() }));
 vi.mock('../github/collect-files', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../github/collect-files')>()),
   resolveHeadSha: async () => HEAD_SHA,
+  collectFiles: github.collect,
 }));
 const context = vi.hoisted(() => ({ user: '', workspace: '', demo: false }));
 // A second, independent identity: their own user, their own default
@@ -258,4 +265,29 @@ test('the second night skips a repository whose head sha has not moved', async (
     evaluatorVersion: agentReadinessManifest.evaluatorVersion,
   });
   expect(await scheduleIfDue(row)).toBeNull();
+});
+
+test('a scheduled run is created and completes end to end with no session', async () => {
+  // Closes the gap the other scheduling tests leave: they stop at 'queued'.
+  // This one drives the run the rest of the way through the same worker
+  // functions the Inngest step does — resolveGradeCommit then
+  // evaluateGradeRun — the way grade-runs.integration.test.ts drives a
+  // manual run, so it proves the scheduled half and the worker half actually
+  // meet.
+  const repositoryId = await fixtureRepository();
+  await writeGradeSchedule(repositoryId, AGENT_READINESS, true);
+  const row = (await listGradeSchedules()).find((entry) => entry.repositoryId === repositoryId)!;
+  const runId = await scheduleIfDue(row);
+  expect(runId).not.toBeNull();
+  github.collect.mockResolvedValueOnce({ sha: HEAD_SHA, complete: true, documents: [] });
+  await beginGrade(runId!);
+  await resolveGradeCommit(runId!);
+  await evaluateGradeRun(runId!);
+  const stored = await loadGradeRun(runId!);
+  // Empty documents fail every readiness check but still produce a real
+  // score (0), so this reaches 'complete', not 'insufficient' — that state
+  // is reserved for a grader's own evidence floor (fieldnote.metrics), which
+  // the readiness grader does not declare.
+  expect(stored?.state).toBe('complete');
+  expect(stored?.trigger).toBe('schedule');
 });
