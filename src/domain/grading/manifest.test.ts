@@ -39,8 +39,8 @@ const valid = (): Draft => ({
 });
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const rejects = (mutate: (manifest: any) => void, code: string) => {
-  const manifest = valid();
+const rejects = (mutate: (manifest: any) => void, code: string, base: () => Draft = valid) => {
+  const manifest = base();
   mutate(manifest);
   try {
     parseManifest(manifest);
@@ -123,6 +123,7 @@ test('heading-has-fence scope entries carry their own case sensitivity', () => {
 
 const metricsValid = (): Draft => ({
   ...valid(),
+  subject: 'repository_window',
   needs: {
     'fieldnote.metrics': {
       windowDays: 30,
@@ -242,4 +243,63 @@ test('exactly twenty repo.files patterns is accepted', () => {
     'repo.files': Array.from({ length: 20 }, (_u, i) => `dir-${i}/**/*.md`),
   };
   expect(() => parseManifest(manifest)).not.toThrow();
+});
+
+// windowManifest describes a grader whose only evidence is a moving window —
+// the shape delivery-health will take. It stands apart from metricsValid()
+// above (which already carries subject: repository_window for the same
+// reason) so subject_mismatch has a fixture that owns exactly one check.
+const metricsNeed = {
+  windowDays: 30 as const,
+  minMergedPullRequests: 10,
+  insufficientReason: 'Not enough merged work to judge.',
+};
+const metricCheck = {
+  id: 'rate',
+  title: 'Rate',
+  points: 100,
+  explain: { pass: 'Yes.', fail: 'No.' },
+  primitive: 'metric-threshold',
+  args: { metric: 'first-pass-rate', atLeastPercent: 60 },
+};
+const windowManifest = (overrides: Record<string, unknown>): Draft => ({
+  id: 'someone/window',
+  version: '0.1.0',
+  evaluatorVersion: '1.0.0',
+  subject: 'repository_window',
+  mode: 'deterministic',
+  category: 'delivery-health',
+  kind: 'declarative',
+  needs: { 'fieldnote.metrics': metricsNeed },
+  disclaimer: 'A disclaimer.',
+  card: { title: 'Window', tagline: 'A window.', groups: [{ title: 'G', checks: ['rate'] }] },
+  checks: [metricCheck],
+  ...overrides,
+});
+
+test('a metrics grader may say repository_window', () => {
+  expect(() => parseManifest(windowManifest({}))).not.toThrow();
+});
+
+test('a metrics grader claiming subject repository is subject_mismatch', () => {
+  rejects(
+    (m) => void (m.subject = 'repository'),
+    'subject_mismatch',
+    () => windowManifest({}),
+  );
+});
+
+test('a file grader claiming repository_window is subject_mismatch', () => {
+  // valid() reads only repo.files, so claiming repository_window here hits
+  // the same invariant from the other side: no fieldnote.metrics, yet the
+  // subject says window.
+  rejects((m) => void (m.subject = 'repository_window'), 'subject_mismatch');
+});
+
+test('an unrecognised subject is still subject_unsupported', () => {
+  rejects(
+    (m) => void (m.subject = 'pull_request'),
+    'subject_unsupported',
+    () => windowManifest({}),
+  );
 });

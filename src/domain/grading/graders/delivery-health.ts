@@ -9,11 +9,17 @@ export const DELIVERY_HEALTH = 'fieldnote/delivery-health';
 //
 // The thresholds are this grader's judgement and nothing else's. Changing one
 // is a version bump, because a repository's score would move underneath it.
+//
+// 0.2.0 changes only the subject, which is part of the hashed rubric
+// definition — leaving it at 0.1.0 throws `Rubric version definition
+// mismatch` on the first grade request against a database that already holds
+// the 0.1.0 row. Runs recorded against 0.1.0 keep pointing at the 0.1.0
+// rubric, which still exists and still renders.
 export const deliveryHealthManifest = registerGrader({
   id: DELIVERY_HEALTH,
-  version: '0.1.0',
+  version: '0.2.0',
   evaluatorVersion: '1.0.0',
-  subject: 'repository',
+  subject: 'repository_window',
   mode: 'deterministic',
   category: 'delivery-health',
   kind: 'declarative',

@@ -44,7 +44,8 @@ export type ManifestErrorCode =
   | 'unknown_check_grouped'
   | 'needs_empty'
   | 'needs_mismatch'
-  | 'needs_too_broad';
+  | 'needs_too_broad'
+  | 'subject_mismatch';
 
 export class ManifestError extends Error {
   constructor(
@@ -155,10 +156,10 @@ export function parseManifest(input: unknown): GraderManifest {
   if (!parsed.success) throw new ManifestError('schema', parsed.error.message);
   const manifest = parsed.data;
 
-  if (manifest.subject !== 'repository')
+  if (manifest.subject !== 'repository' && manifest.subject !== 'repository_window')
     throw new ManifestError(
       'subject_unsupported',
-      `Subject '${manifest.subject}' is not yet supported; v1 grades a repository.`,
+      `Subject '${manifest.subject}' is not yet supported; v1 grades a repository or a window over one.`,
     );
 
   const ids = manifest.checks.map((check) => check.id);
@@ -216,6 +217,23 @@ export function parseManifest(input: unknown): GraderManifest {
     throw new ManifestError(
       'needs_mismatch',
       `Manifest declares '${unread}', which no check reads.`,
+    );
+
+  // The subject and the evidence cannot disagree. A grader that reads a
+  // moving window while claiming to grade a commit is the bug open question 6
+  // described; after this it is unregistrable rather than merely undocumented.
+  // Placed after the needs invariants so a broken `needs` reports its own
+  // error rather than this one.
+  const window = manifest.needs['fieldnote.metrics'] !== undefined;
+  if (window && manifest.subject !== 'repository_window')
+    throw new ManifestError(
+      'subject_mismatch',
+      "A grader reading 'fieldnote.metrics' grades a window and must say subject: repository_window.",
+    );
+  if (!window && manifest.subject !== 'repository')
+    throw new ManifestError(
+      'subject_mismatch',
+      "Only a grader reading 'fieldnote.metrics' may say subject: repository_window.",
     );
 
   return manifest;

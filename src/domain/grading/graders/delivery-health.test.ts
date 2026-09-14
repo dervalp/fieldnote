@@ -26,6 +26,11 @@ const snapshot = (metrics: MetricsWindow): RepositorySnapshot => ({
   metrics,
 });
 
+test('delivery health grades a pinned window at version 0.2.0', () => {
+  expect(deliveryHealthManifest.version).toBe('0.2.0');
+  expect(deliveryHealthManifest.subject).toBe('repository_window');
+});
+
 test('the grader registers and is an ordinary one', () => {
   expect(getGrader(DELIVERY_HEALTH)).toBe(deliveryHealthManifest);
   expect(deliveryHealthManifest.checks.reduce((sum, c) => sum + c.points, 0)).toBe(100);
