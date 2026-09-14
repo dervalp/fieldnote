@@ -188,8 +188,11 @@ test('a schedule pauses when the enabler leaves the workspace', async () => {
     .values({ workspaceId: context.workspace, userId: secondUser, role: 'member' });
   const originalUser = context.user;
   context.user = secondUser;
-  await writeGradeSchedule(repositoryId, AGENT_READINESS, true);
-  context.user = originalUser;
+  try {
+    await writeGradeSchedule(repositoryId, AGENT_READINESS, true);
+  } finally {
+    context.user = originalUser;
+  }
   const row = (await listGradeSchedules()).find((entry) => entry.repositoryId === repositoryId)!;
   expect(row.enabledBy).toBe(secondUser);
   expect(await scheduleAvailable(row)).toBe(true);

@@ -128,7 +128,13 @@ export async function writeGradeSchedule(
     .onConflictDoNothing();
 }
 
-/** Trusted worker primitive: every schedule, for the nightly pass. */
+// Trusted worker primitives; never expose these directly as browser actions.
+/**
+ * Every schedule, for the nightly pass — across every workspace, with no
+ * scoping and no authorization performed here. The caller is responsible for
+ * calling scheduleAvailable() on each row before acting on it; this function
+ * alone does not say a row is safe to run.
+ */
 export async function listGradeSchedules(): Promise<GradeScheduleRow[]> {
   return db()
     .select({
@@ -145,6 +151,13 @@ export async function listGradeSchedules(): Promise<GradeScheduleRow[]> {
  * an available repository, and a schedule that is not paused. A paused
  * schedule is skipped and its row survives, so it resumes by itself if the
  * enabler's access comes back.
+ *
+ * No session and no workspace, because a background job has neither. This
+ * is the authorization for that job: it evaluates the same conditions the
+ * session path (writeGradeSchedule's own availability join) checks —
+ * repository active, installation active, workspace-has-repository,
+ * enabler-is-member, not demo — so listGradeSchedules() callers must run it
+ * per row before doing anything with that row.
  */
 export async function scheduleAvailable(row: GradeScheduleRow): Promise<boolean> {
   if (process.env.DEMO_MODE === 'true') return false;
