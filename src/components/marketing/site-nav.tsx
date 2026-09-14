@@ -10,7 +10,7 @@ export function SiteNav() {
       <nav className="mk-nav-links" aria-label="Sections">
         <a href="#rubric">The rubric</a>
         <a href="#how">How it works</a>
-        <a href="#measures">What it measures</a>
+        <a href="#evidence">The evidence</a>
         <a href="#self-host">Self-host</a>
       </nav>
       <div className="mk-nav-actions">
