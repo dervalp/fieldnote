@@ -4,7 +4,7 @@ import { GradeCard, Surface } from '@fieldnote/design-system';
 import { publicGrade } from '../../../../../../db/queries/public-grades';
 import type { PublicGradeView } from '../../../../../../domain/grading/public-grade';
 import { gradeCardProps } from '../../../../../../components/grading/grade-presentation';
-import { GradeReport } from '../../../../../../components/grading/report';
+import { GradeReport } from '../../../../../../components/grading/report-view';
 import './public-grade.css';
 
 export const dynamic = 'force-dynamic';

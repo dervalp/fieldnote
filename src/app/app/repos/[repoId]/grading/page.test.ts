@@ -35,6 +35,8 @@ vi.mock('../../../../../components/act/act-entry', () => ({
 vi.mock('../../../../../components/grading/report', () => ({
   GradeControls: ({ graderId, initial }: { graderId: string; initial: { state: string } | null }) =>
     createElement('p', null, `controls:${graderId}:${initial?.state ?? 'none'}`),
+}));
+vi.mock('../../../../../components/grading/report-view', () => ({
   GradeReport: ({
     grade,
     graderTitle,

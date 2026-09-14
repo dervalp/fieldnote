@@ -11,7 +11,8 @@ vi.mock('../../app/app/repos/[repoId]/grading/actions', () => ({
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 import { GradeCard } from '@fieldnote/design-system';
 import { gradeCardProps } from './grade-presentation';
-import { GradeControls, GradeReport } from './report';
+import { GradeControls } from './report';
+import { GradeReport } from './report-view';
 import { ScheduleToggle } from './schedule-toggle';
 import {
   AGENT_READINESS,
