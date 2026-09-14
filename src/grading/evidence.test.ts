@@ -27,7 +27,7 @@ beforeEach(() => {
 
 test('a file grader calls only the file collector', async () => {
   collectFiles.mockResolvedValue({ sha: 'abc', complete: true, documents: [] });
-  const collected = await collectEvidence(agentReadinessManifest, 'repo', 'abc');
+  const collected = await collectEvidence(agentReadinessManifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'));
   expect(collectFiles).toHaveBeenCalledWith(
     'repo',
     'abc',
@@ -41,12 +41,14 @@ test('a file grader calls only the file collector', async () => {
 
 test('a metrics grader calls only the metrics collector', async () => {
   collectMetrics.mockResolvedValue({ metrics, complete: true });
-  const collected = await collectEvidence(deliveryHealthManifest, 'repo', 'abc');
+  const requestedAt = new Date('2026-09-14T12:00:00.000Z');
+  const collected = await collectEvidence(deliveryHealthManifest, 'repo', 'abc', requestedAt);
   const { snapshot } = collected;
   expect(collectFiles).not.toHaveBeenCalled();
   expect(collectMetrics).toHaveBeenCalledWith(
     'repo',
     deliveryHealthManifest.needs['fieldnote.metrics'],
+    requestedAt,
   );
   expect(snapshot).toMatchObject({ sha: 'abc', complete: true, documents: [], metrics });
   // A complete snapshot has no failure to name.
@@ -60,7 +62,7 @@ test("the grader's floor is reported as insufficient evidence, not a collection 
     incompleteReason: 'Not enough merged work to judge.',
     incompleteCode: 'insufficient_evidence',
   });
-  const collected = await collectEvidence(deliveryHealthManifest, 'repo', 'abc');
+  const collected = await collectEvidence(deliveryHealthManifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'));
   expect(collected.snapshot.complete).toBe(false);
   expect(collected.snapshot.incompleteReason).toBe('Not enough merged work to judge.');
   expect(collected.incompleteCode).toBe('insufficient_evidence');
@@ -77,7 +79,7 @@ test("a metrics collection fieldnote itself failed is reported as a collection f
     incompleteReason: INCOMPLETE,
     incompleteCode: 'incomplete_collection',
   });
-  const collected = await collectEvidence(deliveryHealthManifest, 'repo', 'abc');
+  const collected = await collectEvidence(deliveryHealthManifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'));
   expect(collected.snapshot.complete).toBe(false);
   expect(collected.snapshot.incompleteReason).toBe(INCOMPLETE);
   expect(collected.incompleteCode).toBe('incomplete_collection');
@@ -85,7 +87,7 @@ test("a metrics collection fieldnote itself failed is reported as a collection f
 
 test('a failed file collection is reported as a collection failure', async () => {
   collectFiles.mockResolvedValue({ sha: 'abc', complete: false, documents: [] });
-  const collected = await collectEvidence(agentReadinessManifest, 'repo', 'abc');
+  const collected = await collectEvidence(agentReadinessManifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'));
   expect(collected.snapshot.incompleteReason).toBe(INCOMPLETE);
   expect(collected.incompleteCode).toBe('incomplete_collection');
 });
@@ -109,7 +111,8 @@ test('a manifest needing both families calls both collectors and merges their ev
     documents: [{ path: 'README.md', blobSha: 'x', text: 'hi' }],
   });
   collectMetrics.mockResolvedValue({ metrics, complete: true });
-  const collected = await collectEvidence(bothFamiliesManifest, 'repo', 'abc');
+  const requestedAt = new Date('2026-09-14T12:00:00.000Z');
+  const collected = await collectEvidence(bothFamiliesManifest, 'repo', 'abc', requestedAt);
   expect(collectFiles).toHaveBeenCalledWith(
     'repo',
     'abc',
@@ -118,6 +121,7 @@ test('a manifest needing both families calls both collectors and merges their ev
   expect(collectMetrics).toHaveBeenCalledWith(
     'repo',
     bothFamiliesManifest.needs['fieldnote.metrics'],
+    requestedAt,
   );
   expect(collected.snapshot.documents).toEqual([{ path: 'README.md', blobSha: 'x', text: 'hi' }]);
   expect(collected.snapshot.metrics).toEqual(metrics);
@@ -133,7 +137,7 @@ test('a failed file collection outranks an unmet metrics floor', async () => {
     incompleteReason: 'Not enough merged work to judge.',
     incompleteCode: 'insufficient_evidence',
   });
-  const collected = await collectEvidence(bothFamiliesManifest, 'repo', 'abc');
+  const collected = await collectEvidence(bothFamiliesManifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'));
   expect(collected.snapshot.complete).toBe(false);
   // fieldnote's own collection failing is reported, not the grader's floor,
   // even though the metrics collector also had something to say.
@@ -152,7 +156,18 @@ test('a family the dispatcher does not handle is refused by name', async () => {
     ...agentReadinessManifest,
     needs: { ...agentReadinessManifest.needs, 'some.other.family': ['x'] },
   } as unknown as typeof agentReadinessManifest;
-  await expect(collectEvidence(manifest, 'repo', 'abc')).rejects.toThrow(/some\.other\.family/);
+  await expect(collectEvidence(manifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'))).rejects.toThrow(/some\.other\.family/);
   expect(collectFiles).not.toHaveBeenCalled();
   expect(collectMetrics).not.toHaveBeenCalled();
+});
+
+test('the metrics window is pinned to the request time, not the wall clock', async () => {
+  collectMetrics.mockResolvedValue({ metrics, complete: true });
+  const requestedAt = new Date('2026-09-13T23:58:00.000Z');
+  await collectEvidence(deliveryHealthManifest, 'repo', 'abc', requestedAt);
+  expect(collectMetrics).toHaveBeenCalledWith(
+    'repo',
+    deliveryHealthManifest.needs['fieldnote.metrics'],
+    requestedAt,
+  );
 });

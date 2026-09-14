@@ -12,11 +12,13 @@ export type CollectedEvidence = {
 };
 
 /**
- * Slice 2's evidence dispatcher: two families, honoured because a manifest
- * declared them and parseManifest refuses a manifest that declares a family no
- * check reads. There is no consent prompt, no cache, no history collector and
- * no schedule — those are slice 3's, which replaces this file. The call site in
- * grade-repository.ts does not move.
+ * The broker. A grader gets exactly the evidence it declared and nothing else:
+ * the families it named, the file globs it named, and a metrics window pinned
+ * to the moment the run was requested rather than the moment it executed.
+ *
+ * This is the one place a consent check belongs when slice 5 builds the
+ * install flow, because it is the one place that knows both the manifest's
+ * `needs` and the repository it is about to read. Do not put it anywhere else.
  */
 // The families this dispatcher knows how to collect. Kept as a literal set
 // rather than inferred from the schema so that a family added to
@@ -32,6 +34,7 @@ export async function collectEvidence(
   manifest: GraderManifest,
   repositoryId: string,
   sha: string,
+  requestedAt: Date,
 ): Promise<CollectedEvidence> {
   const unhandled = Object.keys(manifest.needs).find(
     (family) => !(HANDLED_FAMILIES as readonly string[]).includes(family),
@@ -40,7 +43,7 @@ export async function collectEvidence(
   const filesNeed = manifest.needs['repo.files'];
   const metricsNeed = manifest.needs['fieldnote.metrics'];
   const files = filesNeed ? await collectFiles(repositoryId, sha, filesNeed) : null;
-  const metrics = metricsNeed ? await collectMetrics(repositoryId, metricsNeed) : null;
+  const metrics = metricsNeed ? await collectMetrics(repositoryId, metricsNeed, requestedAt) : null;
   // Collection failing outranks a grader's floor: if fieldnote could not read
   // the evidence, what the grader would have made of it is unknown.
   const filesFailed = files !== null && !files.complete;

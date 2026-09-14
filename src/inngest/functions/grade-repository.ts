@@ -49,7 +49,12 @@ export async function evaluateGradeRun(runId: string) {
   if (!run.sha) throw new NonRetriableError('Grade commit is missing');
   try {
     const manifest = getGrader(run.graderId);
-    const { snapshot, incompleteCode } = await collectEvidence(manifest, run.repositoryId, run.sha);
+    const { snapshot, incompleteCode } = await collectEvidence(
+      manifest,
+      run.repositoryId,
+      run.sha,
+      run.createdAt,
+    );
     const result = runDeclarative(manifest, snapshot);
     if (result.score === null) {
       // incompleteCode is null only when collection reported a complete
