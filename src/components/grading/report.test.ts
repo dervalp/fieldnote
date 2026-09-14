@@ -127,7 +127,7 @@ test('the accessible name carries author, version, mode and category, not just t
     ),
   );
   expect(html).toContain(
-    'aria-label="Delivery Health by fieldnote, version 0.1.0, Deterministic, Delivery health. 70 out of 100, Good"',
+    'aria-label="Delivery Health by fieldnote, version 0.2.0, Deterministic, Delivery health. 70 out of 100, Good"',
   );
 });
 

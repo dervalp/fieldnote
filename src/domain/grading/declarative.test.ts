@@ -7,7 +7,7 @@ const metricsManifest = parseManifest({
   id: 'fieldnote/example-metrics',
   version: '0.1.0',
   evaluatorVersion: '1.0.0',
-  subject: 'repository',
+  subject: 'repository_window',
   mode: 'deterministic',
   category: 'delivery-health',
   kind: 'declarative',

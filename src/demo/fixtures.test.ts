@@ -31,7 +31,7 @@ describe('demoDeliveryGrade', () => {
     // checkout-service merges cleanly and keeps CI green, but leaves failures
     // red: 40 + 30 + 0.
     expect(demoDeliveryGrade.score).toBe(70);
-    expect(demoDeliveryGrade.rubricVersion).toBe('0.1.0');
+    expect(demoDeliveryGrade.rubricVersion).toBe('0.2.0');
     expect(demoDeliveryGrade.checks.map((check) => check.id)).toEqual([
       'merges-land-clean',
       'ci-ends-green',
