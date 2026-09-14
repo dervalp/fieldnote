@@ -236,6 +236,24 @@ cache that keeps READMEs off the database also holds the last answer.
 and its counts** — only file names are withheld. An owner chooses that when they
 switch it on; the switch's copy says so.
 
+**Whether a repository is private is read from a cached column, and nothing
+watches GitHub for the flip.** `publicGrade` decides whether evidence paths
+reach an anonymous page from `repositories.is_private`, which is written only by
+`reconcileInstallation()` — on an `installation` or `installation_repositories`
+webhook, and on the sign-in access check when an installation is missing
+locally or a grant has no matching repository. GitHub sends neither when a
+repository's visibility flips, so a repository shared while public and later
+made private keeps publishing its file paths until some unrelated event
+resyncs the installation. Closing it means subscribing to GitHub's `repository`
+event (`privatized`/`publicized`), which this App does not subscribe to today
+(see `docs/github-app.md`) — a configuration change, not only a code one — so
+it waits for a slice that can make it. Until then: **an operator who makes a
+shared repository private should turn its sharing off, or re-grant the
+installation, rather than assume the public page notices.** Nothing else leaks
+— the score, check names and counts were already chosen when sharing was
+switched on — and the badge and the share image never carry a file name in any
+state.
+
 **A shared delivery score changes every night by design.** The page names the
 window it scored.
 
