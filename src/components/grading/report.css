@@ -24,6 +24,10 @@
 .grading-report h2 {
   margin-top: 8px;
 }
+.grading-unscored {
+  margin-top: 10px;
+  font-style: italic;
+}
 .grading-check {
   padding: 18px 0;
   border-bottom: 1px solid var(--line);

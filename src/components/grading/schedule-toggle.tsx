@@ -2,7 +2,6 @@
 import { useActionState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@fieldnote/design-system';
-import type { GradeScheduleView } from '../../db/queries/grade-schedules';
 import { setGradeSchedule } from '../../app/app/repos/[repoId]/grading/actions';
 
 /**
@@ -22,7 +21,11 @@ export function ScheduleToggle({
 }: {
   repositoryId: string;
   graderId: string;
-  schedule: GradeScheduleView | null;
+  // Only what this component reads. `gradeSchedules()` returns a superset
+  // that includes `enabledBy` — a foreign workspace's user id — which has no
+  // reason to cross to the browser and must not be widened back onto this
+  // prop.
+  schedule: { paused: boolean } | null;
   canRun: boolean;
 }) {
   const router = useRouter();
@@ -50,7 +53,7 @@ export function ScheduleToggle({
           off and on to take it over.
         </p>
       )}
-      {error && <p role="status">{error}</p>}
+      <p role="status">{error}</p>
     </div>
   );
 }

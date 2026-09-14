@@ -392,7 +392,7 @@ test('a paused schedule says why and offers to be taken over', () => {
     createElement(ScheduleToggle, {
       repositoryId: 'repo-1',
       graderId: AGENT_READINESS,
-      schedule: { enabledBy: 'someone', paused: true },
+      schedule: { paused: true },
       canRun: true,
     }),
   );

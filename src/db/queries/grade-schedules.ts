@@ -16,7 +16,16 @@ import { currentUser } from '../../auth/session';
 import '../../domain/grading/graders';
 import { getGrader } from '../../domain/grading/registry';
 
-/** What the page needs to draw one toggle. Absent means off. */
+/**
+ * What the page needs to draw one toggle. Absent means off.
+ *
+ * A schedule belongs to the repository, not to a workspace: `grade_schedules`
+ * is keyed `(repository_id, grader_id)`, so a second workspace sharing that
+ * repository sees the same row and can take it over — switching it off and on
+ * writes their own `enabled_by`. That is why `enabledBy` is a foreign
+ * workspace's user id as often as it is the viewer's own, and must not be
+ * sent to a client component that has no reason to read it.
+ */
 export type GradeScheduleView = { enabledBy: string; paused: boolean };
 /** What the scheduler needs to create one run. */
 export type GradeScheduleRow = {
@@ -30,8 +39,16 @@ export type GradeScheduleRow = {
  * Every schedule on one repository, keyed by grader id.
  *
  * `paused` is evaluated here rather than inferred in a component, so a card can
- * say "paused" without knowing what a membership is. It is the same condition
- * scheduleAvailable() evaluates for the scheduler.
+ * say "paused" without knowing what a membership is. It checks the same
+ * membership and workspace→repository link scheduleAvailable() checks for the
+ * scheduler, but not all four of the other conditions scheduleAvailable()
+ * additionally requires — `repositories.active`, `installations.active`,
+ * `repositories.isDemo` and `DEMO_MODE` — because none of them can diverge
+ * from true here: `requireRepository` above already 404s this page when the
+ * repository or its installation is inactive, and a demo repository can never
+ * hold a schedule row (writeGradeSchedule refuses to write one), so `isDemo`
+ * and `DEMO_MODE` have nothing to bite on. The omission is precision, not a
+ * gap.
  */
 export async function gradeSchedules(
   repositoryId: string,

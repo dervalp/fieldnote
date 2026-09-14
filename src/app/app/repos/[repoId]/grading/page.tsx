@@ -79,7 +79,11 @@ export default async function Grading({
   const summaryFor = (graderId: string) => summaries.find((entry) => entry.graderId === graderId);
   const summary = summaryFor(selectedGrader.id);
   const isReadiness = selectedGrader.id === AGENT_READINESS;
-  const grade = run ? historical : (summary?.latest ?? summary?.unscored ?? null);
+  // An unscored current run outranks an older completed one: it is the
+  // repository's current state, not a step backward in its history. The
+  // scored report nobody threw away is still one click away, in the history
+  // list below. A pinned `?run=` still wins over both.
+  const grade = run ? historical : (summary?.unscored ?? summary?.latest ?? null);
   const href = hrefFor(selectedGrader.id);
   // The installation lookup is a network round-trip, so it only runs once
   // the repository has opted in — a demo repository has no real
@@ -121,7 +125,7 @@ export default async function Grading({
           // grader.
           const entryGrade = isSelected
             ? grade
-            : (summaryFor(entry.id)?.latest ?? summaryFor(entry.id)?.unscored ?? null);
+            : (summaryFor(entry.id)?.unscored ?? summaryFor(entry.id)?.latest ?? null);
           return (
             <div
               key={entry.id}
@@ -146,7 +150,9 @@ export default async function Grading({
                     <p>{entry.card.tagline}</p>
                     <p>
                       {entryGrade
-                        ? `Not scored. ${entryGrade.incompleteReason ?? ''}`
+                        ? entryGrade.incompleteReason
+                          ? `Not scored. ${entryGrade.incompleteReason}`
+                          : 'Not scored.'
                         : 'Not graded yet. A score appears only after all evidence is collected. Run the grader to create the first report.'}
                     </p>
                   </Surface>

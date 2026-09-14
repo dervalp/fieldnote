@@ -117,7 +117,7 @@ const manifestSchema = z.object({
   evaluatorVersion: semver,
   // Accepted as a free string so a `pull_request` subject can arrive later
   // without breaking published graders; rejected below for anything but
-  // `repository` in v1.
+  // `repository` and `repository_window` in v1.
   subject: nonEmpty,
   mode: z.enum(['deterministic', 'llm', 'hybrid']),
   category: z.enum(GRADER_CATEGORIES),
