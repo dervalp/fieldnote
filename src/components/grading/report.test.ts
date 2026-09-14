@@ -350,6 +350,30 @@ test('a failed run with no error code, as an older row would look, reads as the 
   expect(html).toContain(COULD_NOT_FINISH);
   expect(html).not.toContain(NOT_ENOUGH_RECORD);
 });
+const SANDBOX_UNAVAILABLE = 'Grading is temporarily unavailable. Try again later.';
+test('a run that failed for want of a sandbox says so, not that the grader broke', () => {
+  const html = renderToStaticMarkup(
+    createElement(GradeControls, {
+      repositoryId: 'repo',
+      graderId: AGENT_READINESS,
+      initial: { id: 'run', state: 'failed', errorCode: 'sandbox_unavailable' },
+      canRun: true,
+    }),
+  );
+  expect(html).toContain(SANDBOX_UNAVAILABLE);
+  expect(html).not.toContain(COULD_NOT_FINISH);
+});
+test('a run whose program failed reads as the grader not finishing', () => {
+  const html = renderToStaticMarkup(
+    createElement(GradeControls, {
+      repositoryId: 'repo',
+      graderId: AGENT_READINESS,
+      initial: { id: 'run', state: 'failed', errorCode: 'grader_failed' },
+      canRun: true,
+    }),
+  );
+  expect(html).toContain(COULD_NOT_FINISH);
+});
 
 test('an unscored report prints measurements and no points', () => {
   const html = renderToStaticMarkup(

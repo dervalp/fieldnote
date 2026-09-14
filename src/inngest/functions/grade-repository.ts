@@ -13,7 +13,9 @@ import {
 import { resolveHeadSha, FileCollectionError } from '../../github/collect-files';
 import { collectEvidence } from '../../grading/evidence';
 import { getGrader } from '../../domain/grading/registry';
-import { runDeclarative } from '../../domain/grading/declarative';
+import { GraderFailedError } from '../../domain/grading/code';
+import { evaluate } from '../../grading/evaluate';
+import { SandboxUnavailableError } from '../../grading/sandbox/errors';
 
 async function validated(runId: string) {
   const run = await loadGradeRun(runId);
@@ -31,8 +33,31 @@ async function collectionFailure(runId: string, error: unknown): Promise<never> 
     await failGrade(runId);
     throw new NonRetriableError('Repository evidence unavailable');
   }
+  // Same input, same result: a program that failed once fails again.
+  if (error instanceof GraderFailedError) {
+    await failGrade(runId, 'grader_failed');
+    throw new NonRetriableError('Grader failed');
+  }
+  if (error instanceof SandboxUnavailableError) {
+    if (!error.retryable) {
+      await failGrade(runId, 'sandbox_unavailable');
+      throw new NonRetriableError('Grading sandbox unavailable');
+    }
+    // Rethrown fresh and under its own name, so no vendor message rides along
+    // and onFailure can still tell an outage from fieldnote failing to read.
+    throw new SandboxUnavailableError(true);
+  }
   // Never let provider exceptions (request headers or source) enter Inngest logs.
   throw new Error('Repository evidence collection failed');
+}
+
+/**
+ * The code a run records when Inngest's retries are spent. Inngest's StepError
+ * keeps the original error's name, so an outage that outlasted every retry is
+ * stored as an outage rather than as fieldnote failing to read the repository.
+ */
+export function finalFailureCode(error: { name?: string } | undefined) {
+  return error?.name === 'SandboxUnavailableError' ? ('sandbox_unavailable' as const) : undefined;
 }
 export async function resolveGradeCommit(runId: string) {
   const run = await validated(runId);
@@ -50,31 +75,18 @@ export async function evaluateGradeRun(runId: string) {
   if (!run.sha) throw new NonRetriableError('Grade commit is missing');
   try {
     const manifest = getGrader(run.graderId);
-    const { snapshot, incompleteCode } = await collectEvidence(
-      manifest,
-      run.repositoryId,
-      run.sha,
-      run.createdAt,
-    );
-    const result = runDeclarative(manifest, snapshot);
-    if (result.score === null) {
-      // Two reasons a run has no score, and they belong to different authors.
-      // "Not enough merged work to judge" is the grader's, and its result is
-      // worth storing and reading. Collection failing is fieldnote's, and its
-      // check results are noise — they failed for want of evidence, not for
-      // want of the thing they measure.
-      if (incompleteCode === 'insufficient_evidence') {
-        // Recheck authorization before storing, as the complete path does.
-        if (!(await validated(runId))) return;
-        await insufficientGrade(runId, result);
-        return;
-      }
-      await failGrade(runId, incompleteCode ?? undefined);
+    const collected = await collectEvidence(manifest, run.repositoryId, run.sha, run.createdAt);
+    const { result, verdict } = await evaluate(manifest, collected);
+    // A failure stores nothing: its check results failed for want of evidence,
+    // not for want of the thing they measure.
+    if (verdict === 'incomplete') {
+      await failGrade(runId, collected.incompleteCode ?? undefined);
       return;
     }
-    // Recheck authorization after collection too; result contains metadata only.
+    // Recheck authorization after collection, before storing anything.
     if (!(await validated(runId))) return;
-    await completeGrade(runId, result);
+    if (verdict === 'insufficient') await insufficientGrade(runId, result);
+    else await completeGrade(runId, result);
   } catch (error) {
     return collectionFailure(runId, error);
   }
@@ -85,8 +97,8 @@ export const gradeRepositoryFunction = inngest.createFunction(
     triggers: [{ event: 'repository/grade.requested' }],
     retries: 3,
     singleton: { key: 'event.data.runId', mode: 'skip' },
-    onFailure: async ({ event }) => {
-      await failGrade(gradeRequestedData.parse(event.data.event.data).runId);
+    onFailure: async ({ event, error }) => {
+      await failGrade(gradeRequestedData.parse(event.data.event.data).runId, finalFailureCode(error));
     },
   },
   async ({ event, step }) => {

@@ -531,3 +531,13 @@ test('activeGradeRun sees a queued run and not a completed one', async () => {
   await failGrade(run.id);
   expect(await activeGradeRun(repositoryId, AGENT_READINESS)).toBe(false);
 });
+
+test('a code grader failure and a sandbox outage keep their own error codes', async () => {
+  const repo = await fixtureRepository();
+  const failed = await requestGrade(repo, AGENT_READINESS);
+  await failGrade(failed.id, 'grader_failed');
+  expect((await loadGradeRun(failed.id))?.errorCode).toBe('grader_failed');
+  const outage = await requestGrade(repo, AGENT_READINESS);
+  await failGrade(outage.id, 'sandbox_unavailable');
+  expect((await loadGradeRun(outage.id))?.errorCode).toBe('sandbox_unavailable');
+});

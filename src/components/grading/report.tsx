@@ -119,7 +119,9 @@ export function GradeControls({
                 : run?.state === 'failed'
                   ? run.errorCode === 'insufficient_evidence'
                     ? 'There is not enough record in this window to score. Try again once more work has merged.'
-                    : 'The grader could not finish. Your last completed report is unchanged. Try again.'
+                    : run.errorCode === 'sandbox_unavailable'
+                      ? 'Grading is temporarily unavailable. Try again later.'
+                      : 'The grader could not finish. Your last completed report is unchanged. Try again.'
                   : '')}
       </p>
     </div>

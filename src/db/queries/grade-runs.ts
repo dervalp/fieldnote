@@ -481,9 +481,11 @@ export async function failGrade(runId: string, code = 'collection_failed') {
     'unsupported_version',
     'incomplete_collection',
     // insufficient_evidence is unreachable from the declarative path after the
-    // insufficient state — kept because a kind: code grader in slice 4 can still
-    // fail a floor with no result to store.
+    // insufficient state, and a code grader's own floor is stored as insufficient
+    // too. Kept as the backstop for a floor the broker enforces on a code grader.
     'insufficient_evidence',
+    'grader_failed',
+    'sandbox_unavailable',
   ].includes(code)
     ? code
     : 'collection_failed';
