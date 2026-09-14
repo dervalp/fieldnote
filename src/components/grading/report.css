@@ -88,6 +88,12 @@
 .grading-kpi {
   font-size: 12px;
 }
+.grade-schedule {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-block-start: 0.75rem;
+}
 @media (max-width: 900px) {
   .grading-layout {
     grid-template-columns: 1fr;

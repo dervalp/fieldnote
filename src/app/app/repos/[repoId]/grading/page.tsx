@@ -20,6 +20,8 @@ import { actAvailability, nothingGranted } from '../../../../../domain/act/avail
 import { availabilityMessage } from '../../../../../domain/act/availability-copy';
 import { latestPlan } from '../../../../../db/queries/authoring-runs';
 import { ActEntry } from '../../../../../components/act/act-entry';
+import { gradeSchedules } from '../../../../../db/queries/grade-schedules';
+import { ScheduleToggle } from '../../../../../components/grading/schedule-toggle';
 export const dynamic = 'force-dynamic';
 
 // A row of cards, one per registered grader, whether or not it has ever run —
@@ -62,7 +64,7 @@ export default async function Grading({
     query.set('run', runId);
     return gradingHref(`?${query}`);
   };
-  const [summaries, history, historical, enabled, plan] = await Promise.all([
+  const [summaries, history, historical, enabled, plan, schedules] = await Promise.all([
     gradeSummaries(
       [repoId],
       graders.map((entry) => entry.id),
@@ -71,6 +73,7 @@ export default async function Grading({
     run ? getGrade(repoId, run, selectedGrader.id) : Promise.resolve(null),
     actEnabled(repoId),
     latestPlan(repoId),
+    gradeSchedules(repoId),
   ]);
   if (run && !historical) notFound();
   const summaryFor = (graderId: string) => summaries.find((entry) => entry.graderId === graderId);
@@ -158,6 +161,12 @@ export default async function Grading({
         repositoryId={repoId}
         graderId={selectedGrader.id}
         initial={summary?.status ?? null}
+        canRun={!repo.isDemo}
+      />
+      <ScheduleToggle
+        repositoryId={repoId}
+        graderId={selectedGrader.id}
+        schedule={schedules[selectedGrader.id] ?? null}
         canRun={!repo.isDemo}
       />
       {run && (

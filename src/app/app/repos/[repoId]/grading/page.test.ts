@@ -9,6 +9,7 @@ const deps = vi.hoisted(() => ({
   actEnabled: vi.fn(),
   fetchGrantedPermissions: vi.fn(),
   latestPlan: vi.fn(),
+  schedules: vi.fn(),
 }));
 vi.mock('../../../../../workspaces/access', () => ({ requireRepository: deps.authorize }));
 vi.mock('../../../../../db/queries/grade-runs', () => ({
@@ -21,6 +22,7 @@ vi.mock('../../../../../github/installation-permissions', () => ({
   fetchGrantedPermissions: deps.fetchGrantedPermissions,
 }));
 vi.mock('../../../../../db/queries/authoring-runs', () => ({ latestPlan: deps.latestPlan }));
+vi.mock('../../../../../db/queries/grade-schedules', () => ({ gradeSchedules: deps.schedules }));
 vi.mock('../../../../../components/act/act-entry', () => ({
   ActEntry: ({ availability }: { availability: { available: boolean } }) =>
     createElement('p', null, availability.available ? 'act-available' : 'act-unavailable'),
@@ -35,6 +37,10 @@ vi.mock('../../../../../components/grading/report', () => ({
     grade: { rubricVersion: string };
     graderTitle: string;
   }) => createElement('p', null, `${graderTitle}:${grade.rubricVersion}`),
+}));
+vi.mock('../../../../../components/grading/schedule-toggle', () => ({
+  ScheduleToggle: ({ graderId, schedule }: { graderId: string; schedule: unknown }) =>
+    createElement('p', null, `schedule:${graderId}:${schedule ? 'on' : 'off'}`),
 }));
 import Grading from './page';
 import { DELIVERY_HEALTH } from '../../../../../domain/grading/graders/delivery-health';
@@ -73,6 +79,7 @@ beforeEach(() => {
   deps.actEnabled.mockResolvedValue(false);
   deps.fetchGrantedPermissions.mockResolvedValue({ contents: null, pullRequests: null });
   deps.latestPlan.mockResolvedValue(null);
+  deps.schedules.mockResolvedValue({});
 });
 test('latest completed score remains visible alongside failed current attempt', async () => {
   const html = renderToStaticMarkup(await call());

@@ -4,11 +4,15 @@ import { expect, test, vi } from 'vitest';
 import type { CompletedGrade } from '../../db/queries/grade-runs';
 import type { CheckResult } from '../../domain/grading/types';
 vi.stubGlobal('React', React);
-vi.mock('../../app/app/repos/[repoId]/grading/actions', () => ({ runGrade: vi.fn() }));
+vi.mock('../../app/app/repos/[repoId]/grading/actions', () => ({
+  runGrade: vi.fn(),
+  setGradeSchedule: vi.fn(),
+}));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 import { GradeCard } from '@fieldnote/design-system';
 import { gradeCardProps } from './grade-presentation';
 import { GradeControls, GradeReport } from './report';
+import { ScheduleToggle } from './schedule-toggle';
 import {
   AGENT_READINESS,
   agentReadinessManifest,
@@ -381,4 +385,43 @@ test('an unscored report prints measurements and no points', () => {
   expect(html).toContain('Fewer than ten pull requests merged in this window.');
   expect(html).toContain('Merges land clean');
   expect(html).not.toContain('0 / 40');
+});
+
+test('a paused schedule says why and offers to be taken over', () => {
+  const html = renderToStaticMarkup(
+    createElement(ScheduleToggle, {
+      repositoryId: 'repo-1',
+      graderId: AGENT_READINESS,
+      schedule: { enabledBy: 'someone', paused: true },
+      canRun: true,
+    }),
+  );
+  expect(html).toContain('no longer has access');
+  expect(html).toContain('Turn off nightly grading');
+});
+
+test('an off schedule offers to be turned on and says nothing about pausing', () => {
+  const html = renderToStaticMarkup(
+    createElement(ScheduleToggle, {
+      repositoryId: 'repo-1',
+      graderId: AGENT_READINESS,
+      schedule: null,
+      canRun: true,
+    }),
+  );
+  expect(html).toContain('Grade nightly');
+  expect(html).not.toContain('no longer has access');
+});
+
+test('a demo repository gets no toggle', () => {
+  expect(
+    renderToStaticMarkup(
+      createElement(ScheduleToggle, {
+        repositoryId: 'repo-1',
+        graderId: AGENT_READINESS,
+        schedule: null,
+        canRun: false,
+      }),
+    ),
+  ).toBe('');
 });
