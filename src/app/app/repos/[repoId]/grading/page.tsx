@@ -168,9 +168,12 @@ export default async function Grading({
       {/* A team that opted in should learn why Act cannot proceed; nobody
           else should be told about a switch that does nothing. Act names
           only the readiness grader, so neither this line nor the entry below
-          it belongs under any other card. */}
-      {isReadiness && grade && enabled && message && <p className="muted">{message}</p>}
-      {isReadiness && grade && (
+          it belongs under any other card. These two gates follow the
+          completed grade, not whatever the card is showing: an unscored
+          current run has no bearing on failingCheckCount below, which is
+          sourced only from the readiness grader's own completed summary. */}
+      {isReadiness && summary?.latest && enabled && message && <p className="muted">{message}</p>}
+      {isReadiness && summary?.latest && (
         <ActEntry
           repositoryId={repoId}
           availability={availability}
