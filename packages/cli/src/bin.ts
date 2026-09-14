@@ -150,6 +150,31 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
   if (command === 'logout') {
     const base = baseUrl(env);
     const auth = await readAuth(env);
+    const tokensUrl = new URL('/settings/tokens', base).toString();
+
+    // Every ending of this branch goes through here, so the sentence a person
+    // reads and the object a script parses can never describe different
+    // events. Not fail(): all four endings are exit 0, and an `error` key
+    // beside a zero exit would contradict itself.
+    //
+    // `signedOut`, `revoked` and `source` separate all four without anyone
+    // parsing prose: nothing stored here is `source: null`, a failed revoke is
+    // `source: 'file'` with `revoked: false`.
+    const done = (result: {
+      signedOut: boolean;
+      revoked: boolean;
+      source: 'env' | 'file' | null;
+      message: string;
+    }): number => {
+      if (json) out.line(JSON.stringify({ ...result, tokensUrl }));
+      else {
+        out.line(`  ${result.message}`);
+        // The environment case names where the token lives in its own
+        // message; the other three point at the page that can revoke it.
+        if (result.source !== 'env') out.line(`  Revoke the token itself at ${tokensUrl}.`);
+      }
+      return 0;
+    };
 
     // A FIELDNOTE_TOKEN credential was never stored here, so there is nothing
     // on this machine to clear and nothing this machine owns to revoke. It is
@@ -158,18 +183,17 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
     // still set would report a sign-out that did not happen.
     //
     // Exit 0, not 2: nothing failed. There is no stored credential here, the
-    // command says so truthfully and names where the token actually lives.
-    // On CI an environment-supplied token is the normal case, not an error,
-    // and a cleanup step should not go red for it. Printed with out.line
-    // rather than fail(), like every other line in this branch — logout has
-    // no --json rendering, and an `error` key beside exit 0 would contradict
-    // itself.
-    if (auth?.source === 'env') {
-      out.line(
-        '  This machine is signed in through FIELDNOTE_TOKEN. Revoke that token where it is stored — fieldnote will not revoke a token it did not store.',
-      );
-      return 0;
-    }
+    // command says so truthfully and names where the token actually lives. On
+    // CI an environment-supplied token is the normal case, not an error, and a
+    // cleanup step should not go red for it.
+    if (auth?.source === 'env')
+      return done({
+        signedOut: false,
+        revoked: false,
+        source: 'env',
+        message:
+          'This machine is signed in through FIELDNOTE_TOKEN. Revoke that token where it is stored — fieldnote will not revoke a token it did not store.',
+      });
 
     let revoked = false;
     if (auth) {
@@ -185,17 +209,28 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
       }
     }
     await clearAuth();
-    if (!auth) {
-      out.line('  Signed out on this machine.');
-    } else if (revoked) {
-      out.line('  Signed out on this machine. The token was revoked.');
-    } else {
-      out.line(
-        '  Signed out on this machine, but the token could not be revoked — it may still be live.',
-      );
-    }
-    out.line(`  Revoke the token itself at ${new URL('/settings/tokens', base)}.`);
-    return 0;
+
+    if (!auth)
+      return done({
+        signedOut: true,
+        revoked: false,
+        source: null,
+        message: 'Signed out on this machine.',
+      });
+    if (revoked)
+      return done({
+        signedOut: true,
+        revoked: true,
+        source: 'file',
+        message: 'Signed out on this machine. The token was revoked.',
+      });
+    return done({
+      signedOut: true,
+      revoked: false,
+      source: 'file',
+      message:
+        'Signed out on this machine, but the token could not be revoked — it may still be live.',
+    });
   }
 
   if (command === 'login') {

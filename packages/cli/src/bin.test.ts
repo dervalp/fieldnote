@@ -88,6 +88,74 @@ describe('logout', () => {
     expect(c.text()).toContain('Signed out on this machine');
   });
 
+  it('under --json says which of the four things happened, in one object', async () => {
+    const cases = [
+      {
+        name: 'an environment token',
+        auth: { ...AUTH, source: 'env' },
+        revoke: () => revokeCliToken.mockResolvedValue(undefined),
+        expected: { signedOut: false, revoked: false, source: 'env' },
+      },
+      {
+        name: 'no credential at all',
+        auth: null,
+        revoke: () => revokeCliToken.mockResolvedValue(undefined),
+        expected: { signedOut: true, revoked: false, source: null },
+      },
+      {
+        name: 'a stored token revoked',
+        auth: { ...AUTH, source: 'file' },
+        revoke: () => revokeCliToken.mockResolvedValue(undefined),
+        expected: { signedOut: true, revoked: true, source: 'file' },
+      },
+      {
+        name: 'a stored token whose revoke failed',
+        auth: { ...AUTH, source: 'file' },
+        revoke: () => revokeCliToken.mockRejectedValue(new ApiError('nope', 2)),
+        expected: { signedOut: true, revoked: false, source: 'file' },
+      },
+    ];
+
+    for (const { name, auth, revoke, expected } of cases) {
+      vi.clearAllMocks();
+      readAuth.mockResolvedValue(auth);
+      revoke();
+      const c = capture();
+      expect(await run(['logout', '--json'], c.sink, c.env), name).toBe(0);
+      // One object, nothing else: the settings link rides inside it rather
+      // than being glued on as a second line.
+      const lines = c.text().trimEnd().split('\n');
+      expect(lines, name).toHaveLength(1);
+      const body = JSON.parse(lines[0]);
+      expect(body, name).toMatchObject(expected);
+      expect(typeof body.message, name).toBe('string');
+      expect(body.tokensUrl, name).toContain('/settings/tokens');
+    }
+  });
+
+  it('under --json the four outcomes are distinguishable from each other', async () => {
+    // signedOut + revoked + source separate all four with no prose parsing:
+    // "nothing was stored here" is source null, "revoke failed" is source
+    // 'file' with revoked false. A consumer never has to read the message.
+    const keys = new Set<string>();
+    for (const [auth, rejects] of [
+      [{ ...AUTH, source: 'env' }, false],
+      [null, false],
+      [{ ...AUTH, source: 'file' }, false],
+      [{ ...AUTH, source: 'file' }, true],
+    ] as const) {
+      vi.clearAllMocks();
+      readAuth.mockResolvedValue(auth);
+      if (rejects) revokeCliToken.mockRejectedValue(new ApiError('nope', 2));
+      else revokeCliToken.mockResolvedValue(undefined);
+      const c = capture();
+      await run(['logout', '--json'], c.sink, c.env);
+      const { signedOut, revoked, source } = JSON.parse(c.text().trim());
+      keys.add(`${signedOut}/${revoked}/${source}`);
+    }
+    expect(keys.size).toBe(4);
+  });
+
   it('still clears locally when the revoke itself fails', async () => {
     readAuth.mockResolvedValue({ ...AUTH, source: 'file' });
     revokeCliToken.mockRejectedValue(new ApiError('Could not reach fieldnote. Try again.', 2));
