@@ -1,4 +1,4 @@
-import { collectFiles } from '../github/collect-files';
+import { collectFiles, collectTree } from '../github/collect-files';
 import { collectMetrics } from '../db/queries/grade-metrics';
 import { INCOMPLETE } from '../domain/grading/declarative';
 import type { GraderManifest } from '../domain/grading/manifest';
@@ -26,9 +26,9 @@ export type CollectedEvidence = {
 // instead of silently collecting nothing for it. Unreachable through normal
 // validation today — parseManifest's needs_mismatch invariant already
 // refuses a manifest that declares a family no check reads, and the schema
-// has no key for a third family — but this is the refusal for the day one
+// has no key for a fourth family — but this is the refusal for the day one
 // arrives.
-const HANDLED_FAMILIES = ['repo.files', 'fieldnote.metrics'] as const;
+const HANDLED_FAMILIES = ['repo.files', 'repo.tree', 'fieldnote.metrics'] as const;
 
 export async function collectEvidence(
   manifest: GraderManifest,
@@ -41,30 +41,36 @@ export async function collectEvidence(
   );
   if (unhandled) throw new Error(`collectEvidence does not handle evidence family '${unhandled}'`);
   const filesNeed = manifest.needs['repo.files'];
+  const treeNeed = manifest.needs['repo.tree'];
   const metricsNeed = manifest.needs['fieldnote.metrics'];
   const files = filesNeed ? await collectFiles(repositoryId, sha, filesNeed) : null;
+  const tree = treeNeed ? await collectTree(repositoryId, sha, treeNeed) : null;
   const metrics = metricsNeed ? await collectMetrics(repositoryId, metricsNeed, requestedAt) : null;
   // Collection failing outranks a grader's floor: if fieldnote could not read
   // the evidence, what the grader would have made of it is unknown.
-  const filesFailed = files !== null && !files.complete;
+  const collectionFailed =
+    (files !== null && !files.complete) || (tree !== null && !tree.complete);
   const metricsShort = metrics !== null && !metrics.complete;
-  const complete = !filesFailed && !metricsShort;
+  const complete = !collectionFailed && !metricsShort;
   return {
     snapshot: {
       sha,
       complete,
       documents: files?.documents ?? [],
+      // Only a grader that declared the family carries the key: what a program
+      // receives is built from the snapshot, and absent is not the same as empty.
+      ...(tree ? { tree: tree.tree } : {}),
       metrics: metrics?.metrics ?? null,
-      ...(filesFailed
+      ...(collectionFailed
         ? { incompleteReason: INCOMPLETE }
         : metricsShort
           ? { incompleteReason: metrics.incompleteReason }
           : {}),
     },
-    // A failed file collection is always fieldnote's failure. Otherwise, ask
-    // the metrics collector which of the two it meant — it already knows.
-    // Null when the snapshot is complete: there is no failure to name.
-    incompleteCode: filesFailed
+    // A failed file or tree collection is always fieldnote's failure.
+    // Otherwise, ask the metrics collector which of the two it meant — it
+    // already knows. Null when the snapshot is complete.
+    incompleteCode: collectionFailed
       ? 'incomplete_collection'
       : metricsShort
         ? metrics.incompleteCode

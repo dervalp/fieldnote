@@ -1,14 +1,16 @@
 import { expect, test, vi, beforeEach } from 'vitest';
 
 const collectFiles = vi.fn();
+const collectTree = vi.fn();
 const collectMetrics = vi.fn();
-vi.mock('../github/collect-files', () => ({ collectFiles }));
+vi.mock('../github/collect-files', () => ({ collectFiles, collectTree }));
 vi.mock('../db/queries/grade-metrics', () => ({ collectMetrics }));
 
 const { collectEvidence } = await import('./evidence');
 const { agentReadinessManifest } = await import('../domain/grading/graders/agent-readiness');
 const { deliveryHealthManifest } = await import('../domain/grading/graders/delivery-health');
 const { INCOMPLETE } = await import('../domain/grading/declarative');
+const { parseManifest } = await import('../domain/grading/manifest');
 
 const metrics = {
   days: 30,
@@ -22,6 +24,7 @@ const metrics = {
 
 beforeEach(() => {
   collectFiles.mockReset();
+  collectTree.mockReset();
   collectMetrics.mockReset();
 });
 
@@ -170,4 +173,46 @@ test('the metrics window is pinned to the request time, not the wall clock', asy
     deliveryHealthManifest.needs['fieldnote.metrics'],
     requestedAt,
   );
+});
+
+const treeManifest = parseManifest({
+  id: 'fieldnote/tree-fixture',
+  version: '0.1.0',
+  evaluatorVersion: '1.0.0',
+  subject: 'repository',
+  mode: 'deterministic',
+  category: 'test-discipline',
+  kind: 'code',
+  needs: { 'repo.tree': ['**/*'] },
+  code: { source: 'export default () => ({ checks: [] });' },
+  disclaimer: 'Evidence, not certification.',
+  card: { title: 'Tree', tagline: 'Is there a tree?', groups: [{ title: 'Tree', checks: ['t'] }] },
+  checks: [{ id: 't', title: 'T', points: 100, explain: { pass: 'Yes.', fail: 'No.' } }],
+});
+
+test('a tree grader calls only the tree collector and carries the tree', async () => {
+  collectTree.mockResolvedValue({ sha: 'abc', complete: true, tree: [{ path: 'a.ts', size: 1 }] });
+  const collected = await collectEvidence(treeManifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'));
+  expect(collectTree).toHaveBeenCalledWith('repo', 'abc', ['**/*']);
+  expect(collectFiles).not.toHaveBeenCalled();
+  expect(collectMetrics).not.toHaveBeenCalled();
+  expect(collected.snapshot.tree).toEqual([{ path: 'a.ts', size: 1 }]);
+  expect(collected.snapshot.documents).toEqual([]);
+  expect(collected.snapshot.complete).toBe(true);
+  expect(collected.incompleteCode).toBeNull();
+});
+
+test("an incomplete tree is fieldnote's failure, in fieldnote's words", async () => {
+  collectTree.mockResolvedValue({ sha: 'abc', complete: false, tree: [] });
+  const collected = await collectEvidence(treeManifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'));
+  expect(collected.snapshot.complete).toBe(false);
+  expect(collected.snapshot.incompleteReason).toBe(INCOMPLETE);
+  expect(collected.incompleteCode).toBe('incomplete_collection');
+});
+
+test('a grader that does not declare repo.tree carries no tree key at all', async () => {
+  collectFiles.mockResolvedValue({ sha: 'abc', complete: true, documents: [] });
+  const collected = await collectEvidence(agentReadinessManifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'));
+  expect(collectTree).not.toHaveBeenCalled();
+  expect('tree' in collected.snapshot).toBe(false);
 });
