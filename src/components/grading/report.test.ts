@@ -346,3 +346,39 @@ test('a failed run with no error code, as an older row would look, reads as the 
   expect(html).toContain(COULD_NOT_FINISH);
   expect(html).not.toContain(NOT_ENOUGH_RECORD);
 });
+
+test('an unscored report prints measurements and no points', () => {
+  const html = renderToStaticMarkup(
+    createElement(GradeReport, {
+      grade: {
+        id: 'run-1',
+        sha,
+        computedAt: new Date('2026-09-14T03:00:00Z'),
+        score: null,
+        rubricVersion: '0.2.0',
+        evaluatorVersion: '1.0.0',
+        incompleteReason: 'Fewer than ten pull requests merged in this window.',
+        checks: [
+          {
+            id: 'merges-land-clean',
+            points: 0,
+            maxPoints: 40,
+            status: 'fail',
+            paths: [],
+            lineRanges: [],
+            explanation: 'Too few merged pull requests passed on the first attempt.',
+          },
+        ],
+      },
+      owner: 'owner',
+      name: 'repo',
+      outdated: false,
+      checkTitles: { 'merges-land-clean': 'Merges land clean' },
+      graderTitle: 'Delivery Health',
+      disclaimer: 'A disclaimer.',
+    }),
+  );
+  expect(html).toContain('Fewer than ten pull requests merged in this window.');
+  expect(html).toContain('Merges land clean');
+  expect(html).not.toContain('0 / 40');
+});

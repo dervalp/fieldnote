@@ -62,11 +62,11 @@ export function GradeControls({
         const next: Status = await response.json();
         if (
           next.id !== run!.id ||
-          !['queued', 'running', 'complete', 'failed'].includes(next.state)
+          !['queued', 'running', 'complete', 'failed', 'insufficient'].includes(next.state)
         )
           throw new Error('Invalid status');
         setConnection('');
-        if (next.state === 'complete' || next.state === 'failed') {
+        if (next.state === 'complete' || next.state === 'failed' || next.state === 'insufficient') {
           setRun(next);
           router.refresh();
           return;
@@ -97,8 +97,8 @@ export function GradeControls({
               ? 'Requesting…'
               : active
                 ? 'Grader in progress…'
-                : run?.state === 'failed'
-                  ? 'Retry grader'
+                : run?.state === 'failed' || run?.state === 'insufficient'
+                  ? 'Run grader again'
                   : 'Run grader'}
           </Button>
         </form>
@@ -114,11 +114,13 @@ export function GradeControls({
             ? 'Queued. Waiting to collect repository evidence.'
             : run?.state === 'running'
               ? 'Collecting and checking evidence at a pinned commit.'
-              : run?.state === 'failed'
-                ? run.errorCode === 'insufficient_evidence'
-                  ? 'There is not enough record in this window to score. Try again once more work has merged.'
-                  : 'The grader could not finish. Your last completed report is unchanged. Try again.'
-                : '')}
+              : run?.state === 'insufficient'
+                ? 'There was not enough evidence to score this run. The measurements below are still worth reading.'
+                : run?.state === 'failed'
+                  ? run.errorCode === 'insufficient_evidence'
+                    ? 'There is not enough record in this window to score. Try again once more work has merged.'
+                    : 'The grader could not finish. Your last completed report is unchanged. Try again.'
+                  : '')}
       </p>
     </div>
   );
@@ -141,6 +143,7 @@ export function GradeReport({
   disclaimer: string;
 }) {
   const base = `https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/blob/${encodeURIComponent(grade.sha)}/`;
+  const scored = grade.score !== null;
   return (
     <Surface className="grading-report" aria-label={`${graderTitle} evidence`}>
       <div className="eyebrow">Foundations / Evidence</div>
@@ -151,12 +154,16 @@ export function GradeReport({
           current assessment.
         </p>
       )}
+      {!scored && grade.incompleteReason && (
+        <p className="grading-unscored">{grade.incompleteReason}</p>
+      )}
       {grade.checks.map((check) => (
         <article className="grading-check" key={check.id}>
           <h3>
             <span>{checkTitles[check.id] ?? check.id}</span>
             <span>
-              {check.status === 'pass' ? 'Pass' : 'Missing'} · {check.points} / {check.maxPoints}
+              {check.status === 'pass' ? 'Pass' : 'Missing'}
+              {scored && ` · ${check.points} / ${check.maxPoints}`}
             </span>
           </h3>
           <p>{check.explanation}</p>
