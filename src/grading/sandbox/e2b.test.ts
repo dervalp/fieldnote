@@ -118,6 +118,60 @@ test('output past the cap is flagged and discarded while it is still streaming, 
   expect(handle.kill).toHaveBeenCalledTimes(1);
 });
 
+test("a slow start is not the program's time: the deadline starts once the command has started", async () => {
+  vi.useFakeTimers();
+  const { sdk } = fakeSdk(
+    () => new Promise((resolve) => setTimeout(() => resolve(fakeHandle()), 30_000)),
+  );
+  const sandbox = e2bSandbox(SECRET, sdk);
+  const resultPromise = sandbox.exec(await sandbox.create(), ['node'], limits);
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(await resultPromise).toEqual({ exitCode: 0, stdout: '{}', timedOut: false, overflowed: false });
+});
+
+test('a program that hangs after a slow start times out a full deadline after it started', async () => {
+  vi.useFakeTimers();
+  const handle = fakeHandle(() => new Promise(() => {}));
+  const { sdk } = fakeSdk(() => new Promise((resolve) => setTimeout(() => resolve(handle), 15_000)));
+  const sandbox = e2bSandbox(SECRET, sdk);
+  let result: unknown;
+  void sandbox.exec(await sandbox.create(), ['node'], limits).then((value) => (result = value));
+  await vi.advanceTimersByTimeAsync(15_000 + limits.timeoutMs - 1);
+  expect(result).toBeUndefined();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(result).toEqual({ exitCode: null, stdout: '', timedOut: true, overflowed: false });
+  expect(handle.kill).toHaveBeenCalledTimes(1);
+});
+
+test('a handle that arrives after the outcome was decided is killed', async () => {
+  const handle = fakeHandle(() => new Promise(() => {}));
+  const { sdk } = fakeSdk(async (_command, opts) => {
+    // The cap is crossed before the adapter holds anything it could kill.
+    opts.onStdout?.('x'.repeat(limits.maxOutputBytes + 1));
+    return handle;
+  });
+  const sandbox = e2bSandbox(SECRET, sdk);
+  const result = await sandbox.exec(await sandbox.create(), ['node'], limits);
+  expect(result).toEqual({ exitCode: null, stdout: '', timedOut: false, overflowed: true });
+  expect(handle.kill).toHaveBeenCalledTimes(1);
+});
+
+test('output that keeps streaming past the cap sends one kill, not one per chunk', async () => {
+  const handle = fakeHandle(() => new Promise(() => {}));
+  const { sdk } = fakeSdk(async (_command, opts) => {
+    setTimeout(() => {
+      opts.onStdout?.('x'.repeat(limits.maxOutputBytes + 1));
+      opts.onStdout?.('more');
+      opts.onStdout?.('and more');
+    }, 0);
+    return handle;
+  });
+  const sandbox = e2bSandbox(SECRET, sdk);
+  const result = await sandbox.exec(await sandbox.create(), ['node'], limits);
+  expect(result).toEqual({ exitCode: null, stdout: '', timedOut: false, overflowed: true });
+  expect(handle.kill).toHaveBeenCalledTimes(1);
+});
+
 test('any other failure is a retryable outage carrying no vendor message', async () => {
   const { sdk } = fakeSdk(async () =>
     fakeHandle(async () => {

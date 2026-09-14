@@ -101,22 +101,28 @@ export function e2bSandbox(apiKey: string, sdk: E2BSdk = E2BSandbox as unknown a
         settle(result);
       };
       let running: CommandHandle | undefined;
-      // Fire-and-forget: the outcome is already decided by `finish`, so a
-      // kill that itself fails (the box already gone, say) must not surface
-      // as an unhandled rejection.
-      const stop = () => void running?.kill().catch(() => {});
+      let killSent = false;
+      // One kill per command, whatever keeps arriving: output streamed after
+      // the cap must not send a kill request per chunk. Fire-and-forget: the
+      // outcome is already decided by `finish`, so a kill that itself fails
+      // (the box already gone, say) must not surface as an unhandled rejection.
+      const stop = () => {
+        if (!running || killSent) return;
+        killSent = true;
+        void running.kill().catch(() => {});
+      };
       const onStdout = (chunk: string) => {
+        if (outcome) return;
         bytes += Buffer.byteLength(chunk, 'utf8');
         if (bytes > maxOutputBytes) {
           finish({ kind: 'overflow' });
           stop();
         }
       };
-      const timer = setTimeout(() => {
-        finish({ kind: 'timeout' });
-        stop();
-      }, timeoutMs);
       try {
+        // Starting the command is the vendor's time, not the program's: a
+        // start that fails, or outlasts the SDK's own request timeout, is an
+        // outage.
         running = await box(handle.id).commands.run(command.map(quote).join(' '), {
           envs: {},
           background: true,
@@ -124,9 +130,19 @@ export function e2bSandbox(apiKey: string, sdk: E2BSdk = E2BSandbox as unknown a
           onStdout,
         });
       } catch {
-        clearTimeout(timer);
         throw new SandboxUnavailableError(true);
       }
+      // An outcome decided before the handle arrived left nothing to kill;
+      // kill it now rather than leave it running out the box's life.
+      if (outcome) stop();
+      // The program's deadline starts once the command has started, so a slow
+      // vendor start is never filed as the program timing out.
+      const timer = outcome
+        ? undefined
+        : setTimeout(() => {
+            finish({ kind: 'timeout' });
+            stop();
+          }, timeoutMs);
       running.wait().then(
         (result) => finish({ kind: 'ok', exitCode: result.exitCode, stdout: result.stdout }),
         (error) =>
