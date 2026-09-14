@@ -7,11 +7,12 @@ import {
 } from '../../db/queries/grade-schedules';
 import {
   activeGradeRun,
-  latestCompletedGrade,
+  latestFinishedGrade,
   scheduleGrade,
 } from '../../db/queries/grade-runs';
 import { resolveHeadSha } from '../../github/collect-files';
 import { getGrader } from '../../domain/grading/registry';
+import { changesOverTime } from '../../domain/grading/manifest';
 
 /**
  * One schedule's decision, in the order the design gives: an available
@@ -35,20 +36,22 @@ export async function scheduleIfDue(row: GradeScheduleRow): Promise<string | nul
   // Step 3. grade_runs_one_active would refuse the insert anyway; asking first
   // avoids manufacturing an error to swallow.
   if (await activeGradeRun(row.repositoryId, row.graderId)) return null;
-  // Step 4. A window grader always runs — the window moved by definition, which
-  // is the whole reason the subject exists. A repository grader costs one sha
-  // lookup and stops there if the commit is the one it already scored: same
-  // commit, same manifest, same score, and the row would be noise on the
-  // history list the product asks people to read.
-  if (manifest.subject === 'repository') {
+  // Step 4. A grader whose evidence changes over time always runs — the
+  // evidence moved by definition. Every other grader costs one sha lookup and
+  // stops there if its last finished run, scored or too little to judge, was
+  // this commit at this version: same commit, same program, same answer, and a
+  // code grader would rent a box to be told it again. Keyed off the evidence
+  // labels rather than manifest.subject, because the labels are what the skip
+  // is actually about.
+  if (!changesOverTime(manifest)) {
     let head: string;
     try {
       head = await resolveHeadSha(row.repositoryId);
     } catch {
       return null;
     }
-    const latest = await latestCompletedGrade(row.repositoryId, row.graderId);
-    if (latest?.sha === head) return null;
+    const latest = await latestFinishedGrade(row.repositoryId, row.graderId);
+    if (latest?.sha === head && latest.rubricVersion === manifest.version) return null;
   }
   // Step 5.
   const run = await scheduleGrade(row);

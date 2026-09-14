@@ -19,7 +19,14 @@ import {
   listGradeSchedules,
   scheduleAvailable,
 } from './queries/grade-schedules';
-import { beginGrade, completeGrade, loadGradeRun, pinGradeSha } from './queries/grade-runs';
+import {
+  beginGrade,
+  completeGrade,
+  failGrade,
+  insufficientGrade,
+  loadGradeRun,
+  pinGradeSha,
+} from './queries/grade-runs';
 import { scheduleIfDue } from '../inngest/functions/schedule-grades';
 import { evaluateGradeRun, resolveGradeCommit } from '../inngest/functions/grade-repository';
 import {
@@ -290,4 +297,32 @@ test('a scheduled run is created and completes end to end with no session', asyn
   // the readiness grader does not declare.
   expect(stored?.state).toBe('complete');
   expect(stored?.trigger).toBe('schedule');
+});
+
+test('an insufficient run on the same commit counts as done', async () => {
+  const repositoryId = await fixtureRepository();
+  await writeGradeSchedule(repositoryId, AGENT_READINESS, true);
+  const row = (await listGradeSchedules()).find((entry) => entry.repositoryId === repositoryId)!;
+  const runId = (await scheduleIfDue(row))!;
+  await beginGrade(runId);
+  await pinGradeSha(runId, HEAD_SHA);
+  await insufficientGrade(runId, {
+    score: null,
+    checks: [],
+    rubricVersion: agentReadinessManifest.version,
+    evaluatorVersion: agentReadinessManifest.evaluatorVersion,
+    incompleteReason: 'Too little.',
+  });
+  expect(await scheduleIfDue(row)).toBeNull();
+});
+
+test('a failed run on the same commit does not count as done', async () => {
+  const repositoryId = await fixtureRepository();
+  await writeGradeSchedule(repositoryId, AGENT_READINESS, true);
+  const row = (await listGradeSchedules()).find((entry) => entry.repositoryId === repositoryId)!;
+  const runId = (await scheduleIfDue(row))!;
+  await beginGrade(runId);
+  await pinGradeSha(runId, HEAD_SHA);
+  await failGrade(runId, 'grader_failed');
+  expect(await scheduleIfDue(row)).not.toBeNull();
 });

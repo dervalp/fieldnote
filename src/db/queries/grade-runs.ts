@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { db } from '../index';
 import {
   gradeRuns as runs,
@@ -372,6 +372,31 @@ export async function latestCompletedGrade(
     .orderBy(desc(runs.createdAt), desc(runs.id))
     .limit(1);
   return run ? completed(run) : null;
+}
+/**
+ * The newest run that finished with a result — scored or too little to judge —
+ * and the version it was judged at. What the nightly skip compares against: a
+ * failed run is never "done", and a new version on the same commit is new work.
+ * Trusted worker primitive with no session, like latestCompletedGrade.
+ */
+export async function latestFinishedGrade(
+  repositoryId: string,
+  graderId: string,
+): Promise<{ sha: string; rubricVersion: string } | null> {
+  const [run] = await db()
+    .select({ sha: runs.sha, rubricVersion: runs.rubricVersion })
+    .from(runs)
+    .where(
+      and(
+        eq(runs.repositoryId, repositoryId),
+        eq(runs.graderId, graderId),
+        inArray(runs.state, ['complete', 'insufficient']),
+        isNotNull(runs.sha),
+      ),
+    )
+    .orderBy(desc(runs.createdAt), desc(runs.id))
+    .limit(1);
+  return run?.sha ? { sha: run.sha, rubricVersion: run.rubricVersion } : null;
 }
 export async function validateGradeRun(run: GradeRun) {
   const [available] = await db()

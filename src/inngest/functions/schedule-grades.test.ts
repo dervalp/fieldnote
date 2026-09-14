@@ -4,7 +4,7 @@ const schedules = vi.hoisted(() => ({ scheduleAvailable: vi.fn(), listGradeSched
 const runs = vi.hoisted(() => ({
   scheduleGrade: vi.fn(),
   activeGradeRun: vi.fn(),
-  latestCompletedGrade: vi.fn(),
+  latestFinishedGrade: vi.fn(),
 }));
 const github = vi.hoisted(() => ({ resolveHeadSha: vi.fn() }));
 vi.mock('../../db/queries/grade-schedules', () => schedules);
@@ -12,7 +12,10 @@ vi.mock('../../db/queries/grade-runs', () => runs);
 vi.mock('../../github/collect-files', () => github);
 
 const { scheduleIfDue } = await import('./schedule-grades');
-const { AGENT_READINESS } = await import('../../domain/grading/graders/agent-readiness');
+const {
+  AGENT_READINESS,
+  agentReadinessManifest,
+} = await import('../../domain/grading/graders/agent-readiness');
 const { DELIVERY_HEALTH } = await import('../../domain/grading/graders/delivery-health');
 
 const readinessRow = {
@@ -27,7 +30,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   schedules.scheduleAvailable.mockResolvedValue(true);
   runs.activeGradeRun.mockResolvedValue(false);
-  runs.latestCompletedGrade.mockResolvedValue(null);
+  runs.latestFinishedGrade.mockResolvedValue(null);
   runs.scheduleGrade.mockResolvedValue({ id: 'run-1', state: 'queued' });
   github.resolveHeadSha.mockResolvedValue('a'.repeat(40));
 });
@@ -46,13 +49,19 @@ test('an active run creates nothing', async () => {
 });
 
 test('a repository grader skips an unchanged head sha', async () => {
-  runs.latestCompletedGrade.mockResolvedValue({ sha: 'a'.repeat(40) });
+  runs.latestFinishedGrade.mockResolvedValue({
+    sha: 'a'.repeat(40),
+    rubricVersion: agentReadinessManifest.version,
+  });
   expect(await scheduleIfDue(readinessRow)).toBeNull();
   expect(runs.scheduleGrade).not.toHaveBeenCalled();
 });
 
 test('a repository grader runs when the head sha moved', async () => {
-  runs.latestCompletedGrade.mockResolvedValue({ sha: 'b'.repeat(40) });
+  runs.latestFinishedGrade.mockResolvedValue({
+    sha: 'b'.repeat(40),
+    rubricVersion: agentReadinessManifest.version,
+  });
   expect(await scheduleIfDue(readinessRow)).toBe('run-1');
   expect(runs.scheduleGrade).toHaveBeenCalledWith(readinessRow);
 });
@@ -91,4 +100,21 @@ test('a sha lookup failure skips this schedule and not the whole pass', async ()
   github.resolveHeadSha.mockRejectedValue(new Error('GitHub is unavailable'));
   expect(await scheduleIfDue(readinessRow)).toBeNull();
   expect(runs.scheduleGrade).not.toHaveBeenCalled();
+});
+
+test('a repository grader runs on an unchanged commit when its version moved', async () => {
+  runs.latestFinishedGrade.mockResolvedValue({ sha: 'a'.repeat(40), rubricVersion: '0.0.9' });
+  expect(await scheduleIfDue(readinessRow)).toBe('run-1');
+});
+
+test('the skip is keyed off the evidence labels, not the subject field', async () => {
+  // A with-commits grader skips an unchanged commit at the same version...
+  runs.latestFinishedGrade.mockResolvedValue({
+    sha: 'a'.repeat(40),
+    rubricVersion: agentReadinessManifest.version,
+  });
+  expect(await scheduleIfDue(readinessRow)).toBeNull();
+  // ...and an over-time grader never asks.
+  expect(await scheduleIfDue(deliveryRow)).toBe('run-1');
+  expect(runs.latestFinishedGrade).toHaveBeenCalledTimes(1);
 });
