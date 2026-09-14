@@ -33,17 +33,19 @@ import {
   AGENT_READINESS,
   agentReadinessManifest,
 } from '../domain/grading/graders/agent-readiness';
+import { TEST_DISCIPLINE } from '../domain/grading/graders/test-discipline';
 import { ManifestError } from '../domain/grading/manifest';
 const HEAD_SHA = 'a'.repeat(40);
 // collectFiles is mocked the way src/db/grade-runs.integration.test.ts mocks
 // it: resolveHeadSha stays a fixed stub, since the scheduler's own
 // skip-if-unchanged check depends on it too, and only collectFiles needs a
 // per-test return value to drive a run through the worker.
-const github = vi.hoisted(() => ({ collect: vi.fn() }));
+const github = vi.hoisted(() => ({ collect: vi.fn(), tree: vi.fn() }));
 vi.mock('../github/collect-files', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../github/collect-files')>()),
   resolveHeadSha: async () => HEAD_SHA,
   collectFiles: github.collect,
+  collectTree: github.tree,
 }));
 const context = vi.hoisted(() => ({ user: '', workspace: '', demo: false }));
 // A second, independent identity: their own user, their own default
@@ -325,4 +327,44 @@ test('a failed run on the same commit does not count as done', async () => {
   await pinGradeSha(runId, HEAD_SHA);
   await failGrade(runId, 'grader_failed');
   expect(await scheduleIfDue(row)).not.toBeNull();
+});
+
+test('a code grader run goes through the worker and its program, and is scored', async () => {
+  // The worker must use the local sandbox here even on a machine that has an
+  // E2B key exported: this test proves the path, not the vendor.
+  const previousKey = process.env.E2B_API_KEY;
+  delete process.env.E2B_API_KEY;
+  try {
+    const repositoryId = await fixtureRepository();
+    await writeGradeSchedule(repositoryId, TEST_DISCIPLINE, true);
+    const row = (await listGradeSchedules()).find(
+      (entry) => entry.repositoryId === repositoryId && entry.graderId === TEST_DISCIPLINE,
+    )!;
+    const runId = await scheduleIfDue(row);
+    expect(runId).not.toBeNull();
+    github.tree.mockResolvedValueOnce({
+      sha: HEAD_SHA,
+      complete: true,
+      tree: [
+        'src/a.ts', 'src/a.test.ts', 'src/b.ts', 'src/b.test.ts', 'src/c.ts', 'src/c.test.ts',
+        'src/d.ts', 'src/d.test.ts', 'src/e.ts', 'src/e.test.ts',
+      ].map((path) => ({ path, size: 1 })),
+    });
+    github.collect.mockClear();
+    await beginGrade(runId!);
+    await resolveGradeCommit(runId!);
+    await evaluateGradeRun(runId!);
+    const stored = await loadGradeRun(runId!);
+    expect(stored?.state).toBe('complete');
+    expect(stored?.result?.score).toBe(100);
+    expect(stored?.result?.checks.map((check) => check.id)).toEqual([
+      'tests-exist',
+      'tests-beside-source',
+      'tests-in-every-folder',
+    ]);
+    expect(github.collect).not.toHaveBeenCalled();
+  } finally {
+    if (previousKey === undefined) delete process.env.E2B_API_KEY;
+    else process.env.E2B_API_KEY = previousKey;
+  }
 });
