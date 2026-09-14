@@ -148,9 +148,10 @@ test('a failed file collection outranks an unmet metrics floor', async () => {
   expect(collected.incompleteCode).toBe('incomplete_collection');
 });
 
-// Unreachable through normal validation: parseManifest's needs_mismatch
-// invariant already refuses a manifest that declares a family no check reads,
-// and the schema itself has no key for a third family. This pins the
+// Unreachable through normal validation: the needs schema has keys for three
+// families only and drops any other key. (needs_mismatch refuses an unread
+// family only for a declarative grader; a code grader's declaration is a
+// ceiling, so it is no guard here.) This pins the
 // dispatcher's own refusal so it fails loudly by name if a family is ever
 // added to the schema without a matching branch here, rather than silently
 // collecting nothing for it.

@@ -24,10 +24,11 @@ export type CollectedEvidence = {
 // rather than inferred from the schema so that a family added to
 // manifestSchema without a matching branch here fails loudly, by name,
 // instead of silently collecting nothing for it. Unreachable through normal
-// validation today — parseManifest's needs_mismatch invariant already
-// refuses a manifest that declares a family no check reads, and the schema
-// has no key for a fourth family — but this is the refusal for the day one
-// arrives.
+// validation today: the needs schema has keys for these three families only
+// and drops any other key. needs_mismatch is no guard here — it refuses an
+// unread family only for a declarative grader, since a code grader's
+// declaration is a ceiling — so this is the refusal for the day a family is
+// added to the schema without a branch below.
 const HANDLED_FAMILIES = ['repo.files', 'repo.tree', 'fieldnote.metrics'] as const;
 
 export async function collectEvidence(

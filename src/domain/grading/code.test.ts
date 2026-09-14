@@ -52,6 +52,42 @@ test('a program receives only the families its manifest declared, and nothing ab
     'documents',
     'tree',
   ]);
+
+  // A window family moves without a commit, so these two grade a window.
+  const metricsNeed = {
+    windowDays: 30,
+    minMergedPullRequests: 5,
+    insufficientReason: 'Not enough merged work to judge.',
+  };
+  const metrics = {
+    days: 30,
+    start: '2026-08-15T00:00:00.000Z',
+    endExclusive: '2026-09-14T00:00:00.000Z',
+    mergedPullRequests: 3,
+    'first-pass-rate': { numerator: 1, denominator: 3, value: (100 * 1) / 3 },
+    'ci-success-rate': { numerator: 3, denominator: 3, value: 100 },
+    'ci-recovery-rate': { numerator: 0, denominator: 0, value: null },
+  };
+  const metricsOnly = parseManifest(
+    draft({ subject: 'repository_window', needs: { 'fieldnote.metrics': metricsNeed } }),
+  ) as CodeManifest;
+  expect(codeGraderInput(metricsOnly, { ...snapshot, documents, metrics })).toStrictEqual({
+    evidence: { metrics },
+  });
+
+  const all = parseManifest(
+    draft({
+      subject: 'repository_window',
+      needs: {
+        'repo.files': ['README.md'],
+        'repo.tree': ['**/*'],
+        'fieldnote.metrics': metricsNeed,
+      },
+    }),
+  ) as CodeManifest;
+  expect(codeGraderInput(all, { ...snapshot, documents, metrics })).toStrictEqual({
+    evidence: { documents, tree: snapshot.tree, metrics },
+  });
 });
 
 test('a scored answer is assembled from the manifest prose, with points, paths and the count', () => {

@@ -60,6 +60,8 @@ test('the same program without --permission is allowed, so the locks above are n
   );
   expect(report.passwd).toBe('allowed');
   expect(report.host).toBe('allowed');
+  expect(report.write).toBe('allowed');
+  expect(report.spawn).toBe('allowed');
 });
 
 test('a program that never finishes is killed at the timeout', async () => {

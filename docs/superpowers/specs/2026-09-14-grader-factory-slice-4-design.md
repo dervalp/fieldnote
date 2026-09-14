@@ -122,7 +122,10 @@ output past the cap fails the run rather than being truncated into something
 that parses.
 
 **`E2B_API_KEY` lives in the worker's environment and never enters the box.**
-The box receives no environment at creation or at exec.
+The box receives none of the worker's environment — no key, no worker
+variable — at creation or at exec. E2B runs a command through a shell with its
+own default variables, so the program does not see an empty environment there;
+it sees nothing of fieldnote's.
 
 **One fact is unverified: whether E2B's default `base` template ships Node with
 the permission model.** `--permission` is stable from Node 22.13 / 23.5; on
@@ -415,7 +418,8 @@ Its judgment, which is the grader's and nothing else's:
 - **Source files** are paths ending `.ts .tsx .js .jsx .mjs .cjs .py .go .rb
   .java .kt .rs .cs .php .swift`, excluding `.d.ts`, anything under a
   `node_modules`, `dist`, `build`, `out`, `target`, `vendor`, `coverage` or
-  dot-prefixed directory, `*.config.*` files, and test files.
+  dot-prefixed directory, dot-prefixed file names, `*.config.*` files, and test
+  files.
 - **Test files** are those with `.test.` or `.spec.` in the name, `_test.go`,
   `test_*.py` or `*_test.py`, `*Test`/`*Tests` in Java or Kotlin, `*_spec.rb`,
   and any source-extension file under a `__tests__`, `test`, `tests` or `spec`

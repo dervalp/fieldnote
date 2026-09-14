@@ -35,11 +35,12 @@ type Outcome =
   | { readonly kind: 'outage' };
 
 /**
- * Production. A fresh E2B box per run with internet access off, no
- * environment, and a sixty-second life so a box whose destroy fails dies on its
- * own. The API key reaches the SDK and nothing that enters the box. Every
- * vendor failure becomes a retryable SandboxUnavailableError with no vendor
- * message.
+ * Production. A fresh E2B box per run with internet access off, none of the
+ * worker's environment (E2B's shell keeps its own defaults; no key and no
+ * worker variable reach it), and a sixty-second life so a box whose destroy
+ * fails dies on its own. The API key reaches the SDK and nothing that enters
+ * the box. Every vendor failure becomes a retryable SandboxUnavailableError
+ * with no vendor message.
  */
 export function e2bSandbox(apiKey: string, sdk: E2BSdk = E2BSandbox as unknown as E2BSdk): Sandbox {
   const boxes = new Map<string, E2BBox>();
