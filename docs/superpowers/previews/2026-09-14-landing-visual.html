@@ -1,0 +1,1772 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>fieldnote · Visual proposal</title><style>@layer fn.reset, fn.tokens, fn.base, fn.components;@layer fn.reset{/* What src/app/style.css did in its first forty lines: the handful of browser
+   defaults fieldnote overrides everywhere, and nothing else. Anything with an
+   opinion about how an element should look belongs in base.css. */
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+:focus-visible {
+  outline: 2px solid var(--fn-color-accent);
+  outline-offset: 4px;
+}
+}@layer fn.tokens{/* Every custom property fieldnote has, in three tiers.
+ *
+ *   reference → names the palette. The ONLY tier allowed a colour literal.
+ *   finish    → one colour per grade band, lifted from gradePresentation().
+ *   semantic  → what components actually reference.
+ *
+ * Components reference the semantic tier only. The one documented exception is
+ * the grade card, which reads `--grade` (set inline from the domain) and whose
+ * foil gradients stay in grade-card.css — an eight-to-nine stop gradient only
+ * means anything whole, and naming twenty-odd stops here would be bookkeeping
+ * rather than a system.
+ *
+ * Every value below is lifted unchanged from src/app/style.css or
+ * src/domain/grading/presentation.ts. Colour and type are pixel-identical to
+ * the approved baseline in docs/design/fieldnote/README.md; nothing here is a
+ * redesign. Alpha variants keep their own reference entry rather than being
+ * rebuilt with color-mix(), so the computed colour is byte-for-byte what it
+ * was before extraction.
+ */
+:root {
+  /* ---------------------------------------------------------------- *
+   * Reference tier — the palette.                                     *
+   * ---------------------------------------------------------------- */
+
+  /* Pine: the ink greens. */
+  --fn-pine-900: #203f36;
+  --fn-pine-800: #253e34;
+  --fn-pine-700: #315b4d;
+  --fn-pine-600: #526b60;
+  --fn-pine-500: #68736a;
+  --fn-pine-400: #8da99b;
+  --fn-pine-ink-deep: #102a22;
+
+  /* Mist: the pale greens, from border weight up to the sidebar wash. */
+  --fn-mist-350: #b5c9bb;
+  --fn-mist-300: #bfcfc4;
+  --fn-mist-250: #dbe5dc;
+  --fn-mist-280: #c8ddce;
+  --fn-mist-260: #d4e2d6;
+  --fn-mist-240: #e1e9df;
+  --fn-mist-200: #e6ece7;
+
+  /* Paper: the near-whites. Higher number is darker. */
+  --fn-paper-0: #fffef9;
+  --fn-paper-25: #f8faf6;
+  --fn-paper-50: #f4f7f3;
+  --fn-paper-75: #f4f8f0;
+  --fn-paper-100: #f0f5ef;
+  --fn-paper-150: #f0f4ed;
+
+  /* Sand: the warm paper the basic dashboards sit on. */
+  --fn-sand-50: #f4f2e9;
+  --fn-sand-200: #dce0d4;
+
+  /* Ember: the accent rust. The intermediate stops exist for the control
+     finish's gradients — one hue lit from above, not a second palette.
+     --fn-ember-600 stays the midpoint of the resting gradient, which is what
+     keeps a gradient button the same colour as the flat one it replaced. */
+  --fn-ember-450: #d4522c;
+  --fn-ember-500: #cb4a26;
+  --fn-ember-550: #c5471f;
+  --fn-ember-600: #be421f;
+  --fn-ember-620: #b83f1d;
+  --fn-ember-650: #b23d1a;
+  --fn-ember-680: #ad3a1a;
+  --fn-ember-700: #a6381a;
+  --fn-ember-800: #a1361c;
+  --fn-ember-900: #9e3518;
+  /* The near-black the ember darkens into: the pressed inset and the text
+     shadow that keeps a label legible on the lit gradient. */
+  --fn-ember-ink: #5a1a0a;
+
+  /* Clay: the warm wash and the metric rust. */
+  --fn-clay-300: #ecd3c3;
+  --fn-clay-600: #995735;
+
+  /* Moss: the "ran" / positive greens. */
+  --fn-moss-600: #416951;
+  --fn-moss-700: #2f6b52;
+
+  /* Amber: the "setup" / caution yellows. */
+  --fn-amber-100: #f3e8ca;
+  --fn-amber-500: #c49a48;
+  --fn-amber-700: #986817;
+
+  /* Alpha overlays. The suffix is the alpha as a percentage, so `a20` is the
+     same colour at 20% — kept as literals because the base-plus-alpha form is
+     what the approved baseline actually renders. */
+  --fn-pine-900-a03: #203f3608;
+  --fn-pine-900-a06: #203f3610;
+  --fn-pine-900-a08: #203f3615;
+  --fn-pine-900-a11: #203f361c;
+  --fn-pine-900-a13: #203f3620;
+  --fn-pine-900-a20: #203f3633;
+  --fn-pine-800-a06: #253e3410;
+  --fn-pine-ink-deep-a40: #102a2266;
+  --fn-pine-600-a08: #526b6014;
+  --fn-pine-600-a20: #526b6033;
+  --fn-moss-700-a09: #2f6b5218;
+  --fn-moss-700-a25: #2f6b5240;
+  --fn-amber-700-a09: #98681718;
+  --fn-amber-700-a25: #98681740;
+  --fn-mist-200-a50: #e6ece780;
+  --fn-paper-50-a79: #f4f7f3c9;
+  --fn-paper-75-a43: #f4f8f06e;
+  --fn-white-a21: #ffffff35;
+  --fn-white-a22: #ffffff38;
+  --fn-white-a30: #ffffff4d;
+  --fn-white-a60: #ffffff99;
+  --fn-white-a61: #ffffff9c;
+  --fn-white: #fff;
+  /* The control finish's own overlays: two more pine alphas between the ones
+     above, the ember's own glow, and the pressed/typeset darks. */
+  --fn-pine-900-a07: #203f3612;
+  --fn-pine-900-a14: #203f3624;
+  --fn-ember-600-a22: #be421f38;
+  --fn-ember-ink-a28: #5a1a0a47;
+  --fn-ember-ink-a40: #5a1a0a66;
+
+  /* A neutral grey, not on the pine/mist ramp. It is what the grade banner has
+     always sat on; it is recorded rather than corrected, because the approved
+     baseline is not up for redesign here. */
+  --fn-grey-100: #eee;
+
+  /* Two surface washes that are stated as rgba() in the baseline rather than
+     hex, and stay that way so the computed value does not move. */
+  --fn-glass-62: rgba(244, 248, 240, 0.62);
+  --fn-glass-43: rgba(244, 248, 240, 0.43);
+  --fn-mist-200-rgba-94: rgba(230, 236, 231, 0.94);
+  --fn-mist-200-rgba-0: rgba(230, 236, 231, 0);
+
+  /* ---------------------------------------------------------------- *
+   * Finish tier — one colour per grade band.                          *
+   * Lifted from gradePresentation(). The token, the data attribute and *
+   * the name users read all say prismatic; the domain identifier said   *
+   * `rainbow` until the grader contract landed, and no longer does.     *
+   * ---------------------------------------------------------------- */
+  --fn-grade-common: #b54740;
+  --fn-grade-shimmer: #548eae;
+  --fn-grade-bronze: #895333;
+  --fn-grade-silver: #697e8d;
+  --fn-grade-gold: #a77a13;
+  --fn-grade-prismatic: #7359a3;
+
+  /* ---------------------------------------------------------------- *
+   * Semantic tier — what components reference.                        *
+   * ---------------------------------------------------------------- */
+
+  /* Ink */
+  --fn-color-ink: var(--fn-pine-900);
+  --fn-color-ink-muted: var(--fn-pine-600);
+  --fn-color-ink-hover: var(--fn-pine-700);
+  --fn-color-ink-inverse: #fff;
+
+  /* Ground and surfaces */
+  --fn-color-ground: var(--fn-mist-200);
+  --fn-color-surface: var(--fn-paper-50);
+  --fn-color-surface-raised: var(--fn-paper-50-a79);
+  --fn-color-surface-glass: var(--fn-glass-62);
+  --fn-color-surface-glass-blurred: var(--fn-glass-43);
+  --fn-color-surface-opaque: var(--fn-paper-150);
+  --fn-color-surface-hover: var(--fn-paper-25);
+  --fn-color-surface-sunken: var(--fn-mist-240);
+  /* The flat panel a nested theme puts its content on, where the glass
+     treatment would fight the theme's own paper. */
+  --fn-color-panel: var(--fn-paper-0);
+  /* Small tinted plates: the workspace initial, the account avatar. Distinct
+     roles that happen to sit a step apart on the mist ramp, so distinct
+     tokens — collapsing them would be tidier and wrong. */
+  --fn-color-badge-surface: var(--fn-mist-260);
+  --fn-color-badge-border: var(--fn-mist-350);
+  --fn-color-avatar-surface: var(--fn-mist-280);
+
+  /* The page wash under `main`, and the public entry panel. Three stops plus a
+     base, which is why these are four tokens rather than one. */
+  --fn-color-wash-base: var(--fn-paper-100);
+  --fn-color-wash-edge: var(--fn-mist-200);
+  --fn-color-wash-edge-fade: var(--fn-mist-200-rgba-94);
+  --fn-color-wash-edge-clear: var(--fn-mist-200-rgba-0);
+  --fn-color-wash-cool: var(--fn-mist-280);
+  --fn-color-wash-warm: var(--fn-clay-300);
+
+  /* Lines */
+  --fn-color-border: var(--fn-mist-300);
+  --fn-color-border-strong: var(--fn-pine-400);
+  --fn-color-hairline: var(--fn-pine-900-a08);
+  --fn-color-rule: var(--fn-pine-900-a13);
+
+  /* Accent */
+  --fn-color-accent: var(--fn-ember-600);
+  --fn-color-accent-hover: var(--fn-ember-700);
+  --fn-color-danger: var(--fn-ember-800);
+  /* The edge a lit control carries, a shade darker than the gradient's own
+     bottom stop so the button reads as a raised object rather than a patch. */
+  --fn-color-accent-edge: var(--fn-ember-900);
+
+  /* The surface a selected row sits on — the sidebar's current page. Its own
+     step on the mist ramp: it has to read as chosen against the rail's ground
+     without becoming a second accent. */
+  --fn-color-surface-selected: var(--fn-mist-250);
+
+  /* Control finish. Every stop is the approved ember lit from above — a
+     lighting cue, not a second hue. */
+  --fn-gradient-accent: linear-gradient(
+    180deg,
+    var(--fn-ember-500) 0%,
+    var(--fn-ember-600) 52%,
+    var(--fn-ember-680) 100%
+  );
+  --fn-gradient-accent-hover: linear-gradient(
+    180deg,
+    var(--fn-ember-450) 0%,
+    var(--fn-ember-550) 52%,
+    var(--fn-ember-650) 100%
+  );
+  --fn-gradient-accent-press: linear-gradient(
+    180deg,
+    var(--fn-ember-680) 0%,
+    var(--fn-ember-620) 100%
+  );
+
+  /* Status */
+  --fn-color-positive: var(--fn-moss-700);
+  --fn-color-positive-surface: var(--fn-moss-700-a09);
+  --fn-color-positive-ring: var(--fn-moss-700-a25);
+  --fn-color-caution: var(--fn-amber-700);
+  --fn-color-caution-surface: var(--fn-amber-100);
+  --fn-color-caution-tint: var(--fn-amber-700-a09);
+  --fn-color-caution-ring: var(--fn-amber-700-a25);
+  --fn-color-neutral-tint: var(--fn-pine-600-a08);
+  --fn-color-neutral-ring: var(--fn-pine-600-a20);
+
+  /* Tables */
+  --fn-color-table-surface: var(--fn-paper-75-a43);
+  --fn-color-table-head: var(--fn-mist-200-a50);
+  --fn-color-row-hover: var(--fn-white-a21);
+
+  /* Fields */
+  --fn-color-field-surface: var(--fn-white-a60);
+
+  /* Charts. The three outcome colours the daily charts, the legend and the KPI
+     lines all read — named for what they mean, not for the hue, so "recovered"
+     stays amber whatever amber becomes. */
+  --fn-color-chart-positive: var(--fn-moss-600);
+  --fn-color-chart-caution: var(--fn-amber-500);
+  --fn-color-chart-critical: var(--fn-clay-600);
+  --fn-color-chart-hover: var(--fn-pine-800-a06);
+
+  /* The grade banner, the phone-width stand-in for the card. Its own two
+     surfaces, because it sits on neither the glass nor the paper. */
+  --fn-color-banner-surface: var(--fn-grey-100);
+  --fn-color-banner-pill: var(--fn-white-a61);
+
+  /* Overlay */
+  --fn-color-scrim: var(--fn-pine-ink-deep-a40);
+
+  /* ---- Type ---- */
+  --fn-font-display: Georgia, 'Times New Roman', serif;
+  --fn-font-ui: Arial, Helvetica, sans-serif;
+  --fn-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --fn-text-display: clamp(32px, 3.3vw, 48px);
+  --fn-text-title: 27px;
+  --fn-text-subtitle: 22px;
+  --fn-text-figure: 30px;
+  --fn-text-body: 14px;
+  --fn-text-detail: 12.5px;
+  --fn-text-label: 10px;
+
+  /* ---- Space: fourteen ad-hoc values collapsed onto eight steps. ---- */
+  --fn-space-1: 4px;
+  --fn-space-2: 8px;
+  --fn-space-3: 12px;
+  --fn-space-4: 16px;
+  --fn-space-5: 24px;
+  --fn-space-6: 32px;
+  --fn-space-7: 48px;
+  --fn-space-8: 64px;
+
+  /* ---- Radii, by role rather than by size. ---- */
+  --fn-radius-sm: 5px;
+  --fn-radius-md: 8px;
+  --fn-radius-lg: 12px;
+  --fn-radius-card: 16px;
+  --fn-radius-pill: 999px;
+
+  /* ---- Elevation. Each is a different distance off the page, so each is its
+     own token rather than one shadow reused at four sizes. ---- */
+  --fn-elevation-card: 0 6px 20px var(--fn-pine-900-a06);
+  --fn-elevation-menu: 0 12px 28px var(--fn-pine-900-a11);
+  --fn-elevation-panel-soft: 0 8px 24px var(--fn-pine-900-a03);
+  --fn-elevation-panel: 0 20px 60px var(--fn-pine-900-a03);
+  --fn-elevation-dialog: 0 20px 80px var(--fn-pine-900-a20);
+
+  /* Controls are a different kind of raised from cards: a highlight along the
+     top edge, a contact shadow, and the accent's own glow. The press state
+     inverts the highlight into an inset rather than moving the shadow. */
+  --fn-elevation-control:
+    inset 0 1px 0 var(--fn-white-a22), 0 1px 1px var(--fn-pine-900-a14),
+    0 2px 7px var(--fn-ember-600-a22);
+  --fn-elevation-control-press:
+    inset 0 1px 2px var(--fn-ember-ink-a40), 0 1px 0 var(--fn-white-a30);
+  --fn-elevation-control-quiet:
+    inset 0 1px 0 var(--fn-white), 0 1px 1px var(--fn-pine-900-a07),
+    0 2px 5px var(--fn-pine-900-a06);
+  /* Not an elevation: the one-pixel darkening under a label sitting on the lit
+     gradient, which is what keeps it legible against the bright top stop. */
+  --fn-shadow-accent-text: 0 1px 0 var(--fn-ember-ink-a28);
+}
+}@layer fn.base{/* Element defaults and the type scale — the look a bare tag gets before any
+   component class touches it. Moved out of src/app/style.css verbatim in value
+   and rewritten only in the sense that a literal became the token holding that
+   same literal. */
+:root {
+  color: var(--fn-color-ink);
+  background: var(--fn-color-ground);
+  font-family: var(--fn-font-ui);
+  font-synthesis: none;
+}
+
+a {
+  color: var(--fn-color-ink);
+  text-underline-offset: 4px;
+}
+a:hover {
+  color: var(--fn-color-accent);
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--fn-font-display);
+  font-weight: 400;
+}
+h1 {
+  font-size: var(--fn-text-display);
+  letter-spacing: -1.4px;
+  margin: 12px 0;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+h2 {
+  font-size: var(--fn-text-title);
+  letter-spacing: -0.5px;
+  margin: 34px 0 16px;
+}
+h3 {
+  font-size: var(--fn-text-subtitle);
+}
+
+p,
+small {
+  line-height: 1.65;
+}
+p {
+  font-size: var(--fn-text-body);
+}
+small,
+.muted {
+  color: var(--fn-color-ink-muted);
+}
+.eyebrow {
+  font-size: var(--fn-text-label);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--fn-color-ink-muted);
+}
+
+code {
+  overflow-wrap: anywhere;
+  font-size: 0.9em;
+}
+
+/* Table chrome. `.scroll` — the overflow wrapper every wide table sits in —
+   is a component, and lives in components.css. */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  background: var(--fn-color-table-surface);
+}
+td,
+th {
+  padding: 15px;
+  text-align: left;
+  border-bottom: 1px solid var(--fn-color-rule);
+  line-height: 1.5;
+}
+th {
+  font-size: var(--fn-text-label);
+  letter-spacing: 0.6px;
+  color: var(--fn-color-ink-muted);
+  font-weight: 600;
+  background: var(--fn-color-table-head);
+}
+tbody tr:hover {
+  background: var(--fn-color-row-hover);
+}
+}@layer fn.components{/* The primitives' classes, moved out of src/app/style.css.
+ *
+ * Admission test for anything here: the app renders it AND the landing page
+ * renders it. That test is what keeps charts, the PR table, the repository
+ * picker, import progress and the sidebar out — those are product surfaces,
+ * not system parts.
+ *
+ * Several rules keep the bare element selector they had in style.css
+ * (`section`, `button`, `input`, `label`) alongside an `.fn-` class. The
+ * element selector is what the app's existing markup relies on; the class is
+ * what a caller writes when it wants the treatment deliberately. Dropping the
+ * element selector would mean touching hundreds of lines of app markup for no
+ * behavioural gain, which is not what this task is for.
+ *
+ * Every rule references the semantic tier. No literal appears here — the
+ * boundary test in ../boundary.test.ts enforces it.
+ */
+
+/* ---- Brand ------------------------------------------------------------ */
+.brand {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-decoration: none;
+  margin-bottom: var(--fn-space-7);
+  color: var(--fn-color-ink);
+}
+.brand:hover {
+  color: var(--fn-color-ink);
+}
+.brand-mark {
+  width: var(--fn-space-7);
+  height: var(--fn-space-7);
+  color: var(--fn-color-accent);
+  margin-bottom: var(--fn-space-3);
+}
+.brand-name {
+  font: 34px var(--fn-font-display);
+  letter-spacing: -1.3px;
+}
+.brand-caption {
+  font-size: 8px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  margin-top: var(--fn-space-2);
+}
+/* The stacked lockup above is a marketing lockup: right for the landing page
+   nav, and 94px of vertical space in a sidebar that has two navigation items.
+   `.brand-compact` is the one-row product lockup the app shell wears — one
+   row at every width, which is why the phone-width block at the foot of this
+   file is scoped off it rather than applying to every `.brand`. */
+.brand-compact {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--fn-space-2);
+  margin-bottom: var(--fn-space-4);
+  padding: var(--fn-space-1) var(--fn-space-2);
+}
+.brand-compact .brand-mark {
+  width: 26px;
+  height: 26px;
+  margin-bottom: 0;
+}
+.brand-compact .brand-name {
+  font-size: 21px;
+  line-height: 1;
+  letter-spacing: -0.7px;
+}
+
+/* ---- Button ----------------------------------------------------------- */
+button,
+.fn-button {
+  background: var(--fn-color-accent);
+  color: var(--fn-color-ink-inverse);
+  border: 0;
+  padding: 11px var(--fn-space-4);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.5;
+}
+button:hover,
+.fn-button:hover {
+  background: var(--fn-color-accent-hover);
+}
+/* The control finish (application-shell density pass). It lands on `.fn-button`
+   alone and not on the bare `button` above: the app's remaining bare buttons
+   are menu triggers and chart columns that carry their own surface, and giving
+   them a lit gradient would be a redesign rather than a merge. `as="a"` is why
+   the display/decoration declarations are here — a Button rendered as an
+   anchor has to stop looking like a link. */
+.fn-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fn-space-2);
+  border: 1px solid var(--fn-color-accent-edge);
+  border-radius: var(--fn-radius-md);
+  background: var(--fn-gradient-accent);
+  box-shadow: var(--fn-elevation-control);
+  text-decoration: none;
+  text-shadow: var(--fn-shadow-accent-text);
+  transition:
+    box-shadow 0.14s ease,
+    translate 0.14s ease;
+}
+.fn-button:hover {
+  background: var(--fn-gradient-accent-hover);
+}
+.fn-button:active {
+  background: var(--fn-gradient-accent-press);
+  box-shadow: var(--fn-elevation-control-press);
+  translate: 0 1px;
+}
+/* A disabled action must look inert. The gradient and the elevation are what
+   say "pressable", so the elevation comes off and the whole control fades. */
+.fn-button:disabled,
+.fn-button[aria-disabled='true'] {
+  opacity: 0.55;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fn-button {
+    transition: none;
+  }
+  .fn-button:active {
+    translate: none;
+  }
+}
+
+/* The landing page's calls to action, which need to carry across a hero. The
+   product has no use for this size yet; the ladder and the signup block do. */
+.fn-button-lg {
+  padding: var(--fn-space-4) var(--fn-space-5);
+  font-size: var(--fn-text-body);
+  border-radius: var(--fn-radius-md);
+}
+.fn-button-secondary {
+  background: var(--fn-color-ink);
+  color: var(--fn-color-ink-inverse);
+  border-color: var(--fn-color-ink);
+  box-shadow: var(--fn-elevation-control-quiet);
+  text-shadow: none;
+}
+.fn-button-secondary:hover {
+  background: var(--fn-color-ink-hover);
+  border-color: var(--fn-color-ink-hover);
+}
+/* A text action does not gain a surface, so it sheds the finish entirely. */
+.quiet-button,
+.fn-button-quiet {
+  background: transparent;
+  color: var(--fn-color-ink-muted);
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  text-shadow: none;
+}
+.quiet-button:hover,
+.fn-button-quiet:hover {
+  background: transparent;
+  color: var(--fn-color-accent);
+}
+
+/* ---- Badge ------------------------------------------------------------ *
+ * Was `.ai-pill` with `.ran` / `.setup` / `.none`. The tones are named for
+ * what they mean to a reader rather than for what the AI-involvement route
+ * happened to call them, because the landing page uses the same three to say
+ * shipped / scoring shipped / designed.                                     */
+.fn-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fn-text-label);
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: var(--fn-radius-pill);
+  white-space: nowrap;
+}
+.fn-badge::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.fn-badge-positive {
+  background: var(--fn-color-positive-surface);
+  color: var(--fn-color-positive);
+  box-shadow: inset 0 0 0 1px var(--fn-color-positive-ring);
+}
+.fn-badge-caution {
+  background: var(--fn-color-caution-tint);
+  color: var(--fn-color-caution);
+  box-shadow: inset 0 0 0 1px var(--fn-color-caution-ring);
+}
+.fn-badge-neutral {
+  background: var(--fn-color-neutral-tint);
+  color: var(--fn-color-ink-muted);
+  box-shadow: inset 0 0 0 1px var(--fn-color-neutral-ring);
+}
+
+/* ---- Surface ---------------------------------------------------------- */
+section,
+.fn-surface {
+  background: var(--fn-color-surface-glass);
+  border: 0;
+  border-radius: var(--fn-radius-lg);
+  padding: var(--fn-space-5);
+  margin: var(--fn-space-4) 0;
+  box-shadow: var(--fn-elevation-card);
+}
+@supports (backdrop-filter: blur(16px)) {
+  section,
+  .fn-surface {
+    background: var(--fn-color-surface-glass-blurred);
+    backdrop-filter: blur(16px);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  section,
+  .fn-surface {
+    backdrop-filter: none;
+    background: var(--fn-color-surface-opaque);
+  }
+}
+
+/* ---- StatCard --------------------------------------------------------- *
+ * Was `.bigcard`. The legacy `.t` / `.v` / `.s` children keep their names:
+ * six call sites in the app render them, and renaming buys nothing here.    */
+.bigcard,
+.fn-stat-card {
+  background: var(--fn-color-surface-glass);
+  border-radius: var(--fn-radius-lg);
+  padding: 18px 20px 20px;
+  box-shadow: var(--fn-elevation-card);
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+.bigcard .t,
+.fn-stat-card .t {
+  font-size: var(--fn-text-label);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--fn-color-ink-muted);
+  font-weight: 700;
+}
+.bigcard .v,
+.fn-stat-card .v {
+  font: 400 var(--fn-text-figure) var(--fn-font-display);
+  letter-spacing: -0.8px;
+  line-height: 1.05;
+}
+.bigcard .s,
+.fn-stat-card .s {
+  font-size: var(--fn-text-detail);
+  color: var(--fn-color-ink-muted);
+  line-height: 1.5;
+}
+
+/* ---- Notice ----------------------------------------------------------- */
+.notice,
+.fn-notice {
+  padding: var(--fn-space-4) 20px;
+  background: var(--fn-color-caution-surface);
+  border-left: 3px solid var(--fn-color-caution);
+  border-radius: 0 var(--fn-radius-md) var(--fn-radius-md) 0;
+}
+
+/* ---- Field ------------------------------------------------------------ */
+input,
+.fn-field input {
+  padding: 9px;
+  border: 1px solid var(--fn-color-border);
+  border-radius: var(--fn-radius-sm);
+  background: var(--fn-color-surface);
+  accent-color: var(--fn-color-accent);
+}
+label,
+.fn-field label {
+  display: block;
+  margin: var(--fn-space-3) 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* ---- DataTable -------------------------------------------------------- *
+ * The wrapper only. The table chrome itself is an element default and lives
+ * in base.css, because a bare <table> in the app already gets it.           */
+.scroll,
+.fn-data-table {
+  overflow-x: auto;
+  border-radius: 10px;
+  margin: var(--fn-space-4) 0;
+}
+
+/* ---- TopBar and Breadcrumb -------------------------------------------- *
+ * The application shell's replacement for `.page-topline`. TopBar has three
+ * named slots (Context / Utility / Identity) rather than a
+ * `justify-content: space-between` row, so a control added later becomes a
+ * child of a named slot instead of an append that lands wherever it lands.
+ * Utility is reserved for search and then notifications — it renders no
+ * control yet — so the divider before Identity is conditional on Utility
+ * actually holding something (`:not(:empty)`) rather than always drawn.       */
+.fn-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: var(--fn-space-3);
+  padding: 0 var(--fn-space-4) 0 var(--fn-space-5);
+  background: var(--fn-color-surface-glass);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--fn-color-border);
+}
+.fn-topbar__context {
+  min-width: 0;
+  flex: 1;
+}
+/* Reserved for search, then notifications. Empty by design. */
+.fn-topbar__utility {
+  display: flex;
+  align-items: center;
+  gap: var(--fn-space-2);
+}
+.fn-topbar__identity {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+.fn-topbar__utility:not(:empty) + .fn-topbar__identity {
+  border-left: 1px solid var(--fn-color-border);
+  margin-left: var(--fn-space-1);
+  padding-left: var(--fn-space-3);
+}
+.fn-crumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 var(--fn-space-2);
+  font-size: var(--fn-text-detail);
+  color: var(--fn-color-ink-muted);
+}
+.fn-crumb__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fn-space-2);
+  min-width: 0;
+}
+.fn-crumb__sep {
+  opacity: 0.5;
+}
+.fn-crumb [aria-current='page'] {
+  color: var(--fn-color-ink);
+  font-weight: 700;
+}
+
+/* ---- Responsive ------------------------------------------------------- */
+@media (max-width: 650px) {
+  /* Every rule here is scoped off `.brand-compact`. A bare `.brand` selector
+     restacks the sidebar's one-row lockup onto a phone-width grid, which is
+     the bug the compact variant exists to fix — and the compact lockup must
+     stay one row at every width. */
+  .brand:not(.brand-compact) {
+    display: grid;
+    grid-template-columns: 40px auto;
+    column-gap: 10px;
+    margin-bottom: 18px;
+  }
+  .brand:not(.brand-compact) .brand-mark {
+    grid-row: span 2;
+    width: 38px;
+    height: 38px;
+    margin: 0;
+  }
+  .brand:not(.brand-compact) .brand-name {
+    font-size: 28px;
+  }
+  .brand:not(.brand-compact) .brand-caption {
+    margin-top: 3px;
+    font-size: 7px;
+  }
+}
+}.grade-card {
+  width: 100%;
+  max-width: 350px;
+  align-self: start;
+  padding: 8px;
+  border: 1px solid var(--grade);
+  border-radius: 16px;
+  color: #203f36;
+  box-sizing: border-box;
+  isolation: isolate;
+  background: #eee;
+  box-shadow: 0 14px 35px #203f3620;
+}
+.grade-card-inner {
+  position: relative;
+  overflow: hidden;
+  padding: 24px;
+  border: 1px solid #ffffffb0;
+  border-radius: 10px;
+  background: #f4f7f3e8;
+  box-shadow: inset 0 0 24px #ffffff70;
+}
+.grade-card-inner:before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(
+      125deg,
+      transparent 0 24px,
+      #ffffff50 25px,
+      #b2d4e729 27px,
+      transparent 30px 50px
+    ),
+    linear-gradient(
+      120deg,
+      transparent 15%,
+      #b1ddd34d 30%,
+      #edc9f15e 43%,
+      #f7e6ac70 50%,
+      #a5dbe65e 58%,
+      transparent 75%
+    );
+  opacity: 0.65;
+}
+.grade-card-inner > * {
+  position: relative;
+}
+.grade-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: #526b60;
+}
+.grade-card-heading > span:first-child {
+  overflow-wrap: anywhere;
+}
+.grade-card-symbols {
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
+  color: var(--grade);
+}
+.grade-card h2 {
+  font:
+    27px Georgia,
+    serif;
+  letter-spacing: -1px;
+  margin: 18px 0 10px;
+}
+.grade-card-scoreline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.grade-card-score {
+  font:
+    bold 72px Georgia,
+    serif;
+  letter-spacing: -4px;
+  margin: 0 0 26px;
+  color: var(--grade);
+  text-shadow: 0 1px #fff;
+}
+.grade-card-score small {
+  font:
+    16px Arial,
+    sans-serif;
+  letter-spacing: 0;
+  color: #526b60;
+}
+.grade-card-rating {
+  font-size: 12px;
+  font-weight: bold;
+  padding: 7px 9px;
+  border-radius: 20px;
+  background: #ffffff9c;
+  color: #203f36;
+}
+.grade-card-scale {
+  position: relative;
+  display: grid;
+  grid-template-columns: 50fr 20fr 10fr 10fr 10fr;
+  height: 9px;
+  margin-top: 8px;
+}
+.grade-card-scale i:nth-child(1) {
+  background: #fff;
+  box-shadow: inset 0 0 0 1px #c4c9c5;
+  border-radius: 3px 0 0 3px;
+}
+.grade-card-scale i:nth-child(2) {
+  background: #548eae;
+}
+.grade-card-scale i:nth-child(3) {
+  background: #895333;
+}
+.grade-card-scale i:nth-child(4) {
+  background: #b5c3cf;
+}
+.grade-card-scale i:nth-child(5) {
+  background: #e0b735;
+  border-radius: 0 3px 3px 0;
+}
+.grade-card-pointer {
+  position: absolute;
+  top: -15px;
+  transform: translateX(-50%);
+  color: var(--grade);
+}
+.grade-card-scale-labels {
+  position: relative;
+  height: 14px;
+  margin-top: 8px;
+  font-size: 9px;
+  color: #526b60;
+}
+.grade-card-scale-labels span {
+  position: absolute;
+  transform: translateX(-50%);
+}
+.grade-card-scale-labels span:first-child {
+  transform: none;
+}
+.grade-card-scale-labels span:last-child {
+  transform: translateX(-100%);
+}
+.grade-card-commit {
+  font-size: 11px;
+  color: #526b60;
+  line-height: 1.6;
+}
+.grade-card-finish {
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  margin: 0 0 15px;
+  color: #42544e;
+}
+.grade-card-flavour {
+  font:
+    italic 11.5px Georgia,
+    serif;
+  line-height: 1.55;
+  color: #42544e;
+  margin: 0 0 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #203f3618;
+}
+.grade-card-move {
+  background: #ffffff5c;
+  border-radius: 8px;
+  padding: 10px 11px 11px;
+  box-shadow: inset 0 0 0 1px #ffffffa8;
+  margin: 0 0 12px;
+}
+.grade-card-move-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 9.5px;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: #526b60;
+  margin-bottom: 7px;
+}
+.grade-card-move-top b {
+  color: var(--grade);
+  font-size: 11px;
+  letter-spacing: 0.3px;
+  text-transform: none;
+}
+.grade-card-move ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.grade-card-move li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: #2f453d;
+}
+.grade-card-move li em {
+  font-style: normal;
+}
+.grade-card-move li span {
+  font-weight: bold;
+  color: var(--grade);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+/* The perfect-score line stands alone, with nothing beneath it to introduce,
+   so it is set as a statement in the card's own voice — not as the tiny
+   uppercase micro-label .grade-card-move-top uses to head the moves list. */
+.grade-card-no-move {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #2f453d;
+  margin: 0 0 12px;
+}
+.grade-card-rubric {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-top: 1px solid #203f3625;
+  border-bottom: 1px solid #203f3625;
+  font-size: 11px;
+}
+.grade-card-commit {
+  margin: 12px 0 0;
+}
+.grade-card[data-finish='common'] {
+  background: #ead5cf;
+  border-color: #b97465;
+  box-shadow: none;
+}
+.grade-card[data-finish='common'] .grade-card-inner {
+  background: #f3e7e2;
+  border-color: #c99b8f;
+  box-shadow: none;
+}
+.grade-card[data-finish='common'] .grade-card-inner:before {
+  display: none;
+}
+.grade-card[data-finish='common'] .grade-card-score {
+  text-shadow: none;
+}
+.grade-card[data-finish='shimmer'] {
+  background: linear-gradient(125deg, #b8bba1, #d3d6bb 25%, #c3ddd5 45%, #e2cfbc 65%, #b8bba1);
+  box-shadow: 0 9px 20px #203f3615;
+}
+.grade-card[data-finish='shimmer'] .grade-card-inner:before {
+  opacity: 0.22;
+}
+.grade-card[data-finish='bronze'] {
+  background: linear-gradient(
+    125deg,
+    #6b371f,
+    #c4834a 15%,
+    #f0ce9e 28%,
+    #ae6939 41%,
+    #dcaa75 55%,
+    #8c4c2c 70%,
+    #efd1a4 85%,
+    #a8643a
+  );
+  border-color: #965a34;
+  box-shadow:
+    0 12px 30px #8c4c2c35,
+    inset 0 0 0 2px #ffe5be80;
+}
+.grade-card[data-finish='bronze'] .grade-card-inner {
+  background: linear-gradient(135deg, #f5eee4ed, #e5d0b8e8);
+}
+.grade-card[data-finish='silver'] {
+  background: linear-gradient(
+    125deg,
+    #667481,
+    #d8e0e6 15%,
+    #fff 27%,
+    #9daebc 40%,
+    #e9eaf6 55%,
+    #879baa 69%,
+    #f9ffff 82%,
+    #afbdc7
+  );
+  border-color: #8a9ca9;
+  box-shadow:
+    0 14px 32px #64778740,
+    inset 0 0 0 2px #ffffffb0;
+}
+.grade-card[data-finish='silver'] .grade-card-inner {
+  background: linear-gradient(135deg, #f6f9fbea, #dfe7eeeb);
+}
+.grade-card[data-finish='gold'] {
+  background: linear-gradient(
+    125deg,
+    #92600d,
+    #e8b73b 15%,
+    #fff1a5 27%,
+    #c08816 40%,
+    #f9db69 53%,
+    #b47a0e 68%,
+    #fff5b5 83%,
+    #d9a32a
+  );
+  border-color: #bb8d25;
+  box-shadow:
+    0 15px 36px #b17c124d,
+    0 0 18px #f3d46b38,
+    inset 0 0 0 2px #fff0a6b0;
+}
+.grade-card[data-finish='gold'] .grade-card-inner {
+  background: linear-gradient(135deg, #fff8e2ed, #f1dfabe8);
+}
+.grade-card[data-finish='prismatic'] {
+  background: linear-gradient(
+    125deg,
+    #f17cad,
+    #ffb371 14%,
+    #f6ed87 27%,
+    #7de1b6 40%,
+    #7accec 53%,
+    #a99aee 66%,
+    #ef9de0 80%,
+    #fff0ad 92%,
+    #7de1b6
+  );
+  border-color: #bc9acb;
+  box-shadow:
+    0 18px 42px #b079b44d,
+    0 0 22px #a7d9e64d,
+    inset 0 0 0 2px #ffffffb0;
+}
+.grade-card[data-finish='prismatic'] .grade-card-inner {
+  background: linear-gradient(
+    135deg,
+    #f7bbd8,
+    #fce3aa 18%,
+    #d7f2bb 35%,
+    #aee8e3 50%,
+    #bed8f7 66%,
+    #dbc0f2 82%,
+    #f6c3db
+  );
+  box-shadow: inset 0 0 30px #ffffff80;
+}
+/* The card's own narrow-viewport cap. The grading route's layout rules that
+   used to share this media query stay with the route, in
+   src/components/grading/report.css. */
+@media (max-width: 900px) {
+  .grade-card {
+    max-width: 350px;
+  }
+}
+/* The public landing page.
+ *
+ * Marketing owns no tokens. Every colour here is a semantic token from
+ * @fieldnote/design-system — a marketing piece that wants a new colour is a
+ * signal to add a semantic token, not to write a local hex.
+ *
+ * Everything meant to be read is visible at rest. No section is parked at
+ * opacity: 0 waiting on a scroll observer, so the page works with JavaScript
+ * disabled and reads correctly to anything that does not run it.
+ */
+
+.mk-page {
+  min-height: 100dvh;
+  background:
+    radial-gradient(ellipse at 12% 12%, var(--fn-color-wash-cool) 0%, transparent 55%),
+    radial-gradient(ellipse at 95% 40%, var(--fn-color-wash-warm) 0%, transparent 48%),
+    var(--fn-color-wash-base);
+}
+
+/* One place sets the side gutter, so it can never fall below 16px at any
+   width. Vertical padding is set with padding-block so it cannot zero the
+   sides by accident. */
+.mk-shell {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding-inline: max(16px, var(--fn-space-5));
+}
+
+/* The package styles a bare <section> as a glass card, which is right
+   everywhere in the product and wrong for a page whose sections are just
+   sections. Every marketing section carries .mk-hero or .mk-section, so the
+   chrome is stripped on those two classes rather than through a blanket
+   `section:not(...)` reset — which would have to out-specify nothing at all
+   (app rules already beat fn.components by layer order) while quietly
+   out-specifying this file's own padding rules.
+   Stripping the chrome rather than reaching for <div> keeps the landmarks a
+   screen reader needs, and .fn-surface opts back in, which is how the stage
+   cards and the evidence card keep theirs. */
+.mk-hero,
+.mk-section {
+  background: none;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  margin: 0;
+  /* padding-inline, never the `padding` shorthand: each section sets its own
+     padding-block below, and a shorthand here would silently zero it. The
+     side padding has to go, though — the shell already owns the gutter, and
+     leaving the package's 24px on top of it costs 48px of width at exactly
+     the viewport that can least afford it. */
+  padding-inline: 0;
+}
+
+/* ---- Nav -------------------------------------------------------------- */
+.mk-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--fn-space-5);
+  flex-wrap: wrap;
+  padding-block: var(--fn-space-5);
+}
+.mk-nav .brand {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 0;
+}
+.mk-nav .brand-mark {
+  width: 34px;
+  height: 34px;
+  margin-bottom: 0;
+}
+.mk-nav .brand-name {
+  font-size: 26px;
+}
+.mk-nav-links {
+  display: flex;
+  gap: var(--fn-space-5);
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+.mk-nav-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--fn-space-4);
+  margin-left: auto;
+}
+.mk-nav-signin {
+  font-size: 13px;
+}
+/* The nav CTA is an anchor, so it needs the inline-block treatment a <button>
+   gets for free. */
+.mk-nav-actions .fn-button,
+.mk-cta .fn-button {
+  display: inline-block;
+  text-decoration: none;
+  text-align: center;
+}
+.mk-nav-actions .fn-button:hover,
+.mk-cta .fn-button:hover {
+  color: var(--fn-color-ink-inverse);
+}
+
+/* ---- Hero ------------------------------------------------------------- *
+ * The hero animates. Everything it animates is legible standing still: the
+ * beats are three words on the page at rest, told apart by colour rather than
+ * by opacity, and the card rests on a real Shimmer grade rather than on
+ * nothing. With no JavaScript the hero is the tagline, the three beats and a
+ * card at 61 — a weaker pitch than the animated one, and a complete one.     */
+.mk-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: var(--fn-space-8);
+  align-items: center;
+  padding-block: var(--fn-space-7) var(--fn-space-8);
+}
+.mk-hero h1 {
+  margin: var(--fn-space-3) 0 var(--fn-space-5);
+  max-width: 12ch;
+}
+.mk-lede {
+  max-width: 58ch;
+  font-size: 15px;
+  color: var(--fn-color-ink-muted);
+}
+.mk-cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fn-space-3);
+  margin: var(--fn-space-6) 0 var(--fn-space-7);
+}
+.mk-proof {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--fn-space-4);
+  margin: 0;
+  border-top: 1px solid var(--fn-color-hairline);
+  padding-top: var(--fn-space-5);
+}
+.mk-proof dt {
+  font: 400 var(--fn-text-figure) var(--fn-font-display);
+  letter-spacing: -1px;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+.mk-proof dd {
+  margin: var(--fn-space-1) 0 0;
+  font-size: var(--fn-text-detail);
+  color: var(--fn-color-ink-muted);
+  line-height: 1.4;
+}
+.mk-hero-card {
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+}
+.mk-hero-card .grade-card {
+  max-width: 330px;
+}
+
+/* The sheen crossing the foil. Applied to the hero card only — the product's
+   cards stay still.
+ *
+ * It animates `transform`, never `background-position`. The foil underneath is
+ * a repeating-linear-gradient over a second gradient; animating the background
+ * of a band sitting on top of that repaints the whole stack every frame, while
+ * a translated layer is composited and costs nothing per frame. On a card that
+ * is on screen from the moment the page loads, that is worth getting right. */
+.mk-hero-card .grade-card-inner::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 45%;
+  pointer-events: none;
+  background: linear-gradient(
+    105deg,
+    transparent,
+    var(--fn-color-row-hover) 38%,
+    var(--fn-white-a60) 50%,
+    var(--fn-color-row-hover) 62%,
+    transparent
+  );
+  animation: mk-sheen 5.5s ease-in-out infinite;
+}
+@keyframes mk-sheen {
+  0%,
+  18% {
+    transform: translateX(-160%);
+  }
+  60%,
+  100% {
+    transform: translateX(360%);
+  }
+}
+
+/* The three beats. Muted until reached, accent while being earned, ink once
+   earned — three states on the semantic tokens, no local colour. */
+.mk-beats {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fn-space-5);
+  margin: 0 0 var(--fn-space-5);
+  padding: 0;
+  font: 400 var(--fn-text-subtitle) var(--fn-font-display);
+  letter-spacing: -0.5px;
+}
+.mk-beats li {
+  color: var(--fn-color-ink-muted);
+  transition: color 420ms ease;
+}
+.mk-beats li[data-state='active'] {
+  color: var(--fn-color-accent);
+}
+.mk-beats li[data-state='done'] {
+  color: var(--fn-color-ink);
+}
+
+/* The tier crossing.
+ *
+ * The card's own text is styled by the design system; the landing page dresses
+ * it from out here, the way the sheen above already does. Each line arrives a
+ * beat after the one above it, so a new tier reads as the card settling into
+ * it rather than as four strings blinking at once.
+ *
+ * Restarting an animation needs the animation-name to change, and the name is
+ * all that differs between mk-tier-a and mk-tier-b. HeroClimb alternates
+ * data-tier on every threshold crossed, which swaps one for the other. The
+ * pair is the mechanism, not a duplicate someone forgot to delete.
+ *
+ * The floor is 0.35, not 0. A cascade that fades from nothing leaves half the
+ * card blank for the length of the stagger, four times over a ten-second
+ * climb, and an empty card reads as a broken one rather than as a card
+ * changing tier. The text dips and lifts; it never leaves.
+ *
+ * Gated on data-climbing so the resting card — the server's render, and the
+ * page with JavaScript off — is simply there, with nothing fading in. */
+.mk-hero-card[data-climbing='true'] .grade-card-rating,
+.mk-hero-card[data-climbing='true'] .grade-card-finish,
+.mk-hero-card[data-climbing='true'] .grade-card-flavour,
+.mk-hero-card[data-climbing='true'] .grade-card-move,
+.mk-hero-card[data-climbing='true'] .grade-card-no-move {
+  animation-duration: 420ms;
+  animation-timing-function: cubic-bezier(0.22, 0.9, 0.3, 1);
+  animation-fill-mode: both;
+}
+.mk-hero-card[data-climbing='true'] .grade-card-finish {
+  animation-delay: 60ms;
+}
+.mk-hero-card[data-climbing='true'] .grade-card-flavour {
+  animation-delay: 120ms;
+}
+.mk-hero-card[data-climbing='true'] .grade-card-move,
+.mk-hero-card[data-climbing='true'] .grade-card-no-move {
+  animation-delay: 180ms;
+}
+.mk-hero-card[data-climbing='true'][data-tier='0'] .grade-card-rating,
+.mk-hero-card[data-climbing='true'][data-tier='0'] .grade-card-finish,
+.mk-hero-card[data-climbing='true'][data-tier='0'] .grade-card-flavour,
+.mk-hero-card[data-climbing='true'][data-tier='0'] .grade-card-move,
+.mk-hero-card[data-climbing='true'][data-tier='0'] .grade-card-no-move {
+  animation-name: mk-tier-a;
+}
+.mk-hero-card[data-climbing='true'][data-tier='1'] .grade-card-rating,
+.mk-hero-card[data-climbing='true'][data-tier='1'] .grade-card-finish,
+.mk-hero-card[data-climbing='true'][data-tier='1'] .grade-card-flavour,
+.mk-hero-card[data-climbing='true'][data-tier='1'] .grade-card-move,
+.mk-hero-card[data-climbing='true'][data-tier='1'] .grade-card-no-move {
+  animation-name: mk-tier-b;
+}
+@keyframes mk-tier-a {
+  from {
+    opacity: 0.35;
+    transform: translateY(7px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes mk-tier-b {
+  from {
+    opacity: 0.35;
+    transform: translateY(7px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The foil, the grade colour and the score all cross-fade underneath that
+   cascade, so a tier change is a short sequence rather than a single frame. */
+.mk-hero-card .grade-card,
+.mk-hero-card .grade-card-inner,
+.mk-hero-card .grade-card-score,
+.mk-hero-card .grade-card-pointer {
+  transition:
+    background 400ms ease,
+    border-color 400ms ease,
+    box-shadow 400ms ease,
+    color 400ms ease,
+    left 220ms ease-out;
+}
+
+/* ---- Sections --------------------------------------------------------- */
+.mk-section {
+  padding-block: var(--fn-space-8);
+  border-top: 1px solid var(--fn-color-hairline);
+}
+.mk-section > h2 {
+  margin-top: var(--fn-space-2);
+  max-width: 20ch;
+}
+
+/* ---- Ladder ----------------------------------------------------------- */
+.mk-ladder {
+  list-style: none;
+  margin: var(--fn-space-6) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--fn-space-2);
+}
+.mk-rung {
+  display: grid;
+  grid-template-columns: 4ch 12ch 11ch auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--fn-space-4);
+  padding: var(--fn-space-4);
+  border-radius: var(--fn-radius-md);
+  background: var(--fn-color-surface-raised);
+  border: 1px solid var(--fn-color-hairline);
+}
+.mk-rung-score {
+  font: 400 var(--fn-text-subtitle) var(--fn-font-display);
+  font-variant-numeric: lining-nums tabular-nums;
+  text-align: right;
+}
+.mk-rung-name {
+  font-weight: 700;
+  font-size: 13px;
+}
+.mk-rung-rating {
+  font-size: var(--fn-text-detail);
+  color: var(--fn-color-ink-muted);
+}
+.mk-rung-symbols {
+  display: flex;
+  gap: 2px;
+}
+.mk-rung-flavour {
+  font-size: var(--fn-text-detail);
+  color: var(--fn-color-ink-muted);
+  line-height: 1.5;
+}
+
+/* ---- Rubric, guarantees ----------------------------------------------- */
+.mk-rubric,
+.mk-guarantees {
+  list-style: none;
+  margin: var(--fn-space-6) 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--fn-space-4);
+}
+.mk-rubric .v,
+.mk-guarantees .v {
+  font-size: 19px;
+}
+
+/* ---- Stages, evidence -------------------------------------------------- */
+.mk-stages {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--fn-space-4);
+  margin: var(--fn-space-6) 0;
+}
+.mk-stage {
+  margin: 0;
+}
+.mk-stage-top {
+  display: flex;
+  align-items: center;
+  gap: var(--fn-space-3);
+  flex-wrap: wrap;
+}
+.mk-stage h3 {
+  margin: 0;
+  font-size: 21px;
+}
+.mk-stage p {
+  font-size: 13px;
+  color: var(--fn-color-ink-muted);
+}
+.mk-evidence {
+  margin: 0;
+}
+.mk-sequence {
+  list-style: none;
+  margin: var(--fn-space-4) 0;
+  padding: 0;
+  display: grid;
+  gap: var(--fn-space-3);
+  font-size: var(--fn-text-body);
+}
+.mk-step {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-right: var(--fn-space-2);
+  border-radius: 50%;
+  background: var(--fn-color-badge-surface);
+  font-size: 11px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+.mk-verdict {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: var(--fn-space-4);
+  margin: var(--fn-space-5) 0;
+  padding-block: var(--fn-space-4);
+  border-block: 1px solid var(--fn-color-hairline);
+}
+.mk-verdict dt {
+  font-size: var(--fn-text-label);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--fn-color-ink-muted);
+  font-weight: 700;
+}
+.mk-verdict dd {
+  margin: var(--fn-space-2) 0 0;
+  font: 400 var(--fn-text-subtitle) var(--fn-font-display);
+}
+
+/* ---- Signup, footer ---------------------------------------------------- */
+.mk-signup h2 {
+  max-width: 16ch;
+}
+.mk-footnote {
+  font-size: var(--fn-text-detail);
+  color: var(--fn-color-ink-muted);
+  max-width: 70ch;
+}
+.mk-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--fn-space-3) var(--fn-space-5);
+  padding-block: var(--fn-space-6) var(--fn-space-7);
+  border-top: 1px solid var(--fn-color-hairline);
+  font-size: var(--fn-text-detail);
+  color: var(--fn-color-ink-muted);
+}
+.mk-footer-line {
+  margin: 0;
+  font-size: var(--fn-text-detail);
+}
+.mk-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fn-space-4);
+  margin-left: auto;
+}
+
+/* ---- Responsive -------------------------------------------------------- */
+@media (max-width: 900px) {
+  .mk-hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--fn-space-6);
+    padding-block: var(--fn-space-6);
+  }
+  .mk-hero h1 {
+    max-width: none;
+  }
+  .mk-hero-card {
+    order: -1;
+  }
+  .mk-rung {
+    grid-template-columns: 4ch minmax(0, 1fr) auto;
+    row-gap: var(--fn-space-2);
+  }
+  .mk-rung-rating {
+    grid-column: 2;
+  }
+  .mk-rung-flavour {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 620px) {
+  .mk-nav {
+    gap: var(--fn-space-4);
+  }
+  .mk-nav-links {
+    order: 3;
+    flex-basis: 100%;
+    gap: var(--fn-space-4);
+  }
+  /* The auto margin has nothing useful to push against once the row wraps, and
+     leaves the two actions stranded against the right edge. */
+  .mk-nav-actions {
+    margin-left: 0;
+    order: 2;
+  }
+  .mk-proof {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .mk-section {
+    padding-block: var(--fn-space-7);
+  }
+  .mk-cta .fn-button {
+    flex: 1 1 100%;
+  }
+  .mk-footer-links {
+    margin-left: 0;
+  }
+}
+
+/* ---- Motion opt-out ---------------------------------------------------- *
+ * The sheen and the climb are both decoration. Under prefers-reduced-motion
+ * they stop entirely rather than slowing down — HeroClimb renders its last
+ * frame instead of playing to it, so the card reads exactly the same standing
+ * still, which is how you know they were decoration.                         */
+@media (prefers-reduced-motion: reduce) {
+  .mk-hero-card .grade-card-inner::after {
+    animation: none;
+    background: none;
+  }
+  .mk-beats li {
+    transition: none;
+  }
+  .mk-hero-card[data-climbing='true'] .grade-card-rating,
+  .mk-hero-card[data-climbing='true'] .grade-card-finish,
+  .mk-hero-card[data-climbing='true'] .grade-card-flavour,
+  .mk-hero-card[data-climbing='true'] .grade-card-move,
+  .mk-hero-card[data-climbing='true'] .grade-card-no-move {
+    animation: none;
+  }
+  .mk-hero-card .grade-card,
+  .mk-hero-card .grade-card-inner,
+  .mk-hero-card .grade-card-score,
+  .mk-hero-card .grade-card-pointer {
+    transition: none;
+  }
+}
+</style></head><body><div class="reviewbar">DESIGN STUDY 01 <span>Proposed sections below · existing hero represented at rest</span><a href="#proposal">Review new sections ↓</a></div><main class="mk-page"><div class="mk-shell"><nav class="mk-nav"><a class="brand" href="#" aria-label="Fieldnote home"><svg class="brand-mark" viewBox="0 0 64 64" fill="none" aria-hidden="true"><g stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M14 53V30A20 20 0 0 1 34 10H50"/><path d="M22 53V30A12 12 0 0 1 34 18H50"/><path d="M30 53V30A4 4 0 0 1 34 26H50"/></g></svg><span class="brand-name">fieldnote</span></a></nav><section class="mk-hero"><div class="mk-hero-copy"><p class="eyebrow">Agent readiness, graded out of 100</p><h1>Get your ultimate harness.</h1><ol class="mk-beats"><li>Self-monitor.</li><li>Self-act.</li><li data-state="active">Self-train.</li></ol><p class="mk-lede">
+          Your coding agents are only as good as the repository you hand them. If nothing says how
+          to build it, test it, or find the thing it needs to change, an agent will guess — and CI
+          turning green will not tell you that it guessed wrong.
+        </p><p class="mk-lede">
+          fieldnote grades the repository itself, out of 100, on the five things an agent needs
+          before it can work unaided. Every failing check names the files and line ranges that prove
+          it.
+        </p><div class="mk-cta"><a class="fn-button fn-button-lg" href="#walkthrough">Try it now</a><a class="fn-button fn-button-lg fn-button-secondary" href="#walkthrough">Continue with GitHub</a></div><dl class="mk-proof"><div><dt>5</dt><dd>readiness checks</dd></div><div><dt>6</dt><dd>finishes to earn</dd></div><div><dt>100</dt><dd>a perfect score</dd></div></dl></div><div class="mk-hero-card"><section class="grade-card" data-finish="prismatic" style="--grade:#8f718f"><div class="grade-card-inner"><div class="grade-card-heading"><span>acme / checkout</span><span>✦ ✦ ✦</span></div><h2>Agent Readiness</h2><div class="grade-card-scoreline"><div class="grade-card-score">100<small> / 100</small></div></div><div class="grade-card-scale"><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="grade-card-finish">Prismatic</div><p class="grade-card-flavour">Can an agent work in this repository at all?</p><div class="grade-card-no-move">Every readiness check passes.</div><p style="font:10px monospace;margin-top:24px">ILLUSTRATIVE · HERO AT REST</p></div></section></div></section></div><style>
+section.concept{background:none;box-shadow:none;backdrop-filter:none;border-radius:0}
+html{scroll-behavior:smooth}body{margin:0}.reviewbar{padding:12px 24px;background:#203f36;color:#fffef9;font:11px Arial;letter-spacing:1.5px;display:flex;gap:24px;align-items:center}.reviewbar span{opacity:.7;letter-spacing:0}.reviewbar a{margin-left:auto;color:#fffef9}.concept{max-width:1120px;margin:auto;padding:100px 24px}.concept h2{font:normal clamp(36px,4.6vw,62px)/1.06 Georgia;letter-spacing:-2px;margin:20px 0 24px;color:#203f36;max-width:16ch}.concept p{font:15px/1.7 Arial;color:#68736a;max-width:46ch}.kicker{font:10px Arial;letter-spacing:2px;text-transform:uppercase;color:#be421f}.split{display:grid;grid-template-columns:1fr 1fr;gap:80px;align-items:center}.questions{border-top:1px solid #c8d5ca}.q{padding:23px 0;border-bottom:1px solid #c8d5ca;display:grid;grid-template-columns:32px 1fr 26px;align-items:center}.q b{font:normal 23px Georgia}.q small{display:block;font:11px monospace;color:#68736a;margin-top:10px}.q .num{color:#a3b3a7;font:12px monospace}.q .arrow{color:#be421f}.bridge{border-top:1px solid #c8d5ca}.work-wrap{background:#e7eee5;border-block:1px solid #d3ddd1}.work{display:grid;grid-template-columns:.8fr 1.2fr;gap:60px}.steps{display:grid;gap:4px;margin-top:32px}.steps button{text-align:left;border:0;border-left:2px solid #bdcbbf;border-radius:0;background:none;color:#68736a;padding:16px 18px;font:14px Arial;cursor:pointer}.steps button.active{border-color:#be421f;color:#203f36;background:#ffffff65}.steps b{display:block;margin-bottom:5px}.steps small{font:12px Arial}.window{border:1px solid #bac9bc;background:#fffef9;border-radius:14px;box-shadow:0 25px 60px #203f3610;overflow:hidden;align-self:center}.windowbar{display:flex;justify-content:space-between;padding:18px 22px;border-bottom:1px solid #dbe5dc;font:11px monospace;color:#68736a}.dots{color:#b8c7b9;letter-spacing:3px}.screen{padding:28px;min-height:342px}.screen .pill{display:inline-block;padding:6px 9px;background:#f8e9dc;color:#a34122;border-radius:5px;font:10px Arial;letter-spacing:1px}.screen h3{font:normal 29px Georgia;margin:20px 0 12px}.screen p{font-size:13px}.file{padding:14px;background:#f0f4ed;border:1px solid #dbe5dc;border-radius:6px;font:12px/1.9 monospace;margin:20px 0;white-space:pre-wrap;color:#526b60}.screenfooter{display:flex;justify-content:space-between;font:11px Arial;color:#68736a;border-top:1px solid #dbe5dc;padding-top:17px}.dot{width:7px;height:7px;border-radius:50%;display:inline-block;background:#b94324;margin-right:7px}.proofband{background:#142f28;color:#f8faf6;position:relative;overflow:hidden}.proofband:before{content:'';position:absolute;width:600px;height:600px;right:-200px;top:-200px;border:1px solid #ffffff0c;border-radius:50%;box-shadow:0 0 0 70px #ffffff03,0 0 0 140px #ffffff02;pointer-events:none}.proofband h2{color:#f8faf6;max-width:18ch}.proofband p{color:#aabeaf}.proofband .kicker{color:#d4b999}.proofhead{display:flex;justify-content:space-between;align-items:end;gap:60px}.proofhead p{max-width:32ch}.timeline{display:grid;grid-template-columns:repeat(3,1fr);margin-top:50px;gap:0}.event{border:0;border-radius:0;border-top:1px solid #668477;background:none;box-shadow:none;text-align:left;color:#b6c6ba;padding:25px 20px 25px 0;cursor:pointer;position:relative}.event:before{content:'';position:absolute;width:9px;height:9px;left:0;top:-5px;border-radius:50%;background:#6b8778;box-shadow:0 0 0 7px #142f28}.event.active:before{background:#edbb78;box-shadow:0 0 0 7px #142f28,0 0 0 8px #ab8a62}.event small{font:10px monospace;letter-spacing:1px}.event b{display:block;font:normal 25px Georgia;color:#f4f7f3;margin:15px 0}.event span{font:12px monospace;color:#9fb6a6}.verdict{border:1px solid #476357;background:#ffffff06;border-radius:9px;padding:24px;display:flex;gap:30px;align-items:center;justify-content:space-between;margin-top:20px}.verdict p{margin:0;font-size:13px}.verdict strong{display:block;color:#f1ce9a;font:normal 24px Georgia;margin:7px 0}.verdict small{font:10px Arial;letter-spacing:1px;color:#aabeaf}.progress{text-align:center}.progress h2,.progress p{margin-left:auto;margin-right:auto}.cards{display:flex;align-items:center;justify-content:center;gap:55px;margin:45px 0}.mini{width:210px;min-height:240px;border:1px solid #b6c6b6;border-radius:13px;padding:24px;text-align:left;background:linear-gradient(130deg,#f9faf0,#e0e5d5);box-shadow:0 20px 30px #203f360b;transform:rotate(-5deg)}.mini.gold{background:linear-gradient(120deg,#eee5c1,#fff9de 45%,#dcd1a0);transform:rotate(5deg);border-color:#c4b880}.mini small{font:10px monospace;letter-spacing:1px}.mini strong{display:block;font:normal 38px Georgia;margin:25px 0 8px}.mini p{font:12px/1.5 Arial}.mini .seal{font-size:23px;color:#8b7946}.change{font:12px/1.8 monospace;color:#68736a;text-align:center}.change b{display:block;font-size:24px;color:#be421f}.tierstrip{font:11px Arial;color:#68736a;letter-spacing:1px;display:flex;flex-wrap:wrap;justify-content:center;gap:27px;padding-top:25px}.trust{border-top:1px solid #c8d5ca}.trustitems{display:grid;gap:22px}.trustitems div{padding-bottom:22px;border-bottom:1px solid #d3ddd1}.trustitems h3{font:normal 24px Georgia;margin:0 0 8px}.trustitems p{margin:0;font-size:13px}.ending{background:#dfe9dc;text-align:center}.ending h2,.ending p{margin-left:auto;margin-right:auto}.actions{display:flex;justify-content:center;gap:20px;align-items:center;margin:30px 0}.actions a{font:13px Arial;color:#203f36}.actions .primary{background:#be421f;color:white;padding:16px 25px;border-radius:6px;text-decoration:none}.fine{font:11px Arial!important;color:#68736a}.mock-footer{max-width:1120px;margin:auto;padding:26px 24px;display:flex;justify-content:space-between;font:12px Arial;color:#68736a}.flash{animation:arrive .35s ease}@keyframes arrive{from{opacity:.5;transform:translateY(7px)}to{opacity:1;transform:none}}button:focus-visible,a:focus-visible{outline:3px solid #d78946;outline-offset:4px}@media(max-width:760px){.concept{padding:64px 22px}.split,.work{grid-template-columns:1fr;gap:35px}.reviewbar span{display:none}.proofhead{display:block}.timeline{grid-template-columns:1fr}.event{padding-left:18px;border-top:0;border-left:1px solid #668477}.event:before{top:30px;left:-5px}.verdict{align-items:start;flex-direction:column}.cards{gap:15px;flex-wrap:wrap}.mini{width:160px;padding:18px;min-height:205px}.change{order:3;width:100%}.screen{padding:20px}.mock-footer{gap:20px}.concept h2{letter-spacing:-1px}.actions{flex-wrap:wrap}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{animation:none!important;transition:none!important}}
+
+.q{grid-template-columns:32px 1fr}.mini.prismatic{background:linear-gradient(125deg,#d9e7d9 0%,#e5d4e9 22%,#c8e5e9 43%,#f5e6c8 64%,#ddcbea 82%,#d5e9dd);border-color:#b7abc8;transform:rotate(5deg);position:relative;overflow:hidden}.mini.prismatic:after{content:'';position:absolute;inset:-60%;background:linear-gradient(110deg,transparent 40%,#ffffff80 49%,transparent 58%);transform:translateX(-30%);animation:foil 7s ease-in-out infinite;pointer-events:none}.mini.prismatic .seal{color:#886696}@keyframes foil{0%,20%{transform:translateX(-40%)}70%,100%{transform:translateX(40%)}}.window{background:#14251f;border-color:#344d40}.windowbar{color:#adbcaf;border-color:#344d40}.screen{min-height:370px;color:#c9d9cb}.screen h3{color:#eef5e9;font-size:25px}.screen p{color:#a6b9ac}.screen .pill{background:#563c2a;color:#f0c49e}.screenfooter{border-color:#344d40;color:#9eb5a4}.terminal{font:12px/2 monospace;margin-top:22px;min-height:190px}.terminal .muted{color:#81998a}.terminal .error{color:#eda38c}.terminal .ok{color:#a8d6a5}.terminal .command{color:#f2ecd8}.terminal .tokens{display:block;border-top:1px solid #344d40;margin-top:18px;padding-top:12px;color:#ddbd88}.terminal .cursor{display:inline-block;width:7px;height:13px;background:#a8d6a5;vertical-align:middle;animation:blink 1s steps(2) infinite}@keyframes blink{50%{opacity:0}}.carousel-controls{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:20px;font:11px monospace;color:#68736a}.carousel-controls button{background:transparent;border:1px solid #a9b9ac;border-radius:25px;padding:8px 14px;color:inherit;cursor:pointer;font:11px Arial}.proofband .carousel-controls{color:#b9cbbf}.proofband .carousel-controls button{border-color:#557263}.steps button,.event{transition:background .3s,color .3s,border-color .3s}.event.active{background:#ffffff05}.screen,.verdict{will-change:opacity,transform}.terminal-line{animation:arrive .4s ease both}.terminal-line:nth-child(2){animation-delay:.08s}.terminal-line:nth-child(3){animation-delay:.16s}.terminal-line:nth-child(4){animation-delay:.24s}
+@media(max-width:760px){.mini strong{font-size:29px;letter-spacing:-1px}.mini{min-width:0}.mini small{font-size:9px}}
+.mk-proof{grid-template-columns:repeat(3,minmax(0,1fr))}
+
+.work{display:flex;flex-direction:column;gap:0;max-width:920px;padding-block:64px}.demo-heading{width:100%;margin-bottom:26px}.work h2{font-size:clamp(32px,4vw,48px);max-width:none;margin:14px 0 0}.work h2 br{display:none}.work h2 br:after{content:' '}.work .window{width:100%;align-self:stretch}.work .screen{min-height:350px}.work .steps{width:100%;display:flex;gap:6px;margin-top:18px}.work .steps button{flex:1;text-align:center;border:1px solid #b9c8ba;border-radius:6px;padding:12px 8px;font:12px Arial;background:transparent}.work .steps button.active{background:#203f36;color:#fffef9;border-color:#203f36}.work .carousel-controls{width:100%;margin-top:12px}.work .terminal{overflow-wrap:anywhere}.work .screenfooter{gap:15px}.work .screen h3{max-width:none}@media(max-width:760px){.work{padding:40px 22px}.work h2{font-size:32px}.work .screen{padding:20px;min-height:350px}.work .steps button{font-size:11px;padding:12px 5px}.work .terminal{font-size:11px}.work .screenfooter{font-size:10px}.work .screen h3{font-size:23px}}
+</style>
+<div id="proposal"></div><div class="work-wrap" id="walkthrough"><section class="concept work"><div class="demo-heading"><span class="kicker">01 / The next run starts here</span><h2>Less guessing. More getting it done.</h2></div><div class="window"><div class="windowbar"><span><span class="dots">● ● ●</span> &nbsp; acme / checkout</span><span>ILLUSTRATIVE</span></div><div id="demo" class="screen" aria-live="polite"><span class="pill">MISSING GUIDANCE</span><h3>How should the agent test?</h3><p>No documented test commands were found. Give the next agent a clear way to verify its work.</p><div class="file">SEARCHED LOCATIONS<br>README.md<br>AGENTS.md · CLAUDE.md<br>docs/**/*.md</div><div class="screenfooter"><span><i class="dot"></i>Validation commands</span><span>Readiness check · failing</span></div></div></div><div class="steps" aria-label="Agent example stages"><button class="active" aria-pressed="true" onclick="step(0)">01 · Stuck</button><button aria-pressed="false" onclick="step(1)">02 · Missing context</button><button aria-pressed="false" onclick="step(2)">03 · Ready to run</button></div></section></div>
+<div class="proofband"><section class="concept"><div class="proofhead"><div><span class="kicker">02 / Look past the green check</span><h2>CI went green.<br>What changed?</h2></div><p>Follow the revisions behind the result. See when a test or other harness file changed after a failure.</p></div><div class="timeline" aria-label="Pull request timeline"><button class="event active" onclick="eventStep(0)" aria-pressed="true"><small>REVISION 01</small><b>CI fails.</b><span>First evaluation → failed</span></button><button class="event" onclick="eventStep(1)" aria-pressed="false"><small>REVISION 02</small><b>The test changes.</b><span>tests/checkout.spec.ts</span></button><button class="event" onclick="eventStep(2)" aria-pressed="false"><small>SUBSEQUENT RESULT</small><b>CI passes.</b><span>Green, with more to inspect</span></button></div><div class="verdict" aria-live="polite"><div><small id="event-label">EVIDENCE / FIRST EVALUATION</small><strong id="event-title">The first CI run failed.</strong><p id="event-copy">Start with the sequence, not just the final status.</p></div><div><small>WORKED EXAMPLE</small><p>demo-pr-4<br>Update checkout harness</p></div></div><p class="fine" style="color:#aabeaf;margin-top:24px;max-width:none">A harness change is a reason to inspect the evidence. It does not, by itself, prove the change was wrong.</p></section></div>
+<section class="concept progress"><span class="kicker">03 / Make the progress tangible</span><h2>A grade you can<br>trace to a commit.</h2><p>Inspect the checks behind your card, make a change, and grade again. Each result has a reason.</p><div class="cards"><div class="mini"><small>BEFORE / EXAMPLE</small><strong>A gap<br>to close.</strong><p>Test commands<br>not documented.</p><span class="seal">○ ○ ○</span></div><div class="change"><span>README.md</span><b>→</b>+ documented tests</div><div class="mini prismatic"><small>AFTER / PRISMATIC STUDY</small><strong>Guidance<br>in place.</strong><p>Test commands<br>found in the new commit.</p><span class="seal">✦ ✦ ✦</span></div></div><p class="fine">Illustrative check transition. Readiness measures repository evidence, not guaranteed agent performance.</p><div class="tierstrip"><span>INSPECT THE CHECK</span><span>→</span><span>MAKE A CHANGE</span><span>→</span><span>GRADE AGAIN</span></div></section>
+<section class="concept split trust"><div><span class="kicker">04 / Trust you can inspect</span><h2>Evidence behind<br>every number.</h2><p>You shouldn’t need to take a score on faith. See what was evaluated and how the result was produced.</p><div class="file">repository → pinned commit<br>rubric → versioned checks<br>result → inspectable evidence</div></div><div class="trustitems"><div><h3>See how you were graded.</h3><p>Inspect the rubric, the evidence, and the reasoning behind each result.</p></div><div><h3>A rubric you can read.</h3><p>Understand what passes, what fails, and what each check is worth.</p></div><div><h3>Unknown stays unknown.</h3><p>Missing evidence is never quietly counted as success or failure.</p></div></div></section>
+<div class="ending"><section class="concept"><span class="kicker">Start with your repository</span><h2>Find your next<br>improvement.</h2><p>Connect a repository to inspect its readiness checks and pull-request history.</p><div class="actions"><a class="primary" href="#" onclick="document.getElementById('cta-note').textContent='Preview only · In the website, this opens GitHub sign-in.';return false">Connect with GitHub ↗</a></div><p class="fine" id="cta-note">Sign in &nbsp; → &nbsp; Select a repository &nbsp; → &nbsp; Review after import</p></section></div><footer class="mock-footer"><span>fieldnote / Evidence first.</span><span>Visual proposal · September 2026</span></footer>
+<script>
+const frames=[
+`<span class="pill">01 / AGENT RUN · ILLUSTRATIVE</span><h3>Another attempt. Same missing context.</h3><div class="terminal"><div class="terminal-line command">$ npm test</div><div class="terminal-line error">npm error Missing script: "test"</div><div class="terminal-line muted">agent › Looking for another way to verify…</div><div class="terminal-line command">$ rg 'test|vitest|jest' package.json docs/</div><div class="muted">agent › Searching files. Rebuilding context. <i class="cursor"></i></div><span class="tokens">RETRY 02 &nbsp; · &nbsp; 3.2k tokens in this example</span></div><div class="screenfooter"><span>Same task. More discovery.</span><span>Simulated terminal</span></div>`,
+`<span class="pill">02 / READINESS EVIDENCE</span><h3>The next step shouldn’t be a guess.</h3><div class="terminal"><div class="terminal-line muted">fieldnote › Inspecting repository guidance</div><div class="terminal-line ok">✓ Root agent instructions found</div><div class="terminal-line error">× No documented test commands found</div><div class="terminal-line muted">Searched: README.md, AGENTS.md, docs/</div><span class="tokens">NEXT CHANGE &nbsp; → &nbsp; document the test command</span></div><div class="screenfooter"><span>A concrete readiness gap</span><span>Illustrative evidence</span></div>`,
+`<span class="pill" style="background:#304a36;color:#c0dfb5">03 / GUIDANCE IN PLACE</span><h3>Start with the command, not the search.</h3><div class="terminal"><div class="terminal-line muted">README.md / Testing</div><div class="terminal-line ok">+ Run: pnpm exec vitest run</div><div class="terminal-line muted">agent › Read project testing instructions</div><div class="terminal-line command">$ pnpm exec vitest run</div><div class="terminal-line ok">RUN &nbsp; Starting test suite…</div><span class="tokens">READINESS &nbsp; ✓ &nbsp; documented commands found</span></div><div class="screenfooter"><span>Guidance found, not a guaranteed pass</span><span>Simulated next run</span></div>`];
+const events=[['EVIDENCE / FIRST EVALUATION','The first CI run failed.','Start with the sequence, not just the final status.'],['EVIDENCE / LATER REVISION','A test file changed after failure.','tests/checkout.spec.ts changed before the first green state.'],['VERDICT / FULL SEQUENCE','Green. Still worth a closer look.','Harness changed after failure: Yes · Clean Green: No']];
+let currentStep=0,currentEvent=0,paused=false;
+const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const versions=new WeakMap();
+async function transition(el,change){const version=(versions.get(el)||0)+1;versions.set(el,version);el.getAnimations().forEach(a=>a.cancel());if(reduced){change();return}try{await el.animate([{opacity:1,transform:'translateY(0)'},{opacity:0,transform:'translateY(-8px)'}],{duration:160,easing:'ease-in',fill:'forwards'}).finished}catch{}if(versions.get(el)!==version)return;change();el.getAnimations().forEach(a=>a.cancel());el.animate([{opacity:0,transform:'translateY(12px)'},{opacity:1,transform:'translateY(0)'}],{duration:420,easing:'cubic-bezier(.22,1,.36,1)',fill:'forwards'})}
+function step(n){currentStep=n;document.querySelectorAll('.steps button').forEach((b,i)=>{b.classList.toggle('active',i===n);b.setAttribute('aria-pressed',String(i===n))});transition(document.getElementById('demo'),()=>document.getElementById('demo').innerHTML=frames[n]);document.getElementById('step-count').textContent=`0${n+1} / 03`}
+function eventStep(n){currentEvent=n;document.querySelectorAll('.event').forEach((b,i)=>{b.classList.toggle('active',i===n);b.setAttribute('aria-pressed',String(i===n))});transition(document.querySelector('.verdict'),()=>['event-label','event-title','event-copy'].forEach((id,i)=>document.getElementById(id).textContent=events[n][i]));document.getElementById('event-count').textContent=`0${n+1} / 03`}
+function togglePlayback(){paused=!paused;document.querySelectorAll('.playback').forEach(b=>b.textContent=paused?'Play sequence':'Pause sequence')}
+document.querySelector('.steps').insertAdjacentHTML('afterend','<div class="carousel-controls"><span id="step-count">01 / 03</span><button class="playback" onclick="togglePlayback()">Pause sequence</button></div>');
+document.querySelector('.verdict').insertAdjacentHTML('afterend','<div class="carousel-controls"><span id="event-count">01 / 03</span><button class="playback" onclick="togglePlayback()">Pause sequence</button></div>');
+document.getElementById('demo').innerHTML=frames[0];
+if(reduced){paused=true;document.querySelectorAll('.playback').forEach(b=>b.textContent='Play sequence')}
+function visible(el){const r=el.getBoundingClientRect();return r.top<innerHeight*.8&&r.bottom>innerHeight*.2}
+setInterval(()=>{if(paused||document.hidden)return;const work=document.querySelector('.work'),proof=document.querySelector('.proofband');if(visible(document.getElementById('demo'))&&!work.querySelector(':focus-visible'))step((currentStep+1)%3);if(visible(document.querySelector('.verdict'))&&!proof.querySelector(':focus-visible'))eventStep((currentEvent+1)%3)},6500);
+</script>
+</main></body></html>
