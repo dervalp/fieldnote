@@ -100,6 +100,8 @@ import {
   listUndispatchedGrades,
   validateGradeRun,
   insufficientGrade,
+  scheduleGrade,
+  activeGradeRun,
 } from './queries/grade-runs';
 import { dispatchGrade } from '../inngest/dispatch-grade';
 import { evaluateGradeRun, resolveGradeCommit } from '../inngest/functions/grade-repository';
@@ -484,4 +486,48 @@ test('history and the latest grade ignore an insufficient run', async () => {
   expect(summary.latest).toBeNull();
   // The current state, though, is exactly what `unscored` is for.
   expect(summary.unscored?.incompleteReason).toBe('Not enough delivery record to judge.');
+});
+
+test('a scheduled run is created with no session and records its trigger', async () => {
+  const repositoryId = await fixtureRepository();
+  const run = await scheduleGrade({
+    repositoryId,
+    graderId: AGENT_READINESS,
+    enabledBy: context.user,
+    workspaceId: context.workspace,
+  });
+  const stored = await loadGradeRun(run.id);
+  expect(stored?.state).toBe('queued');
+  expect(stored?.trigger).toBe('schedule');
+  expect(stored?.requestedBy).toBe(context.user);
+  expect(stored?.requestedWorkspaceId).toBe(context.workspace);
+});
+
+test('a manual run still records trigger manual', async () => {
+  const repositoryId = await fixtureRepository();
+  const run = await requestGrade(repositoryId, AGENT_READINESS);
+  expect((await loadGradeRun(run.id))?.trigger).toBe('manual');
+});
+
+test('the scheduler cannot create a run for a repository the workspace lost', async () => {
+  const repositoryId = await fixtureRepository();
+  await db()
+    .delete(workspaceRepositories)
+    .where(eq(workspaceRepositories.repositoryId, repositoryId));
+  await expect(
+    scheduleGrade({
+      repositoryId,
+      graderId: AGENT_READINESS,
+      enabledBy: context.user,
+      workspaceId: context.workspace,
+    }),
+  ).rejects.toThrow('Repository unavailable');
+});
+
+test('activeGradeRun sees a queued run and not a completed one', async () => {
+  const repositoryId = await fixtureRepository();
+  const run = await requestGrade(repositoryId, AGENT_READINESS);
+  expect(await activeGradeRun(repositoryId, AGENT_READINESS)).toBe(true);
+  await failGrade(run.id);
+  expect(await activeGradeRun(repositoryId, AGENT_READINESS)).toBe(false);
 });

@@ -100,16 +100,25 @@ export async function registerRubric(manifest: GraderManifest) {
   }
   return stored;
 }
-export async function requestGrade(
-  repositoryId: string,
-  graderId: string,
-): Promise<{ id: string; state: GradeRun['state'] }> {
-  const manifest = getGrader(graderId);
-  const repository = await requireRepository(repositoryId);
-  const workspace = await requireWorkspace();
-  if (workspace.id === 'demo' || repository.isDemo) throw new Error('Demo workspace is read-only');
-  const user = await currentUser();
-  await registerRubric(manifest);
+/**
+ * The half of a grade request that has no session: the advisory lock keyed by
+ * grader, the workspace lock, the availability join, the retry lookup and the
+ * conflict fallback. Both callers go through it, so a scheduled run cannot be
+ * created where a clicked one would have been refused.
+ *
+ * Trusted primitive. The caller is responsible for having resolved the grader
+ * and registered its rubric; the availability join here re-checks repository,
+ * installation, workspace link, membership and demo mode regardless.
+ */
+export async function insertGradeRun(input: {
+  repositoryId: string;
+  graderId: string;
+  manifest: GraderManifest;
+  userId: string;
+  workspaceId: string;
+  trigger: 'manual' | 'schedule';
+}): Promise<{ id: string; state: GradeRun['state'] }> {
+  const { repositoryId, graderId, manifest, userId, workspaceId, trigger } = input;
   return db().transaction(async (tx) => {
     // The lock key names the grader too: two graders on one repository must
     // not serialise against each other now that the unique index no longer
@@ -118,7 +127,7 @@ export async function requestGrade(
       sql`select pg_advisory_xact_lock(hashtextextended(${`${repositoryId}:grade:${graderId}`},0))`,
     );
     // Match workspace mutations' lock and recheck membership/link after initial authorization.
-    await tx.execute(sql`select id from workspaces where id = ${workspace.id} for update`);
+    await tx.execute(sql`select id from workspaces where id = ${workspaceId} for update`);
     const [available] = await tx
       .select({ id: repositories.id })
       .from(repositories)
@@ -127,14 +136,14 @@ export async function requestGrade(
         workspaceRepositories,
         and(
           eq(workspaceRepositories.repositoryId, repositories.id),
-          eq(workspaceRepositories.workspaceId, workspace.id),
+          eq(workspaceRepositories.workspaceId, workspaceId),
         ),
       )
       .innerJoin(
         workspaceMemberships,
         and(
-          eq(workspaceMemberships.workspaceId, workspace.id),
-          eq(workspaceMemberships.userId, user.id),
+          eq(workspaceMemberships.workspaceId, workspaceId),
+          eq(workspaceMemberships.userId, userId),
         ),
       )
       .where(
@@ -160,10 +169,11 @@ export async function requestGrade(
         graderId,
         rubricVersion: manifest.version,
         evaluatorVersion: manifest.evaluatorVersion,
-        requestedBy: user.id,
-        requestedWorkspaceId: workspace.id,
+        requestedBy: userId,
+        requestedWorkspaceId: workspaceId,
         retryOf: latest?.state === 'failed' ? latest.id : null,
         state: 'queued',
+        trigger,
       })
       .onConflictDoNothing()
       .returning();
@@ -183,6 +193,50 @@ export async function requestGrade(
       )[0];
     if (!active) throw new Error('Grade request unavailable');
     return { id: active.id, state: active.state };
+  });
+}
+
+/** The session half: who is asking, and may they. */
+export async function requestGrade(
+  repositoryId: string,
+  graderId: string,
+): Promise<{ id: string; state: GradeRun['state'] }> {
+  const manifest = getGrader(graderId);
+  const repository = await requireRepository(repositoryId);
+  const workspace = await requireWorkspace();
+  if (workspace.id === 'demo' || repository.isDemo) throw new Error('Demo workspace is read-only');
+  const user = await currentUser();
+  await registerRubric(manifest);
+  return insertGradeRun({
+    repositoryId,
+    graderId,
+    manifest,
+    userId: user.id,
+    workspaceId: workspace.id,
+    trigger: 'manual',
+  });
+}
+
+/**
+ * The scheduler half. It has the repository, grader, enabler and workspace
+ * from the schedule row, so it needs no session — but insertGradeRun's
+ * availability join still re-checks every condition requestGrade checks.
+ */
+export async function scheduleGrade(input: {
+  repositoryId: string;
+  graderId: string;
+  enabledBy: string;
+  workspaceId: string;
+}): Promise<{ id: string; state: GradeRun['state'] }> {
+  const manifest = getGrader(input.graderId);
+  await registerRubric(manifest);
+  return insertGradeRun({
+    repositoryId: input.repositoryId,
+    graderId: input.graderId,
+    manifest,
+    userId: input.enabledBy,
+    workspaceId: input.workspaceId,
+    trigger: 'schedule',
   });
 }
 function completed(run: GradeRun): CompletedGrade | null {
@@ -281,6 +335,22 @@ export async function gradeSummaries(
 // Trusted worker primitives; never expose these directly as browser actions.
 export async function loadGradeRun(runId: string) {
   return (await db().select().from(runs).where(eq(runs.id, runId)))[0] ?? null;
+}
+/** Trusted worker primitive: whether a run is already in flight for this pair.
+ *  grade_runs_one_active would refuse the insert anyway; asking first avoids
+ *  manufacturing an error to swallow. */
+export async function activeGradeRun(repositoryId: string, graderId: string): Promise<boolean> {
+  const [run] = await db()
+    .select({ id: runs.id })
+    .from(runs)
+    .where(
+      and(
+        eq(runs.repositoryId, repositoryId),
+        eq(runs.graderId, graderId),
+        inArray(runs.state, ['queued', 'running']),
+      ),
+    );
+  return Boolean(run);
 }
 // Trusted worker primitive: no session and no workspace, because a background
 // job has neither. Callers must have authorized by another route first —
