@@ -17,7 +17,7 @@ export const LADDER_SCORES = [32, 61, 74, 84, 95, 100] as const;
 /** The hero card: Gold, one move short of Prismatic. */
 export const HERO_SCORE = 95;
 
-/** Where the hero's climb rests before it starts: Mediocre, a Shimmer card. */
+/** Where the hero's climb rests before it starts: Improving, a Shimmer card. */
 export const CLIMB_FROM = 61;
 
 /**

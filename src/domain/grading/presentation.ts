@@ -16,6 +16,6 @@ export function gradePresentation(score: number): GradePresentation {
   if (score >= 70)
     return { label: 'Good', finish: 'bronze', color: '#895333', symbol: 'star', count: 1 };
   if (score >= 50)
-    return { label: 'Mediocre', finish: 'shimmer', color: '#548eae', symbol: 'circle', count: 1 };
-  return { label: 'Bad', finish: 'common', color: '#b54740', symbol: 'circle', count: 1 };
+    return { label: 'Improving', finish: 'shimmer', color: '#548eae', symbol: 'circle', count: 1 };
+  return { label: 'Early', finish: 'common', color: '#b54740', symbol: 'circle', count: 1 };
 }

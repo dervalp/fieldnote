@@ -45,8 +45,8 @@ describe('gradeCardProps', () => {
   // this test, which is the point of driving it from real scores rather than
   // asserting a hand-written table.
   it.each([
-    [32, 'common', 'Bad', 'circle', 1],
-    [61, 'shimmer', 'Mediocre', 'circle', 1],
+    [32, 'common', 'Early', 'circle', 1],
+    [61, 'shimmer', 'Improving', 'circle', 1],
     [74, 'bronze', 'Good', 'star', 1],
     [84, 'silver', 'Very good', 'star', 2],
     [95, 'gold', 'Excellent', 'star', 3],

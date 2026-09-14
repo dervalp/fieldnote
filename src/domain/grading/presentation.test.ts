@@ -18,8 +18,10 @@ test.each([-1, 101, 0.5, NaN, Infinity, -Infinity])('rejects invalid score %s', 
   expect(() => gradePresentation(score)).toThrow();
 });
 test.each([
-  [0, 'Bad', 'circle', 1, '#b54740'],
-  [50, 'Mediocre', 'circle', 1, '#548eae'],
+  [0, 'Early', 'circle', 1, '#b54740'],
+  [49, 'Early', 'circle', 1, '#b54740'],
+  [50, 'Improving', 'circle', 1, '#548eae'],
+  [69, 'Improving', 'circle', 1, '#548eae'],
   [70, 'Good', 'star', 1, '#895333'],
   [80, 'Very good', 'star', 2, '#697e8d'],
   [90, 'Excellent', 'star', 3, '#a77a13'],
