@@ -3,3 +3,5 @@ node_modules
 .pnpm-store
 pnpm-lock.yaml
 drizzle/meta
+src/domain/grading/graders/test-discipline/grader.mjs
+src/domain/grading/graders/test-discipline/source.generated.ts

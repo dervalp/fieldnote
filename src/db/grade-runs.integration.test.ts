@@ -108,6 +108,7 @@ import { evaluateGradeRun, resolveGradeCommit } from '../inngest/functions/grade
 import { runDeclarative } from '../domain/grading/declarative';
 import { AGENT_READINESS, agentReadinessManifest } from '../domain/grading/graders/agent-readiness';
 import { DELIVERY_HEALTH, deliveryHealthManifest } from '../domain/grading/graders/delivery-health';
+import { testDisciplineManifest } from '../domain/grading/graders/test-discipline';
 import { registerGrader } from '../domain/grading/registry';
 import { rubricView } from '../domain/grading/rubric-view';
 const github = vi.hoisted(() => ({ resolve: vi.fn(), collect: vi.fn() }));
@@ -287,6 +288,17 @@ test('a version still freezes a threshold that would move every score', async ()
     ),
   } as typeof agentReadinessManifest;
   await expect(registerRubric(reweighted)).rejects.toThrow('Rubric version definition mismatch');
+});
+
+test('a version freezes the program a code grader ships', async () => {
+  await registerRubric(testDisciplineManifest);
+  // The program decides every check, so a changed program under the same
+  // version would silently regrade against a different rubric.
+  const reprogrammed = {
+    ...testDisciplineManifest,
+    code: { source: 'export default () => ({ checks: [] });' },
+  } as typeof testDisciplineManifest;
+  await expect(registerRubric(reprogrammed)).rejects.toThrow('Rubric version definition mismatch');
 });
 
 test('a stored manifest from before card.title still registers', async () => {
