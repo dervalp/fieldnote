@@ -716,6 +716,31 @@ export const gradeSchedules = pgTable(
   (t) => [primaryKey({ columns: [t.repositoryId, t.graderId] })],
 );
 
+// One row per (repository, grader) a workspace owner has made public. A row
+// with revoked_at NULL is shared. Turning sharing off sets revoked_at and keeps
+// the row, so a README's badge renders `private` rather than breaking, and
+// turning it back on revives the same link. Keyed by repository, not by
+// workspace, exactly as grade_schedules is: one repository connected to two
+// workspaces has one sharing state per grader.
+export const publicGrades = pgTable(
+  'public_grades',
+  {
+    repositoryId: text('repository_id')
+      .notNull()
+      .references(() => repositories.id),
+    graderId: text('grader_id').notNull(),
+    enabledBy: text('enabled_by')
+      .notNull()
+      .references(() => users.id),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    enabledAt: timestamp('enabled_at', { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  (t) => [primaryKey({ columns: [t.repositoryId, t.graderId] })],
+);
+
 export const authoringRuns = pgTable(
   'authoring_runs',
   {

@@ -4,6 +4,7 @@ import { dispatchGrade } from '../../../../../inngest/dispatch-grade';
 import { requestPlan } from '../../../../../db/queries/authoring-runs';
 import { dispatchAuthoringPlan } from '../../../../../inngest/dispatch-authoring';
 import { writeGradeSchedule } from '../../../../../db/queries/grade-schedules';
+import { writePublicGrade } from '../../../../../db/queries/public-grade-settings';
 export async function runGrade(repositoryId: string, graderId: string): Promise<{ runId: string }> {
   // requestGrade resolves the grader through the registry, which throws on an
   // unknown id, and checks workspace membership, repository connection and
@@ -26,6 +27,17 @@ export async function setGradeSchedule(
   enabled: boolean,
 ): Promise<void> {
   await writeGradeSchedule(repositoryId, graderId, enabled);
+}
+
+// writePublicGrade resolves the grader through the registry, requires the
+// owner role, and refuses the demo workspace and a repository this workspace
+// is not connected to.
+export async function setPublicGrade(
+  repositoryId: string,
+  graderId: string,
+  shared: boolean,
+): Promise<void> {
+  await writePublicGrade(repositoryId, graderId, shared);
 }
 
 // Returns nothing: unlike runGrade, this action has no client-side caller to

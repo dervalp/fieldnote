@@ -113,6 +113,13 @@
       "when": 1789405147374,
       "tag": "0015_grade_confirmed_at",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1789405427243,
+      "tag": "0016_public_grades",
+      "breakpoints": true
     }
   ]
 }
