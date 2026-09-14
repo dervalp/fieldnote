@@ -137,3 +137,8 @@ test('development and tests with no key use the local sandbox', () => {
   expect(selectSandbox({ NODE_ENV: 'test' })).toBe(localSandbox);
   expect(selectSandbox({ NODE_ENV: 'development' })).toBe(localSandbox);
 });
+
+test('an E2B key selects the E2B sandbox, in production or not', () => {
+  expect(selectSandbox({ NODE_ENV: 'production', E2B_API_KEY: 'k' })).not.toBe(localSandbox);
+  expect(selectSandbox({ NODE_ENV: 'test', E2B_API_KEY: 'k' })).not.toBe(localSandbox);
+});
