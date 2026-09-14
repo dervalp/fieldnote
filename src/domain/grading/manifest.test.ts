@@ -227,3 +227,19 @@ test('a bar outside 0-100 and a missing card title are schema errors', () => {
   }
   throw new Error('expected schema');
 });
+
+test('more than twenty repo.files patterns is needs_too_broad', () => {
+  rejects(
+    (m) =>
+      void (m.needs['repo.files'] = Array.from({ length: 21 }, (_u, i) => `dir-${i}/**/*.md`)),
+    'needs_too_broad',
+  );
+});
+
+test('exactly twenty repo.files patterns is accepted', () => {
+  const manifest = valid();
+  manifest.needs = {
+    'repo.files': Array.from({ length: 20 }, (_u, i) => `dir-${i}/**/*.md`),
+  };
+  expect(() => parseManifest(manifest)).not.toThrow();
+});

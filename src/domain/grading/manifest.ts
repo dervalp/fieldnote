@@ -43,7 +43,8 @@ export type ManifestErrorCode =
   | 'check_grouped_twice'
   | 'unknown_check_grouped'
   | 'needs_empty'
-  | 'needs_mismatch';
+  | 'needs_mismatch'
+  | 'needs_too_broad';
 
 export class ManifestError extends Error {
   constructor(
@@ -191,6 +192,17 @@ export function parseManifest(input: unknown): GraderManifest {
     .map(([family]) => family) as Array<'repo.files' | 'fieldnote.metrics'>;
   if (declared.length === 0)
     throw new ManifestError('needs_empty', 'A grader must declare at least one evidence family.');
+
+  // A manifest is untrusted input and every pattern is a regular expression
+  // run against every tree entry. Twenty is four times what either built-in
+  // needs. Its own code rather than a Zod .max(), so an author is told which
+  // rule they broke.
+  const patterns = manifest.needs['repo.files'];
+  if (patterns && patterns.length > 20)
+    throw new ManifestError(
+      'needs_too_broad',
+      `Manifest declares ${patterns.length} repo.files patterns; the limit is 20.`,
+    );
 
   const required = new Set(manifest.checks.map((check) => FAMILY_OF[check.primitive]));
   const undeclared = [...required].find((family) => !declared.includes(family));
