@@ -13,6 +13,7 @@ import {
 import { resolveHeadSha } from '../../github/collect-files';
 import { getGrader } from '../../domain/grading/registry';
 import { changesOverTime } from '../../domain/grading/manifest';
+import { sandboxFor } from '../../grading/evaluate';
 
 /**
  * One schedule's decision, in the order the design gives: an available
@@ -31,6 +32,14 @@ export async function scheduleIfDue(row: GradeScheduleRow): Promise<string | nul
     manifest = getGrader(row.graderId);
   } catch {
     // A schedule for a grader nothing registers is inert, not fatal.
+    return null;
+  }
+  // A code grader with no sandbox to run in would otherwise create a run that
+  // fails sandbox_unavailable every night. Skipped like any other skip: the
+  // row survives, and the first night a sandbox exists it runs.
+  try {
+    sandboxFor(manifest);
+  } catch {
     return null;
   }
   // Step 3. grade_runs_one_active would refuse the insert anyway; asking first

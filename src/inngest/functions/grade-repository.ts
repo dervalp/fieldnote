@@ -14,7 +14,7 @@ import { resolveHeadSha, FileCollectionError } from '../../github/collect-files'
 import { collectEvidence } from '../../grading/evidence';
 import { getGrader } from '../../domain/grading/registry';
 import { GraderFailedError } from '../../domain/grading/code';
-import { evaluate } from '../../grading/evaluate';
+import { evaluate, sandboxFor } from '../../grading/evaluate';
 import { SandboxUnavailableError } from '../../grading/sandbox/errors';
 
 async function validated(runId: string) {
@@ -75,8 +75,10 @@ export async function evaluateGradeRun(runId: string) {
   if (!run.sha) throw new NonRetriableError('Grade commit is missing');
   try {
     const manifest = getGrader(run.graderId);
+    // Before collecting: no sandbox should cost no GitHub calls.
+    const sandbox = sandboxFor(manifest);
     const collected = await collectEvidence(manifest, run.repositoryId, run.sha, run.createdAt);
-    const { result, verdict } = await evaluate(manifest, collected);
+    const { result, verdict } = await evaluate(manifest, collected, sandbox);
     // A failure stores nothing: its check results failed for want of evidence,
     // not for want of the thing they measure.
     if (verdict === 'incomplete') {

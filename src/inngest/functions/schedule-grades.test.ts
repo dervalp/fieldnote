@@ -10,6 +10,8 @@ const github = vi.hoisted(() => ({ resolveHeadSha: vi.fn() }));
 vi.mock('../../db/queries/grade-schedules', () => schedules);
 vi.mock('../../db/queries/grade-runs', () => runs);
 vi.mock('../../github/collect-files', () => github);
+const sandbox = vi.hoisted(() => ({ selectSandbox: vi.fn() }));
+vi.mock('../../grading/sandbox', () => sandbox);
 
 const { scheduleIfDue } = await import('./schedule-grades');
 const {
@@ -17,6 +19,8 @@ const {
   agentReadinessManifest,
 } = await import('../../domain/grading/graders/agent-readiness');
 const { DELIVERY_HEALTH } = await import('../../domain/grading/graders/delivery-health');
+const { TEST_DISCIPLINE } = await import('../../domain/grading/graders/test-discipline');
+const { SandboxUnavailableError } = await import('../../grading/sandbox/errors');
 
 const readinessRow = {
   repositoryId: 'repo-1',
@@ -25,6 +29,7 @@ const readinessRow = {
   workspaceId: 'workspace-1',
 };
 const deliveryRow = { ...readinessRow, graderId: DELIVERY_HEALTH };
+const codeRow = { ...readinessRow, graderId: TEST_DISCIPLINE };
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -33,6 +38,7 @@ beforeEach(() => {
   runs.latestFinishedGrade.mockResolvedValue(null);
   runs.scheduleGrade.mockResolvedValue({ id: 'run-1', state: 'queued' });
   github.resolveHeadSha.mockResolvedValue('a'.repeat(40));
+  sandbox.selectSandbox.mockReturnValue({});
 });
 
 test('an unavailable repository or a paused schedule creates nothing', async () => {
@@ -117,4 +123,27 @@ test('the skip is keyed off the evidence labels, not the subject field', async (
   // ...and an over-time grader never asks.
   expect(await scheduleIfDue(deliveryRow)).toBe('run-1');
   expect(runs.latestFinishedGrade).toHaveBeenCalledTimes(1);
+});
+
+test('a code grader is skipped, and its row kept, when no sandbox can be selected', async () => {
+  sandbox.selectSandbox.mockImplementation(() => {
+    throw new SandboxUnavailableError(false);
+  });
+  expect(await scheduleIfDue(codeRow)).toBeNull();
+  expect(github.resolveHeadSha).not.toHaveBeenCalled();
+  expect(runs.scheduleGrade).not.toHaveBeenCalled();
+});
+
+test('a code grader is scheduled when a sandbox can be selected', async () => {
+  expect(await scheduleIfDue(codeRow)).toBe('run-1');
+  expect(sandbox.selectSandbox).toHaveBeenCalled();
+});
+
+test('a declarative grader is scheduled without asking for a sandbox', async () => {
+  sandbox.selectSandbox.mockImplementation(() => {
+    throw new SandboxUnavailableError(false);
+  });
+  expect(await scheduleIfDue(readinessRow)).toBe('run-1');
+  expect(await scheduleIfDue(deliveryRow)).toBe('run-1');
+  expect(sandbox.selectSandbox).not.toHaveBeenCalled();
 });

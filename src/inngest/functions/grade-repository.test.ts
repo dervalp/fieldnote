@@ -18,7 +18,8 @@ vi.mock('../../github/collect-files', () => ({
 }));
 const code = vi.hoisted(() => ({ runCodeGrader: vi.fn() }));
 vi.mock('../../grading/run-code', () => code);
-vi.mock('../../grading/sandbox', () => ({ selectSandbox: () => ({}) }));
+const sandbox = vi.hoisted(() => ({ selectSandbox: vi.fn() }));
+vi.mock('../../grading/sandbox', () => sandbox);
 const client = vi.hoisted(() => ({
   createFunction: vi.fn((config: unknown, handler: unknown) => ({ config, handler })),
 }));
@@ -75,6 +76,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   queries.loadGradeRun.mockResolvedValue(run);
   queries.validateGradeRun.mockResolvedValue(undefined);
+  sandbox.selectSandbox.mockReturnValue({});
 });
 
 test('a grader floor miss is stored, not failed', async () => {
@@ -179,6 +181,27 @@ test('no sandbox in production fails the run as sandbox_unavailable, without ret
   code.runCodeGrader.mockRejectedValue(new SandboxUnavailableError(false));
   await expect(evaluateGradeRun('run-1')).rejects.toBeInstanceOf(NonRetriableError);
   expect(queries.failGrade).toHaveBeenCalledWith('run-1', 'sandbox_unavailable');
+});
+
+test('a code grader with no sandbox fails before a single GitHub call', async () => {
+  queries.loadGradeRun.mockResolvedValue(codeRun);
+  sandbox.selectSandbox.mockImplementation(() => {
+    throw new SandboxUnavailableError(false);
+  });
+  await expect(evaluateGradeRun('run-1')).rejects.toBeInstanceOf(NonRetriableError);
+  expect(broker.collectEvidence).not.toHaveBeenCalled();
+  expect(code.runCodeGrader).not.toHaveBeenCalled();
+  expect(queries.failGrade).toHaveBeenCalledWith('run-1', 'sandbox_unavailable');
+});
+
+test('a declarative grader never asks for a sandbox', async () => {
+  broker.collectEvidence.mockResolvedValue({
+    snapshot: { sha: run.sha, complete: true, documents: [], metrics: null },
+    incompleteCode: null,
+  });
+  await evaluateGradeRun('run-1');
+  expect(sandbox.selectSandbox).not.toHaveBeenCalled();
+  expect(queries.completeGrade).toHaveBeenCalled();
 });
 
 test('a sandbox outage is retried under its own name and stores nothing yet', async () => {

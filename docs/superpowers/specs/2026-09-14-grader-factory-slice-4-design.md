@@ -154,6 +154,9 @@ guarantee the local adapter enforces for real.
   `sandbox_unavailable`. It never falls back to the local adapter, because that
   would silently drop the network guarantee in exactly the environment it
   exists for.
+  The sandbox is chosen before any evidence is collected, so that failure
+  costs no GitHub calls, and the nightly scheduler skips a code grader while
+  no sandbox can be chosen rather than creating a failed run every night.
 
 ## The contract
 
