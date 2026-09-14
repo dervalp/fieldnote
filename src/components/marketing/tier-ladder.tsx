@@ -5,8 +5,10 @@ import { ladderCards } from './sample-grades';
  *
  * Every rung is derived by putting its score through the rubric, so the ladder
  * cannot advertise a tier the grader is incapable of issuing. The names are
- * the domain's own — which is why the top rung reads Prismatic and not
- * `rainbow`.
+ * the domain's own.
+ *
+ * The line under each rung is marketing's, not the grader's: a grader supplies
+ * one tagline, and the ladder is selling six bands. See ladder-copy.ts.
  */
 export function TierLadder() {
   const rungs = ladderCards();

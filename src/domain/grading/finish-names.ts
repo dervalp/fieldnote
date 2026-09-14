@@ -5,5 +5,5 @@ export const finishNames: Record<GradePresentation['finish'], string> = {
   bronze: 'Bronze · Holographic',
   silver: 'Silver · Holographic',
   gold: 'Gold · Holographic',
-  rainbow: 'Prismatic · Perfect score',
+  prismatic: 'Prismatic · Perfect score',
 };

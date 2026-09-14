@@ -1,5 +1,6 @@
 import { Octokit } from 'octokit';
-import { evaluateReadiness } from '../domain/grading/readiness-v01';
+import { runDeclarative } from '../domain/grading/declarative';
+import { agentReadinessManifest } from '../domain/grading/graders/agent-readiness';
 import { beforeEach, expect, test, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   repositoryClient: vi.fn(),
@@ -356,13 +357,13 @@ test('deadline also bounds installation client acquisition', async () => {
   }
 });
 test.each(['docs/architecture.MD', 'docs/setup.markdown', 'Docs/nested/setup.MARKDOWN'])(
-  'collected %s receives the evaluator documentation points',
+  'collected %s receives the grader documentation points',
   async (path) => {
     mocks.getTree.mockResolvedValue({ data: { truncated: false, tree: [blob(path)] } });
     const snapshot = await collectReadiness('fixture-repo', 'abc');
     expect(snapshot.complete).toBe(true);
     expect(snapshot.documents).toEqual([{ path, blobSha: 'b1', text: 'text' }]);
-    const grade = evaluateReadiness(snapshot);
+    const grade = runDeclarative(agentReadinessManifest, snapshot);
     expect(grade.checks.find((check) => check.id === 'docs-markdown')).toMatchObject({
       status: 'pass',
       points: 20,

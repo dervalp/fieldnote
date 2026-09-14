@@ -4,7 +4,6 @@ import { useRouter } from 'next/navigation';
 import { Button, Surface } from '@fieldnote/design-system';
 import type { CompletedGrade } from '../../db/queries/grade-runs';
 import { runGrade } from '../../app/app/repos/[repoId]/grading/actions';
-import { checkTitles } from '../../domain/grading/check-titles';
 import './report.css';
 type Status = { id: string; state: 'queued' | 'running' | 'complete' | 'failed' };
 export function GradeControls({
@@ -120,11 +119,13 @@ export function GradeReport({
   owner,
   name,
   outdated,
+  checkTitles,
 }: {
   grade: CompletedGrade;
   owner: string;
   name: string;
   outdated: boolean;
+  checkTitles: Record<string, string>;
 }) {
   const base = `https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/blob/${encodeURIComponent(grade.sha)}/`;
   return (

@@ -37,7 +37,14 @@ const HOLD_MS = 800;
 const SETTLE_MS = 1600;
 
 /** Ascending, so a finish's position in it is also how far the card has come. */
-const FINISH_ORDER: GradeFinish[] = ['common', 'shimmer', 'bronze', 'silver', 'gold', 'rainbow'];
+const FINISH_ORDER: GradeFinish[] = [
+  'common',
+  'shimmer',
+  'bronze',
+  'silver',
+  'gold',
+  'prismatic',
+];
 
 type Frame = { score: number; beat: number };
 type Key = Frame & { at: number };

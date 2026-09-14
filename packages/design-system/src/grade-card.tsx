@@ -9,10 +9,11 @@ import './grade-card.css';
  * together at both type level and runtime, so they cannot drift apart in
  * silence.
  *
- * `rainbow` is the domain's identifier and stays the domain's identifier. The
- * name a reader sees is Prismatic, and it arrives as `finishName`.
+ * The identifier is `prismatic`, which is also the name a reader sees: it
+ * arrives spelled out as `finishName`. The identifier used to be `rainbow`
+ * while the card said Prismatic; the grader contract settled on one word.
  */
-export type GradeFinish = 'common' | 'shimmer' | 'bronze' | 'silver' | 'gold' | 'rainbow';
+export type GradeFinish = 'common' | 'shimmer' | 'bronze' | 'silver' | 'gold' | 'prismatic';
 
 export type GradeMove = { id: string; title: string; points: number };
 
@@ -78,7 +79,7 @@ export function GradeCard({
                 width="18"
                 height="18"
                 viewBox="0 0 24 24"
-                fill={finish === 'rainbow' ? `url(#${gradient})` : 'currentColor'}
+                fill={finish === 'prismatic' ? `url(#${gradient})` : 'currentColor'}
               >
                 <defs>
                   <linearGradient id={i === 0 ? gradient : `${gradient}-${i}`}>

@@ -76,7 +76,10 @@ async function seed() {
 }
 test('concurrent clicks share one active run', async () => {
   const id = await seed();
-  const [a, b] = await Promise.all([requestGrade(id), requestGrade(id)]);
+  const [a, b] = await Promise.all([
+    requestGrade(id, AGENT_READINESS),
+    requestGrade(id, AGENT_READINESS),
+  ]);
   expect(a.id).toBe(b.id);
 });
 
@@ -97,7 +100,9 @@ import {
 } from './queries/grade-runs';
 import { dispatchGrade } from '../inngest/dispatch-grade';
 import { evaluateGradeRun, resolveGradeCommit } from '../inngest/functions/grade-repository';
-import { evaluateReadiness, readinessRubric } from '../domain/grading/readiness-v01';
+import { runDeclarative } from '../domain/grading/declarative';
+import { AGENT_READINESS, agentReadinessManifest } from '../domain/grading/graders/agent-readiness';
+import { registerGrader } from '../domain/grading/registry';
 const github = vi.hoisted(() => ({ resolve: vi.fn(), collect: vi.fn() }));
 vi.mock('../github/collect-readiness', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../github/collect-readiness')>()),
@@ -105,13 +110,13 @@ vi.mock('../github/collect-readiness', async (importOriginal) => ({
   collectReadiness: github.collect,
 }));
 const sha = 'a'.repeat(40);
-const result = evaluateReadiness({
+const result = runDeclarative(agentReadinessManifest, {
   sha,
   complete: true,
   documents: [{ path: 'README.md', blobSha: 'b'.repeat(40), text: 'private source marker' }],
 });
 async function finished(repo: string) {
-  const run = await requestGrade(repo);
+  const run = await requestGrade(repo, AGENT_READINESS);
   await beginGrade(run.id);
   await pinGradeSha(run.id, sha);
   await completeGrade(run.id, result);
@@ -120,28 +125,28 @@ async function finished(repo: string) {
 test('completed records remain immutable and survive newer failures and results', async () => {
   const repo = await seed();
   const a = await finished(repo);
-  const original = await getGrade(repo, a.id);
+  const original = await getGrade(repo, a.id, AGENT_READINESS);
   await failGrade(a.id);
   await pinGradeSha(a.id, 'c'.repeat(40));
   await completeGrade(a.id, { ...result, score: 100 });
   await beginGrade(a.id);
-  expect(await getGrade(repo, a.id)).toEqual(original);
-  const b = await requestGrade(repo);
+  expect(await getGrade(repo, a.id, AGENT_READINESS)).toEqual(original);
+  const b = await requestGrade(repo, AGENT_READINESS);
   await failGrade(b.id, 'private provider token');
-  expect((await latestGrade(repo))?.id).toBe(a.id);
-  const retry = await requestGrade(repo);
+  expect((await latestGrade(repo, AGENT_READINESS))?.id).toBe(a.id);
+  const retry = await requestGrade(repo, AGENT_READINESS);
   expect(retry.id).not.toBe(b.id);
   expect((await loadGradeRun(retry.id))?.retryOf).toBe(b.id);
   await failGrade(retry.id);
   const c = await finished(repo);
-  expect((await latestGrade(repo))?.id).toBe(c.id);
-  expect((await gradeHistory(repo)).map((x) => x.id)).toEqual([c.id, a.id]);
-  expect(await getGrade(repo, a.id)).toEqual(original);
+  expect((await latestGrade(repo, AGENT_READINESS))?.id).toBe(c.id);
+  expect((await gradeHistory(repo, AGENT_READINESS)).map((x) => x.id)).toEqual([c.id, a.id]);
+  expect(await getGrade(repo, a.id, AGENT_READINESS)).toEqual(original);
   expect(JSON.stringify(await loadGradeRun(a.id))).not.toContain('private source marker');
   expect((await loadGradeRun(b.id))?.errorCode).toBe('collection_failed');
 });
 test('dispatch failure before acknowledgement remains reconcilable with stable event id', async () => {
-  const run = await requestGrade(await seed());
+  const run = await requestGrade(await seed(), AGENT_READINESS);
   const send = vi
     .fn()
     .mockRejectedValueOnce(new Error('network after accepted'))
@@ -155,7 +160,7 @@ test('dispatch failure before acknowledgement remains reconcilable with stable e
   expect((await loadGradeRun(run.id))?.dispatchedAt).toBeInstanceOf(Date);
 });
 test('duplicate delivery and collection retry reuse the persisted SHA without source step output', async () => {
-  const run = await requestGrade(await seed());
+  const run = await requestGrade(await seed(), AGENT_READINESS);
   await beginGrade(run.id);
   github.resolve.mockResolvedValueOnce(sha).mockResolvedValue('c'.repeat(40));
   expect(await resolveGradeCommit(run.id)).toBe(sha);
@@ -174,13 +179,13 @@ test('duplicate delivery and collection retry reuse the persisted SHA without so
 });
 test('revocation before start and inactive installation prevent work', async () => {
   const repo = await seed();
-  const run = await requestGrade(repo);
+  const run = await requestGrade(repo, AGENT_READINESS);
   await db().delete(workspaceRepositories).where(eq(workspaceRepositories.repositoryId, repo));
   await expect(beginGrade(run.id)).rejects.toThrow('Grade access revoked');
   await expect(resolveGradeCommit(run.id)).rejects.toThrow('Grade unavailable');
   expect((await loadGradeRun(run.id))?.state).toBe('failed');
   const repo2 = await seed();
-  const run2 = await requestGrade(repo2);
+  const run2 = await requestGrade(repo2, AGENT_READINESS);
   await db().update(installations).set({ active: false }).where(eq(installations.id, repo2));
   await expect(beginGrade(run2.id)).rejects.toThrow();
 });
@@ -188,21 +193,25 @@ test('read authorization, repository/run association, and batch filtering protec
   const repo = await seed();
   const run = await finished(repo);
   const other = await seed();
-  expect(await getGrade(other, run.id)).toBeNull();
+  expect(await getGrade(other, run.id, AGENT_READINESS)).toBeNull();
   await db().delete(workspaceRepositories).where(eq(workspaceRepositories.repositoryId, repo));
-  await expect(latestGrade(repo)).rejects.toThrow('not found');
-  await expect(gradeHistory(repo)).rejects.toThrow('not found');
-  await expect(getGrade(repo, run.id)).rejects.toThrow('not found');
-  await expect(requestGrade(repo)).rejects.toThrow('not found');
-  expect((await gradeSummaries([repo, other])).map((x) => x.repositoryId)).toEqual([other]);
+  await expect(latestGrade(repo, AGENT_READINESS)).rejects.toThrow('not found');
+  await expect(gradeHistory(repo, AGENT_READINESS)).rejects.toThrow('not found');
+  await expect(getGrade(repo, run.id, AGENT_READINESS)).rejects.toThrow('not found');
+  await expect(requestGrade(repo, AGENT_READINESS)).rejects.toThrow('not found');
+  expect((await gradeSummaries([repo, other], AGENT_READINESS)).map((x) => x.repositoryId)).toEqual(
+    [other],
+  );
 });
 test('rubric definitions cannot change in place and unknown pinned versions never use latest evaluator', async () => {
-  await registerRubric();
-  await registerRubric();
-  await expect(registerRubric({ ...readinessRubric, checks: [] })).rejects.toThrow('mismatch');
-  const definition = { ...readinessRubric, version: 'future-test' };
+  await registerRubric(agentReadinessManifest);
+  await registerRubric(agentReadinessManifest);
+  await expect(registerRubric({ ...agentReadinessManifest, checks: [] })).rejects.toThrow(
+    'mismatch',
+  );
+  const definition = { ...agentReadinessManifest, version: 'future-test' };
   await registerRubric(definition);
-  const run = await requestGrade(await seed());
+  const run = await requestGrade(await seed(), AGENT_READINESS);
   await db()
     .update(gradeRuns)
     .set({ rubricVersion: definition.version })
@@ -211,7 +220,7 @@ test('rubric definitions cannot change in place and unknown pinned versions neve
 });
 test('incomplete collection fails with no score; demo mutation is rejected', async () => {
   const repo = await seed();
-  const run = await requestGrade(repo);
+  const run = await requestGrade(repo, AGENT_READINESS);
   await beginGrade(run.id);
   await pinGradeSha(run.id, sha);
   github.collect.mockResolvedValue({ sha, complete: false, documents: [] });
@@ -224,8 +233,23 @@ test('incomplete collection fails with no score; demo mutation is rejected', asy
   await db().update(repositories).set({ isDemo: true }).where(eq(repositories.id, repo));
   context.demo = true;
   try {
-    await expect(requestGrade(repo)).rejects.toThrow('read-only');
+    await expect(requestGrade(repo, AGENT_READINESS)).rejects.toThrow('read-only');
   } finally {
     context.demo = false;
   }
+});
+
+test('one active run per grader: a second grader may run alongside, the same one may not', async () => {
+  const repo = await seed();
+  const first = await requestGrade(repo, AGENT_READINESS);
+  expect((await requestGrade(repo, AGENT_READINESS)).id).toBe(first.id);
+  const other = registerGrader({
+    ...agentReadinessManifest,
+    id: 'fieldnote/second-fixture',
+    card: { ...agentReadinessManifest.card, tagline: 'A second grader, for the index only.' },
+  });
+  const second = await requestGrade(repo, other.id);
+  expect(second.id).not.toBe(first.id);
+  expect(await gradeHistory(repo, other.id)).toEqual([]);
+  expect((await loadGradeRun(second.id))?.graderId).toBe('fieldnote/second-fixture');
 });

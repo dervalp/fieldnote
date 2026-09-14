@@ -1,6 +1,5 @@
 import { gradePresentation } from './presentation';
 import { finishNames } from './finish-names';
-import { checkTitles } from './check-titles';
 import type { CheckResult } from './types';
 export interface Move {
   id: string;
@@ -12,7 +11,14 @@ export interface NextTier {
   targetFinish: string;
   moves: Move[];
 }
-export function nextTier(score: number, checks: CheckResult[]): NextTier | null {
+export function nextTier(
+  score: number,
+  checks: CheckResult[],
+  // Check titles belong to the grader that defined the checks, so a caller
+  // supplies them. Defaulting to {} keeps nextTier honest about knowing
+  // nothing: an unrecognised check is named by its id, as it always was.
+  titles: Record<string, string> = {},
+): NextTier | null {
   // "There is no higher tier" is a claim about the score, not about the
   // checks. Under today's binary 5x20 rubric a perfect score and zero failing
   // checks coincide, so guarding on either looked the same; under the
@@ -28,7 +34,7 @@ export function nextTier(score: number, checks: CheckResult[]): NextTier | null 
     .sort((a, b) => b.maxPoints - a.maxPoints)
     .map((check) => ({
       id: check.id,
-      title: checkTitles[check.id] ?? check.id,
+      title: titles[check.id] ?? check.id,
       points: check.maxPoints,
     }));
   const currentFinish = gradePresentation(score).finish;

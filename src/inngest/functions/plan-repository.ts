@@ -10,6 +10,7 @@ import {
   validateAuthoringRun,
 } from '../../db/queries/authoring-runs';
 import { latestCompletedGrade } from '../../db/queries/grade-runs';
+import { AGENT_READINESS } from '../../domain/grading/graders/agent-readiness';
 import { resolveReadinessSha } from '../../github/collect-readiness';
 import { proposeRemedies } from '../../domain/act/remedies';
 
@@ -44,7 +45,7 @@ export async function explorePlan(runId: string) {
   const run = await validated(runId);
   if (!run) return;
   if (!run.sha) throw new NonRetriableError('Plan commit is missing');
-  const grade = await latestCompletedGrade(run.repositoryId);
+  const grade = await latestCompletedGrade(run.repositoryId, AGENT_READINESS);
   if (!grade) {
     await failAuthoringRun(runId, 'grade_missing');
     return;

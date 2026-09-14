@@ -11,7 +11,8 @@ import {
 } from '../src/db/schema';
 import { persistPr } from '../src/db/queries/persist-pr';
 import { demoFacts, demoGrade, demoGradeSha, demoPolicy } from '../src/demo/fixtures';
-import { readinessRubric } from '../src/domain/grading/readiness-v01';
+import { agentReadinessManifest } from '../src/domain/grading/graders/agent-readiness';
+import { rubricView } from '../src/domain/grading/rubric-view';
 import { recomputeExecutedDetections } from '../src/db/queries/ai-involvement';
 import type { AgentMarker } from '../src/domain/ai-involvement/types';
 if (process.env.NODE_ENV === 'production' || process.env.DEMO_MODE !== 'true')
@@ -61,10 +62,11 @@ try {
   await db()
     .insert(gradingRubrics)
     .values({
-      family: readinessRubric.family,
-      version: readinessRubric.version,
-      evaluatorVersion: readinessRubric.evaluatorVersion,
-      definition: readinessRubric,
+      graderId: agentReadinessManifest.id,
+      version: agentReadinessManifest.version,
+      evaluatorVersion: agentReadinessManifest.evaluatorVersion,
+      definition: rubricView(agentReadinessManifest),
+      manifest: agentReadinessManifest,
     })
     .onConflictDoNothing();
   const graded = new Date('2026-09-30T09:12:00Z');
@@ -73,9 +75,9 @@ try {
     .values({
       id: 'demo-grade-run',
       repositoryId: 'demo-repository',
-      family: readinessRubric.family,
-      rubricVersion: readinessRubric.version,
-      evaluatorVersion: readinessRubric.evaluatorVersion,
+      graderId: agentReadinessManifest.id,
+      rubricVersion: agentReadinessManifest.version,
+      evaluatorVersion: agentReadinessManifest.evaluatorVersion,
       requestedBy: 'demo-user',
       requestedWorkspaceId: 'demo-workspace',
       state: 'complete',

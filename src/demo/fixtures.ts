@@ -1,4 +1,5 @@
-import { evaluateReadiness } from '../domain/grading/readiness-v01';
+import { runDeclarative } from '../domain/grading/declarative';
+import { agentReadinessManifest } from '../domain/grading/graders/agent-readiness';
 import type { SourceDocument } from '../domain/grading/types';
 import type { CiCheck, Conclusion, PullRequestFacts } from '../domain/pull-request/types';
 export const demoPolicy = {
@@ -136,7 +137,7 @@ an event; nothing calls across service boundaries synchronously.
 // Graded by the real evaluator rather than written out by hand, so the seeded
 // card cannot claim a score, a check id or an explanation the rubric would not
 // produce. src/demo/fixtures.test.ts holds it to the shape the demo needs.
-export const demoGrade = evaluateReadiness({
+export const demoGrade = runDeclarative(agentReadinessManifest, {
   sha: demoGradeSha,
   complete: true,
   documents: demoDocuments,

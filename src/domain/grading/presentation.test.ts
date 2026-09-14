@@ -10,7 +10,7 @@ test.each([
   [89, 'silver'],
   [90, 'gold'],
   [99, 'gold'],
-  [100, 'rainbow'],
+  [100, 'prismatic'],
 ])('score %s has finish %s', (score, finish) => {
   expect(gradePresentation(Number(score)).finish).toBe(finish);
 });

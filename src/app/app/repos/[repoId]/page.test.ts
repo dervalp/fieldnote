@@ -76,7 +76,7 @@ test('loads the cohort aggregation scoped to the authorized repository and the p
   await call({ days: '30' });
   expect(deps.cohorts).toHaveBeenCalledWith('repo', expect.objectContaining({ days: 30 }));
   expect(deps.detections).toHaveBeenCalledWith('repo');
-  expect(deps.grade).toHaveBeenCalledWith('repo');
+  expect(deps.grade).toHaveBeenCalledWith('repo', 'fieldnote/agent-readiness');
 });
 
 test('an invalid range renders the guard instead of querying anything, without a second h1', async () => {

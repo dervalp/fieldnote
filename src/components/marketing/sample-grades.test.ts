@@ -38,7 +38,7 @@ describe('climbCards', () => {
   // with nothing to show for itself.
   test('lands each beat on a finish no earlier beat reached', () => {
     const finishes = CLIMB_STOPS.map((score) => cards[score - CLIMB_FROM].finish);
-    expect(finishes).toEqual(['bronze', 'silver', 'gold', 'rainbow']);
+    expect(finishes).toEqual(['bronze', 'silver', 'gold', 'prismatic']);
   });
 
   test('rests on Shimmer, the tier below the first beat', () => {

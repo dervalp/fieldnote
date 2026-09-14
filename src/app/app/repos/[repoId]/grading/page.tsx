@@ -3,7 +3,8 @@ import { notFound } from 'next/navigation';
 import { Surface } from '@fieldnote/design-system';
 import { requireRepository } from '../../../../../workspaces/access';
 import { getGrade, gradeHistory, gradeSummaries } from '../../../../../db/queries/grade-runs';
-import { readinessRubric } from '../../../../../domain/grading/readiness-v01';
+import { AGENT_READINESS } from '../../../../../domain/grading/graders/agent-readiness';
+import { getGrader, graderCheckTitles } from '../../../../../domain/grading/registry';
 import { GradeCard } from '@fieldnote/design-system';
 import { gradeCardProps } from '../../../../../components/grading/grade-presentation';
 import { GradeControls, GradeReport } from '../../../../../components/grading/report';
@@ -23,13 +24,18 @@ export default async function Grading({
   params: Promise<{ repoId: string }>;
   searchParams: Promise<{ run?: string }>;
 }) {
+  // The built-in is named here rather than assumed inside the queries, so the
+  // single-grader assumption is visible. What this page shows when a
+  // repository has four grades is slice 2's decision.
+  const readinessGrader = getGrader(AGENT_READINESS);
+  const checkTitles = graderCheckTitles(AGENT_READINESS);
   const repoId = pageRouteId((await params).repoId);
   const repo = await requireRepository(repoId);
   const { run } = await searchParams;
   const [summaries, history, selected, enabled, plan] = await Promise.all([
-    gradeSummaries([repoId]),
-    gradeHistory(repoId),
-    run ? getGrade(repoId, run) : Promise.resolve(null),
+    gradeSummaries([repoId], AGENT_READINESS),
+    gradeHistory(repoId, AGENT_READINESS),
+    run ? getGrade(repoId, run, AGENT_READINESS) : Promise.resolve(null),
     actEnabled(repoId),
     latestPlan(repoId),
   ]);
@@ -93,6 +99,7 @@ export default async function Grading({
                 sha: grade.sha,
                 rubricVersion: grade.rubricVersion,
                 checks: grade.checks,
+                graderId: AGENT_READINESS,
               })}
             />
           ) : (
@@ -128,9 +135,10 @@ export default async function Grading({
             grade={grade}
             owner={repo.owner}
             name={repo.name}
+            checkTitles={checkTitles}
             outdated={
-              grade.rubricVersion !== readinessRubric.version ||
-              grade.evaluatorVersion !== readinessRubric.evaluatorVersion
+              grade.rubricVersion !== readinessGrader.version ||
+              grade.evaluatorVersion !== readinessGrader.evaluatorVersion
             }
           />
         )}

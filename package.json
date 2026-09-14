@@ -20,7 +20,7 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "format": "prettier --write src scripts *.ts *.json *.mjs",
+    "format": "prettier --write src scripts packages *.ts *.json *.mjs",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm test:integration && pnpm build",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",

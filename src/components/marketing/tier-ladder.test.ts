@@ -38,13 +38,12 @@ describe('the tier ladder', () => {
     }
   });
 
-  // The identifier is `rainbow`; the name a reader sees is Prismatic. Marketing
-  // uses the user-facing name, and the top rung is the one place that could
-  // plausibly leak the identifier.
-  it('puts Prismatic last, and calls it Prismatic rather than rainbow', () => {
+  // The identifier and the name a reader sees are both Prismatic now. The top
+  // rung is the one place that could plausibly still leak the old `rainbow`.
+  it('puts Prismatic last, and calls it Prismatic', () => {
     const top = rungs.at(-1);
     expect(top?.score).toBe(100);
-    expect(top?.finish).toBe('rainbow');
+    expect(top?.finish).toBe('prismatic');
     expect(top?.finishName.split(' · ')[0]).toBe('Prismatic');
     expect(rungs.map((rung) => rung.finishName.split(' · ')[0])).not.toContain('rainbow');
   });

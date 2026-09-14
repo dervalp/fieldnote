@@ -20,7 +20,8 @@
       "@/*": ["./src/*"]
     },
     "skipLibCheck": true,
-    "allowJs": true
+    "allowJs": true,
+    "allowImportingTsExtensions": true
   },
   "include": [
     "**/*.ts",

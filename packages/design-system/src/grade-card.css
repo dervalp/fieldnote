@@ -329,7 +329,7 @@
 .grade-card[data-finish='gold'] .grade-card-inner {
   background: linear-gradient(135deg, #fff8e2ed, #f1dfabe8);
 }
-.grade-card[data-finish='rainbow'] {
+.grade-card[data-finish='prismatic'] {
   background: linear-gradient(
     125deg,
     #f17cad,
@@ -348,7 +348,7 @@
     0 0 22px #a7d9e64d,
     inset 0 0 0 2px #ffffffb0;
 }
-.grade-card[data-finish='rainbow'] .grade-card-inner {
+.grade-card[data-finish='prismatic'] .grade-card-inner {
   background: linear-gradient(
     135deg,
     #f7bbd8,

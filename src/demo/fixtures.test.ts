@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { demoGrade } from './fixtures';
 import { gradePresentation } from '../domain/grading/presentation';
 import { nextTier } from '../domain/grading/next-tier';
+import { AGENT_READINESS } from '../domain/grading/graders/agent-readiness';
+import { graderCheckTitles } from '../domain/grading/registry';
 describe('demoGrade', () => {
   it('grades the demo documents at 80, failing only documented-tests', () => {
     expect(demoGrade.score).toBe(80);
@@ -17,7 +19,7 @@ describe('demoGrade', () => {
     // covered by presentation.test.ts and next-tier.test.ts.
     const score = demoGrade.score!;
     expect(gradePresentation(score).finish).toBe('silver');
-    const next = nextTier(score, demoGrade.checks);
+    const next = nextTier(score, demoGrade.checks, graderCheckTitles(AGENT_READINESS));
     expect(next?.targetFinish).toBe('Prismatic');
     expect(next?.targetScore).toBe(100);
     expect(next?.moves.map((move) => move.title)).toEqual(['Validation commands']);

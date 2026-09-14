@@ -24,6 +24,7 @@ import {
   accountSettingsPath,
   onboardingPath,
   repoPath,
+  tokensSettingsPath,
   workspaceSettingsPath,
 } from '../../../../lib/app-routes';
 export const metadata = { title: 'Workspace settings' };
@@ -79,6 +80,7 @@ export default async function WorkspaceSettings() {
         <Link aria-current="page" href={workspaceSettingsPath()}>
           Workspace
         </Link>
+        <Link href={tokensSettingsPath()}>Tokens</Link>
         <span className={owner ? 'owner-badge' : 'member-badge'}>{owner ? 'Owner' : 'Member'}</span>
       </div>
       <div className="settings-grid" key={workspace.id}>

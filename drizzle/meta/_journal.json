@@ -85,6 +85,20 @@
       "when": 1789119891757,
       "tag": "0011_sleepy_machine_man",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1789200000000,
+      "tag": "0012_grader_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1789315790028,
+      "tag": "0013_cli_tokens",
+      "breakpoints": true
     }
   ]
 }

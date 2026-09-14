@@ -256,6 +256,48 @@ export const sessions = pgTable('sessions', {
   createdAt: created(),
 });
 
+// Not a row in `sessions`. A session is a browser credential with a seven-day
+// life and a cookie's semantics; conflating them is how a revoked CLI token
+// keeps working. This one does not expire on purpose — a CLI that logs you out
+// weekly is a CLI people stop using, and an expiring credential in CI is a
+// broken pipeline at 3am. The price is that revocation has to be real.
+export const cliTokens = pgTable(
+  'cli_tokens',
+  {
+    id: id(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    scope: text('scope').notNull().default('grade'),
+    label: text('label').notNull(),
+    createdAt: created(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  (t) => [index('cli_tokens_user').on(t.userId)],
+);
+
+// Pending CLI sign-ins. Rows live seconds and are deleted on use, so this is a
+// queue rather than a record — but it must be shared storage, because the
+// browser approves on one serverless instance and the CLI exchanges on another.
+export const cliAuthCodes = pgTable('cli_auth_codes', {
+  id: id(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  workspaceId: text('workspace_id')
+    .notNull()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  workspaceName: text('workspace_name').notNull(),
+  login: text('login').notNull(),
+  challenge: text('challenge').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  createdAt: created(),
+});
+
 export const repositoryImports = pgTable(
   'repository_imports',
   {
@@ -621,13 +663,17 @@ export const invitationDeliveries = pgTable(
 export const gradingRubrics = pgTable(
   'grading_rubrics',
   {
-    family: text('family').notNull(),
+    graderId: text('grader_id').notNull(),
     version: text('version').notNull(),
     evaluatorVersion: text('evaluator_version').notNull(),
     definition: jsonb('definition').$type<Record<string, unknown>>().notNull(),
+    // The full validated manifest. `definition` remains the rubric a run is
+    // pinned to — checks and points, nothing operational — and is derived from
+    // this, so the two can never disagree.
+    manifest: jsonb('manifest').$type<Record<string, unknown>>().notNull(),
     createdAt: created(),
   },
-  (t) => [primaryKey({ columns: [t.family, t.version] })],
+  (t) => [primaryKey({ columns: [t.graderId, t.version] })],
 );
 export const gradeRuns = pgTable(
   'grade_runs',
@@ -636,7 +682,7 @@ export const gradeRuns = pgTable(
     repositoryId: text('repository_id')
       .notNull()
       .references(() => repositories.id),
-    family: text('family').notNull(),
+    graderId: text('grader_id').notNull(),
     rubricVersion: text('rubric_version').notNull(),
     evaluatorVersion: text('evaluator_version').notNull(),
     requestedBy: text('requested_by')
@@ -663,7 +709,7 @@ export const gradeRuns = pgTable(
       sql`(${t.state} = 'complete' AND ${t.sha} IS NOT NULL AND ${t.completedAt} IS NOT NULL AND ${t.result} IS NOT NULL AND ${t.result}->>'score' IS NOT NULL) OR (${t.state} <> 'complete' AND ${t.result} IS NULL)`,
     ),
     uniqueIndex('grade_runs_one_active')
-      .on(t.repositoryId, t.family)
+      .on(t.repositoryId, t.graderId)
       .where(sql`${t.state} IN ('queued','running')`),
     index('grade_runs_latest').on(t.repositoryId, t.createdAt.desc()),
   ],

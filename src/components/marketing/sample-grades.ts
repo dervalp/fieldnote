@@ -1,6 +1,8 @@
 import type { GradeCardProps } from '@fieldnote/design-system';
 import type { CheckResult } from '../../domain/grading/types';
 import { gradeCardProps } from '../grading/grade-presentation';
+import { AGENT_READINESS } from '../../domain/grading/graders/agent-readiness';
+import { ladderLine } from './ladder-copy';
 
 /**
  * The scores the landing page illustrates the six finishes with.
@@ -78,13 +80,18 @@ function failingFor(remaining: number): CheckResult[] {
  * needs one so the page has something to sell.
  */
 export function sampleCard(score: number, remaining = 0): GradeCardProps {
-  return gradeCardProps({
+  const card = gradeCardProps({
     score,
     repositoryName: SAMPLE_REPOSITORY,
     sha: SAMPLE_SHA,
     rubricVersion: RUBRIC_VERSION,
     checks: failingFor(remaining),
+    graderId: AGENT_READINESS,
   });
+  // The product card shows the grader's one tagline. The ladder is selling
+  // the six finishes, so it swaps in a line per band — marketing's own copy,
+  // deliberately not the grader's and deliberately not in the domain.
+  return { ...card, flavour: ladderLine(card.finish) };
 }
 
 /** The hero's Gold card, with Prismatic at 100 still unclaimed above it. */
