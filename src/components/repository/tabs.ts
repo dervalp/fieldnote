@@ -1,6 +1,8 @@
 // Pure routing description for the repository tab bar. No JSX, no client
 // runtime: selection is expressed by route, so the routing logic is testable
 // without rendering a component or pulling next/link into the test graph.
+import { repoPath, repoSectionPath } from '../../lib/app-routes';
+
 export type RepositoryTabSegment = null | 'grading' | 'ai-involvement' | 'delivery' | 'settings';
 
 export interface RepositoryTab {
@@ -33,10 +35,7 @@ export function isActive(tab: RepositoryTab, segment: string | null): boolean {
  * preserves unrelated params.
  */
 export function tabHref(repoId: string, tab: RepositoryTab, search = ''): string {
-  const base = `/repos/${encodeURIComponent(repoId)}`;
-  const path = tab.segment ? `${base}/${tab.segment}` : base;
-  const query = search.startsWith('?') ? search.slice(1) : search;
-  return query ? `${path}?${query}` : path;
+  return tab.segment ? repoSectionPath(repoId, tab.segment, search) : repoPath(repoId, search);
 }
 
 /**

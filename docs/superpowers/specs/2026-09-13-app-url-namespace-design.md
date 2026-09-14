@@ -44,12 +44,14 @@ product; outside it you are on the website. A future public page cannot
 collide with a product route by accident, because the two namespaces no longer
 touch.
 
-Five directories move under `src/app/app/`. The five section layouts move with
-them unchanged — each still wraps `AppShell` for its own subtree. Hoisting them
-into one `src/app/app/layout.tsx` would render identically and delete four
-files, and it is deliberately **not** part of this change: it is a second,
-arguable edit riding along on a mechanical one. `/app` itself gets no
-`page.tsx`; it is served by a redirect (below).
+Five directories move under `src/app/app/`. The shells move with them
+unchanged: four section layouts (`dashboard`, `prs`, `settings`, `onboarding`)
+plus `repos/[repoId]/layout.tsx`, each wrapping `AppShell` with its own
+breadcrumb, and `repos/page.tsx`, which wraps itself because the list page's
+crumb differs from the repository pages'. Hoisting them into one
+`src/app/app/layout.tsx` cannot work — the crumbs differ per section — and is
+in any case not this change. `/app` itself gets no `page.tsx`; it is served by
+a redirect (below).
 
 ## Old URLs: `redirects()` in next.config.ts
 
@@ -167,15 +169,28 @@ and becomes a thin call to `repoSectionPath`.
 
 **Moved** (`git mv`, 38 files, 14 of them colocated tests): `src/app/{dashboard,
 repos,prs,settings,onboarding}` → `src/app/app/`. Every relative import inside
-those files gains one `../`. Mechanical, and `pnpm typecheck` is the proof.
+those files gains one `../` — 181 of them. The 5 relative imports that stay
+*inside* the moved tree keep their spelling, because the moved files kept their
+relationship to each other, so this is decided per-import rather than by a
+blanket replace. Mechanical, and `pnpm typecheck` is the whole proof: a
+relative import off by one level cannot compile.
 `src/app/settings/actions.integration.test.ts` moves with its subject.
+
+**Eleven imports point into the moved tree from outside it.** Components reach
+into route directories for their server actions — `repository/header.tsx` for
+`refreshImport`, `act-entry.tsx` and `grading/report.tsx` for the grading
+actions, `import-progress.tsx` and `repository-picker.tsx` for the onboarding
+actions, `workspace-switcher.tsx` for `switchWorkspace`,
+`history-interest.tsx` and `db/history-interest.integration.test.ts` for the
+history actions, plus three `vi.mock` calls naming the same modules. Each gains
+`app/` mid-path. They are listed exhaustively in the plan.
 
 **`src/app/page.tsx`** loses the redirect, the `hasCurrentSession` import, and
 the paragraph of the file comment describing the old behaviour.
 `hasCurrentSession` itself stays — the API routes and the invitations page use
 it.
 
-**Path literals outside the moved tree** — roughly 27 non-test files in total.
+**Path literals outside the moved tree** — roughly 28 non-test files in total.
 Beyond the moved pages and actions:
 
 | File | What |
@@ -187,17 +202,26 @@ Beyond the moved pages and actions:
 | `components/workspace-switcher.tsx` | `router.push`, new-workspace link |
 | `components/account-menu.tsx` | both settings links |
 | `components/pr-table.tsx` | PR links |
-| `components/repository/header.tsx` | the breadcrumb's "All repositories" |
+| `components/app-shell.tsx` | the breadcrumb trail's workspace root |
 | `components/repository/tabs.ts` | `tabHref` base |
 | `components/repository/coverage-strip.tsx` | repo settings link |
 | `components/agents/agents-involved.tsx` | involvement link |
 | `components/act/act-entry.tsx` | act run link |
 | `components/onboarding/repository-picker.tsx` | "View overview" |
 | `components/onboarding/import-progress.tsx` | pathname guard, repo link, overview link |
+| `app/repos/[repoId]/layout.tsx` | the "All repositories" crumb it passes down |
+| `app/repos/page.tsx` | the "All repositories" crumb on the invalid-range branch |
 
-`components/app-shell.tsx` is **not** on this list. Its topline is
-`<span>{active.name} / Engineering records</span>` — text, not a link. It
-contains no path literal and needs no edit.
+**The breadcrumb is in two halves, and both need the prefix.**
+`app-shell.tsx:22` builds the trail's root — `{ label: active.name, href:
+'/dashboard' }` — and each section layout supplies the rest, because only the
+layout knows the repository's name. So `repos/[repoId]/layout.tsx:32` passes
+`{ label: 'All repositories', href: '/repos' }` as a crumb of its own. Miss
+either and the trail has a dead link in it.
+
+`components/repository/header.tsx` holds no path literal — it is on the
+inbound-import list above for `refreshImport`, not this one. The breadcrumb
+used to live there and now does not.
 
 ### Three places that fail silently
 

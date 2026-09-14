@@ -1,6 +1,6 @@
 # GitHub App setup
 
-Create a GitHub.com App under Developer settings. Enable user authorization and expiring user tokens. Set the user callback to `APP_URL/api/auth/callback`, the setup URL to `APP_URL/dashboard`, and the webhook URL to `APP_URL/api/github/webhook`.
+Create a GitHub.com App under Developer settings. Enable user authorization and expiring user tokens. Set the user callback to `APP_URL/api/auth/callback`, the setup URL to `APP_URL/app/dashboard`, and the webhook URL to `APP_URL/api/github/webhook`. The setup URL also lives in the App's own settings on GitHub, outside this repository, so repoint it there too: an App still pointing at `APP_URL/dashboard` costs every new install an extra redirect hop today, and will land on a 404 once the legacy redirects are retired.
 
 Repository permissions (all read-only): Metadata (mandatory), Pull requests, Contents (commit and comparison file lists), Checks, Actions. No organization or user permissions are needed. Gate policy uses explicit administrator-selected names; branch protection/ruleset permissions are not required.
 

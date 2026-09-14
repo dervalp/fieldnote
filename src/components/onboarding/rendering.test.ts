@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, test, vi } from 'vitest';
-vi.mock('../../app/onboarding/actions', () => ({
+vi.mock('../../app/app/onboarding/actions', () => ({
   startFirstAnalysis: vi.fn(),
   retryAnalysis: vi.fn(),
   refreshRepositoryAccess: vi.fn(),

@@ -8,7 +8,7 @@ import { DailyCharts } from './daily-charts';
 import { BasicDashboard } from './basic-dashboard';
 import { DateRange } from './date-range';
 vi.mock('next/navigation', () => ({
-  usePathname: () => '/dashboard',
+  usePathname: () => '/app/dashboard',
   useRouter: () => ({ push: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
 }));

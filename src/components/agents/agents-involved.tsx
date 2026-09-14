@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { catalogue } from '../../domain/ai-involvement/catalogue';
 import type { Detection, DetectionSignal } from '../../domain/ai-involvement/types';
 import type { DetectionState } from '../../db/queries/ai-involvement';
+import { repoSectionPath } from '../../lib/app-routes';
 import './agents-involved.css';
 
 function agentLabel(agent: Detection['agent']) {
@@ -78,7 +79,7 @@ export function AgentsInvolved({
   state: DetectionState | null;
   repoId: string;
 }) {
-  const href = `/repos/${encodeURIComponent(repoId)}/ai-involvement`;
+  const href = repoSectionPath(repoId, 'ai-involvement');
   if (!state) {
     return (
       <div className="bigcard">

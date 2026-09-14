@@ -6,6 +6,7 @@ import { ManifestError } from '../../../../../domain/grading/manifest';
 import { gradePresentation } from '../../../../../domain/grading/presentation';
 import { finishNames } from '../../../../../domain/grading/finish-names';
 import { nextTier } from '../../../../../domain/grading/next-tier';
+import { repoSectionPath } from '../../../../../lib/app-routes';
 // Registers fieldnote's own built-in grader as a module-scope side effect.
 // Nothing else boots that registration — there is no barrel file and no
 // startup hook — and none of this route's other imports reach it. Without
@@ -76,7 +77,7 @@ export async function GET(request: Request, context: { params: Promise<{ runId: 
     // throws when GITHUB_* config is empty — true of this worktree and any
     // fresh checkout. The CLI authenticated against this origin, so that is
     // where its link should point.
-    const url = new URL(`/repos/${run.repositoryId}/grading`, request.url).toString();
+    const url = new URL(repoSectionPath(run.repositoryId, 'grading'), request.url).toString();
 
     return Response.json(
       {

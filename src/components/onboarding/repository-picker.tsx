@@ -2,9 +2,11 @@
 import { useActionState, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { Button, Surface } from '@fieldnote/design-system';
 import type { RepositoryChoice } from '../../domain/import/types';
 import { filterRepositoryChoices } from '../../domain/import/onboarding';
-import { startFirstAnalysis, refreshRepositoryAccess } from '../../app/onboarding/actions';
+import { startFirstAnalysis, refreshRepositoryAccess } from '../../app/app/onboarding/actions';
+import { dashboardPath } from '../../lib/app-routes';
 import { ImportProgress } from './import-progress';
 export function RepositoryPicker({
   repositories,
@@ -40,11 +42,11 @@ export function RepositoryPicker({
           focusOnMount
         />
       ) : (
-        <section className="onboarding-panel">
+        <Surface className="onboarding-panel">
           {allConnected ? (
             <p>
               View your engineering records or give the app access to another repository.{' '}
-              <Link href="/dashboard">View overview</Link>
+              <Link href={dashboardPath()}>View overview</Link>
             </p>
           ) : (
             <p>Import the latest 100 pull requests and their CI history.</p>
@@ -91,9 +93,9 @@ export function RepositoryPicker({
                 </fieldset>
                 {!filtered.length && <p>No repositories match your search.</p>}
                 {state.error && <p role="alert">{state.error}</p>}
-                <button disabled={!valid || pending}>
+                <Button disabled={!valid || pending}>
                   {pending ? 'Starting analysis…' : 'Start first analysis'}
-                </button>
+                </Button>
               </form>
             </>
           ) : (
@@ -105,7 +107,7 @@ export function RepositoryPicker({
             )
           )}
           <RepositoryAccess installUrl={installUrl} />
-        </section>
+        </Surface>
       )}
     </div>
   );
@@ -119,8 +121,8 @@ export function RepositoryAccess({ installUrl }: { installUrl: string }) {
       <p className="muted">
         If your organization requires approval, ask an owner to approve access.
       </p>
-      <button
-        className="quiet-button"
+      <Button
+        variant="quiet"
         disabled={pending}
         onClick={() =>
           startTransition(async () => {
@@ -130,7 +132,7 @@ export function RepositoryAccess({ installUrl }: { installUrl: string }) {
         }
       >
         {pending ? 'Refreshing repositories…' : 'Refresh repositories'}
-      </button>
+      </Button>
     </div>
   );
 }

@@ -1,8 +1,10 @@
 'use client';
 import Link from 'next/link';
+import { Button, Surface } from '@fieldnote/design-system';
 import { useActionState, useEffect, useRef } from 'react';
 import type { ImportSnapshot, StartResult } from '../../domain/import/types';
-import { retryAnalysis } from '../../app/onboarding/actions';
+import { retryAnalysis } from '../../app/app/onboarding/actions';
+import { dashboardPath, onboardingPath, repoPath } from '../../lib/app-routes';
 import { useImportStatus } from './use-import-status';
 import { progressPercent } from './polling';
 export function ImportProgress({
@@ -63,14 +65,14 @@ function ProgressContent({
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     if (focusOnMount) heading.current?.focus({ preventScroll: true });
-    if (window.location.pathname === '/onboarding') {
+    if (window.location.pathname === onboardingPath()) {
       const query = new URLSearchParams(window.location.search);
       query.set('repo', repository.id);
       query.set('run', initial.id);
       window.history.replaceState(null, '', `?${query.toString()}`);
     }
   }, [initial.id, repository.id, focusOnMount]);
-  const href = `/repos/${encodeURIComponent(repository.id)}`;
+  const href = repoPath(repository.id);
   const percent =
     run.state === 'queued' || run.state === 'discovering' ? null : progressPercent(run);
   const copy =
@@ -91,7 +93,7 @@ function ProgressContent({
   const announcement =
     run.state === 'importing' ? `Importing pull requests. ${milestone} PRs imported.` : copy;
   return (
-    <section className="onboarding-panel import-panel" aria-label="Import progress">
+    <Surface className="onboarding-panel import-panel" aria-label="Import progress">
       <div className="eyebrow">First engineering record</div>
       <h2 ref={heading} tabIndex={-1}>
         {copy}
@@ -147,7 +149,8 @@ function ProgressContent({
       )}
       {connection === 'unavailable' && (
         <p role="status">
-          This repository is no longer available. <Link href="/dashboard">Back to overview</Link>
+          This repository is no longer available.{' '}
+          <Link href={dashboardPath()}>Back to overview</Link>
         </p>
       )}
       <div className="onboarding-actions">
@@ -167,17 +170,17 @@ function ProgressContent({
           connection !== 'unavailable' &&
           connection !== 'signed-out' && (
             <form action={retry}>
-              <button disabled={pending}>
+              <Button disabled={pending}>
                 {pending
                   ? 'Requesting retry…'
                   : run.state === 'partial'
                     ? 'Retry failed PRs'
                     : 'Retry import'}
-              </button>
+              </Button>
             </form>
           )}
       </div>
       {error && <p role="alert">{error}</p>}
-    </section>
+    </Surface>
   );
 }

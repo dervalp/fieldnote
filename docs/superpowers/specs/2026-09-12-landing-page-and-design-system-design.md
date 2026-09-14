@@ -39,9 +39,13 @@ Two different promises, and they must not be confused. **Colour and type are
 pixel-identical** — every value is the same hex and the same face, so any visual
 difference there is a migration bug. **Spacing is deliberately not**: collapsing
 fourteen ad-hoc values onto an eight-step scale moves some edges by a pixel or
-two, and that is the point of having a scale. Those shifts are accepted, but
-they are the only ones; anything larger, or any change in layout structure, is a
-bug.
+two, and that is the point of having a scale.
+
+> **Amended 2026-09-13.** The second promise no longer holds for the
+> application shell. Spacing, density and layout structure inside the shell are
+> deliberately redesigned by the pass recorded below, and the "pixel or two"
+> limit applies only to the page bodies the shell contains. The first promise is
+> untouched: no new hue, no new typeface, anywhere.
 
 ## Decisions settled in conversation
 
@@ -70,6 +74,105 @@ So a public page at `/` needs no route group and no moved routes. It is
 `src/app/page.tsx` with its own `<main id="main-content">`, alongside
 `/signed-out` and `/invitations/[token]` as the third public surface. Existing
 routes are untouched.
+
+## Amendment 2026-09-13: the application shell density pass
+
+Reviewed against a screenshot of `/repos/[repoId]/settings` and approved in
+conversation on 2026-09-13. Seven changes to the shell, folded into this design
+rather than landing first on `src/app/style.css`, so the density decisions are
+made once in the package and the landing page inherits them.
+
+The complaint is one thing said seven ways: the chrome is set at website
+spacing, and the product is an application. Roughly 140 px of vertical chrome
+sits above the first repository tab, and 64 px of gutter on each side of the
+content column.
+
+### What changes
+
+| # | Change | Today | Amended |
+| --- | --- | --- | --- |
+| 1 | Brand lockup | 48 px mark stacked over a 34 px wordmark, 48 px margin below | 26 px mark beside a 21 px wordmark, one row |
+| 2 | Sidebar rhythm | `padding: 35px 24px`, nav `gap: 10px`, items `padding: 13px 10px` | `padding: 16px 12px`, nav `gap: 4px`, items `padding: 7px 10px` |
+| 3 | Active nav state | 2 px left border only | Mist fill plus an inset accent edge |
+| 4 | Page header | `.page-topline` at 71 px, then a separate breadcrumb repeating it | One 48 px sticky `TopBar` with three named slots |
+| 5 | Breadcrumb | Broken — stacked onto three rows | One row, and it absorbs the workspace line |
+| 6 | Buttons | Flat fill, flat darker hover | Two-stop gradient, optical top highlight, hue-tinted shadow, press state |
+| 7 | Content column | `padding: 34px clamp(24px, 4vw, 64px) 64px` plus a left fade | `padding: 0`, body inset 24 px, fade removed |
+
+Colour and typeface are unchanged by every one of them. The ember is still
+`#be421f` at the button's midpoint; the gradient is a lighting cue, not a new
+hue, and its stops are tokens derived from the accent rather than new palette
+entries.
+
+### The breadcrumb is a bug, not a preference
+
+`src/app/style.css` carries a bare element selector written for the sidebar:
+
+```css
+nav { display: grid; gap: 10px; }
+```
+
+`.crumb` in `src/components/repository/header.tsx` is also a `<nav>`, so it
+becomes a one-column grid and its three children — the link, the separator and
+the repository name — each take a row. The fix is to scope the selector to
+`.sidebar nav`. The same class of collision is waiting in the file's other bare
+selectors (`button`, `input`, `label`, `section`), which is what the `fn.base`
+layer exists to prevent: element defaults only, never layout.
+
+### Half the gutter is a gradient
+
+`main`'s first background layer paints the sidebar's `#e6ece7` across the first
+48 % of the content column. Removing the padding without removing that layer
+leaves the inset look in place. Both go; the two radial atmosphere layers stay.
+
+### The topbar is a contract, not a bar
+
+The point of the restructure is extensibility, so the slots are named and each
+carries a rule about what belongs in it:
+
+| Slot | Position | Holds |
+| --- | --- | --- |
+| `TopBar.Context` | Left, grows | Where you are. The breadcrumb, and nothing else. |
+| `TopBar.Utility` | Right, intrinsic | Global stateless controls — search, then notifications. Empty in this design. |
+| `TopBar.Identity` | Far right, past a divider | The account menu. Permanently last. |
+
+Search and notifications are **reserved, not built**. This design defines where
+they land and adds no control.
+
+**The breadcrumb comes from the route.** `AppShell` renders above the route
+segment and cannot read a repository name, so each section layout renders its
+own `<Breadcrumb>` into the slot the topbar reserves. The alternative — a client
+context the page publishes into — was declined: it adds client state to a server
+shell for a string the layout already holds.
+
+### What this costs the rest of the design
+
+- **Two tasks in the prior plan change.** The token task writes the amended
+  spacing and the new control tokens directly, rather than today's values
+  followed by a second pass. The primitives task builds `Button` to the gradient
+  spec and `Brand` with a `size` prop.
+- **`Brand` gains a variant.** `compact` (row) for the sidebar, `display`
+  (stacked) for the landing page nav and the signed-out panel. The stacked
+  lockup is not deleted; it stops being the sidebar's problem.
+- **The screenshot reference weakens.** `docs/screenshots/` no longer proves the
+  shell is unchanged, because the shell is deliberately changed. It still proves
+  the page bodies are.
+
+### New tokens this requires
+
+Semantic tier gains `--fn-color-surface-selected` (the active nav fill),
+`--fn-color-accent-edge` (the button border, one step darker than the fill), and
+`--fn-elevation-control` / `--fn-elevation-control-press`. Three gradient tokens
+carry the button finish: `--fn-gradient-accent`, `--fn-gradient-accent-hover`,
+`--fn-gradient-accent-press`. Every stop is derived from the approved ember;
+none is a new palette colour.
+
+### Out of scope for the amendment
+
+A search control, a notification centre, a command palette, a collapsible
+sidebar, and any change to the five repository views below the tab bar. The
+amendment restructures the shell and the button; it changes no behaviour and
+adds no route.
 
 ## The package
 
@@ -224,10 +327,19 @@ every tier name, flavour line and threshold is read from
 ## How we will know it works
 
 - `pnpm check` passes: lint, typecheck, unit, integration, build.
-- The dashboard, repository, PR, settings and onboarding pages keep their
-  colours and type exactly, and their spacing within the pixel-or-two the scale
-  normalization allows. The screenshots under `docs/screenshots/` are the
-  reference.
+- The dashboard, repository, PR, settings and onboarding page **bodies** keep
+  their colours and type exactly, and their spacing within the pixel-or-two the
+  scale normalization allows. The screenshots under `docs/screenshots/` are the
+  reference for the bodies only — the shell around them is deliberately changed
+  by the 2026-09-13 amendment.
+- The shell changes land as specified: the brand is one row, the workspace
+  switcher sits within 70 px of the top of the sidebar, the breadcrumb renders
+  on one line, the topbar is 48 px with its three slots present, and `main`
+  carries no side padding above the 24 px body inset.
+- No bare element selector in `style.css` sets layout. `nav`, `button`, `input`,
+  `label` and `section` are either scoped to a class or reduced to element
+  defaults in `fn.base`. Lint- or test-enforceable, and the fix for the
+  breadcrumb bug is only durable if this is.
 - `src/app/style.css` contains no hex literal once extraction is done. This is
   lint-enforceable and is how drift gets caught by CI rather than by review.
 - `packages/design-system` imports nothing from `src/`. Also lint-enforceable.

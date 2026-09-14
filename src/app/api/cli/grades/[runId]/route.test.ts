@@ -139,7 +139,7 @@ describe('GET /api/cli/grades/[runId]', () => {
         targetFinish: 'Prismatic',
         moves: [{ id: 'ci-config', title: 'CI configuration', points: 20 }],
       },
-      url: 'http://localhost/repos/r_1/grading',
+      url: 'http://localhost/app/repos/r_1/grading',
     });
   });
 

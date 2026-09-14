@@ -29,7 +29,7 @@ const PATHS: Partial<Record<AgentId, { title: string; path: string }>> = {
 
 /**
  * A repository-page and detail-route agent mark. Rendered strictly monochrome
- * (fill: var(--ink) at opacity .74, via the `.agent-mark` rule) — never tinted
+ * (fill: var(--fn-color-ink) at opacity .74, via the `.agent-mark` rule) — never tinted
  * by brand colour, since Cursor, Copilot and Anthropic's official colours are
  * all pure black and would render as three identical black squares beside one
  * orange one.

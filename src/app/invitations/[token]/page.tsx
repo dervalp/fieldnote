@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { Button } from '@fieldnote/design-system';
 import { hasCurrentSession } from '../../../auth/session';
 import { sealInvitation } from '../../../auth/invitation-continuation';
 import { acceptInvitationAction } from './actions';
@@ -45,7 +46,7 @@ export default async function InvitationPage({
       )}
       {signedIn && (
         <form action={acceptInvitationAction.bind(null, sealInvitation(token))}>
-          <button type="submit">Accept invitation</button>
+          <Button type="submit">Accept invitation</Button>
         </form>
       )}
       <a

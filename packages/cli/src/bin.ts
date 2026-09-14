@@ -11,6 +11,7 @@ import { ApiError, exchangeCliToken, listGraders, revokeCliToken } from './api.t
 import { gradeRun, type GradeRunOutcome } from './grade-run.ts';
 import { gradeLines } from './grade-view.ts';
 import { notBuiltYet, unbuiltCommand } from './unbuilt.ts';
+import { TOKENS_PATH } from './urls.ts';
 
 // --sha and --min are the only flags this dispatch reads that take a value —
 // every other token that follows them is that value, not a positional or a
@@ -150,7 +151,7 @@ export async function run(argv: string[], stream: Stream, env: Env): Promise<num
   if (command === 'logout') {
     const base = baseUrl(env);
     const auth = await readAuth(env);
-    const tokensUrl = new URL('/settings/tokens', base).toString();
+    const tokensUrl = new URL(TOKENS_PATH, base).toString();
 
     // Every ending of this branch goes through here, so the sentence a person
     // reads and the object a script parses can never describe different

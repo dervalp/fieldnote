@@ -116,7 +116,7 @@ describe('POST /api/cli/grades', () => {
     const response = await POST(post({ repository: 'dervalp/fieldnote', sha: 'a'.repeat(40) }));
     expect(response.status).toBe(404);
     expect((await response.json()).error).toBe(
-      'fieldnote is not connected to dervalp/fieldnote. Connect it at http://localhost/settings/workspace.',
+      'fieldnote is not connected to dervalp/fieldnote. Connect it at http://localhost/app/settings/workspace.',
     );
   });
 

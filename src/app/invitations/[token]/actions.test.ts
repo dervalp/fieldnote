@@ -44,7 +44,7 @@ test('POST accepts matching nonprimary verified email only and switches workspac
     { email: 'verified@example.com', verified: true, primary: false },
   ]);
   await expect(acceptInvitationAction(sealInvitation(token))).rejects.toThrow(
-    'redirect:/dashboard',
+    'redirect:/app/dashboard',
   );
   expect(m.accept).toHaveBeenCalledWith(token, ['verified@example.com']);
   expect(m.active).toHaveBeenCalledWith('w');

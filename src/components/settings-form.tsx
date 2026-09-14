@@ -1,5 +1,6 @@
 'use client';
 import { useActionState } from 'react';
+import { Button } from '@fieldnote/design-system';
 export function SettingsForm({
   action,
   children,
@@ -16,9 +17,9 @@ export function SettingsForm({
   return (
     <form action={run} className="settings-form">
       {children}
-      <button disabled={pending} type="submit">
+      <Button variant="secondary" disabled={pending} type="submit">
         {pending ? 'Saving…' : submitLabel}
-      </button>
+      </Button>
       {state.error && (
         <p className="form-error" role="alert">
           {state.error}

@@ -10,6 +10,7 @@ import { dispatchGrade } from '../../../../inngest/dispatch-grade';
 import { getGrader } from '../../../../domain/grading/registry';
 import { ManifestError } from '../../../../domain/grading/manifest';
 import { AGENT_READINESS } from '../../../../domain/grading/graders/agent-readiness';
+import { workspaceSettingsPath } from '../../../../lib/app-routes';
 
 const headers = { 'Cache-Control': 'private, no-store' };
 
@@ -30,7 +31,7 @@ const notConnected = (request: Request, repository: string) =>
   Response.json(
     {
       error: `fieldnote is not connected to ${repository}. Connect it at ${new URL(
-        '/settings/workspace',
+        workspaceSettingsPath(),
         request.url,
       ).toString()}.`,
     },

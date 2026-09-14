@@ -2,7 +2,7 @@ import { expect, test, vi } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-vi.mock('../../app/repos/[repoId]/grading/actions', () => ({
+vi.mock('../../app/app/repos/[repoId]/grading/actions', () => ({
   requestPlanRun: vi.fn(),
   runGrade: vi.fn(),
 }));
@@ -36,7 +36,7 @@ test('links to a completed plan rather than offering another', () => {
     availability: { available: true },
     latest: { id: 'run-1', state: 'complete' },
   });
-  expect(html).toContain('/repos/repo/act/run-1');
+  expect(html).toContain('/app/repos/repo/act/run-1');
   expect(html).not.toContain('Plan the fixes');
 });
 

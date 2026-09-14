@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import { Button } from '@fieldnote/design-system';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type { DashboardData, Range } from '../../domain/dashboard/types';
 import { rangeEnd } from './range-query';
@@ -132,7 +133,7 @@ export function DateRange({
                 onChange={(e) => e.currentTarget.setCustomValidity('')}
               />
             </label>
-            <button type="submit">Apply dates</button>
+            <Button type="submit">Apply dates</Button>
           </form>
           <p className="muted">
             Collected horizon: {bounds.from} – {bounds.to}. Free visibility and incomplete evidence

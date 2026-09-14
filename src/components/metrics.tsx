@@ -1,3 +1,4 @@
+import { Surface } from '@fieldnote/design-system';
 import { aggregate } from '../metrics/aggregate';
 import type { PrMetrics } from '../domain/pull-request/types';
 export const yesNo = (value: boolean | null) => (value === null ? 'Unknown' : value ? 'Yes' : 'No');
@@ -14,22 +15,22 @@ export function MetricCards({ metrics }: { metrics: PrMetrics[] }) {
   return (
     <div className="cards">
       {rates.map(([name, rate]) => (
-        <section key={name}>
+        <Surface key={name}>
           <small>{name}</small>
           <strong>{rate.value === null ? '—' : `${rate.value.toFixed(1)}%`}</strong>
           <small>
             {rate.known} known · {rate.unknown} unknown
           </small>
-        </section>
+        </Surface>
       ))}
-      <section>
+      <Surface>
         <small>Average attempts to green</small>
         <strong>{a.averageAttempts?.toFixed(1) ?? '—'}</strong>
-      </section>
-      <section>
+      </Surface>
+      <Surface>
         <small>Median time to green</small>
         <strong>{duration(a.medianTime)}</strong>
-      </section>
+      </Surface>
     </div>
   );
 }

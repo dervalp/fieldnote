@@ -2,7 +2,8 @@
 import Link from 'next/link';
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { switchWorkspace } from '../app/settings/actions';
+import { switchWorkspace } from '../app/app/settings/actions';
+import { dashboardPath, workspaceSettingsPath } from '../lib/app-routes';
 import { Menu } from './menu';
 type Workspace = { id: string; name: string; role: 'owner' | 'member' };
 export function WorkspaceSwitcher({
@@ -43,7 +44,7 @@ export function WorkspaceSwitcher({
                 const result = await switchWorkspace(form);
                 setError(result.error ?? '');
                 if (!result.error) {
-                  router.push('/dashboard');
+                  router.push(dashboardPath());
                   router.refresh();
                 }
               })
@@ -57,7 +58,7 @@ export function WorkspaceSwitcher({
         {!demo && (
           <>
             <hr />
-            <Link role="menuitem" href="/settings/workspace#new-workspace">
+            <Link role="menuitem" href={workspaceSettingsPath('#new-workspace')}>
               ＋ New workspace
             </Link>
           </>

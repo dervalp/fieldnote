@@ -92,5 +92,5 @@ test("the evidence link always points at this repository's involvement route", (
       repoId: 'repository:1',
     }),
   );
-  expect(html).toContain('href="/repos/repository%3A1/ai-involvement"');
+  expect(html).toContain('href="/app/repos/repository%3A1/ai-involvement"');
 });
