@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
   getBlob: vi.fn(),
 }));
 vi.mock('./repositories', () => ({ repositoryClient: mocks.repositoryClient }));
-import { collectFiles, resolveHeadSha, FileCollectionError } from './collect-files';
+import { collectFiles, collectTree, resolveHeadSha, FileCollectionError } from './collect-files';
 const READINESS_GLOBS = agentReadinessManifest.needs['repo.files']!;
 const blob = (path = 'README.md', sha = 'b1', size = 4) => ({
   path,
@@ -425,4 +425,79 @@ test('a tree over the document cap reports an incomplete snapshot', async () => 
   const snapshot = await collectFiles('fixture-repo', 'abc', READINESS_GLOBS);
   expect(snapshot.complete).toBe(false);
   expect(snapshot.documents).toHaveLength(200);
+});
+
+test('collectTree lists matching blob paths and sizes, sorted, and never fetches a blob', async () => {
+  mocks.getTree.mockResolvedValue({
+    data: {
+      truncated: false,
+      tree: [
+        blob('src/b.ts', 'b2', 10),
+        blob('README.md', 'b1', 4),
+        { path: 'src', type: 'tree', sha: 't1', mode: '040000' },
+        { ...blob('link.md'), mode: '120000' },
+        { ...blob('vendor/module'), mode: '160000', type: 'commit' },
+      ],
+    },
+  });
+  const snapshot = await collectTree('fixture-repo', 'abc', ['**/*']);
+  expect(snapshot).toEqual({
+    sha: 'abc',
+    complete: true,
+    tree: [
+      { path: 'README.md', size: 4 },
+      { path: 'src/b.ts', size: 10 },
+    ],
+  });
+  expect(mocks.getBlob).not.toHaveBeenCalled();
+  expect(mocks.getCommit).toHaveBeenCalledWith(expect.objectContaining({ commit_sha: 'abc' }));
+});
+
+test('collectTree keeps only paths the declared globs match', async () => {
+  mocks.getTree.mockResolvedValue({
+    data: { truncated: false, tree: [blob('src/b.ts', 'b2', 10), blob('README.md', 'b1', 4)] },
+  });
+  const snapshot = await collectTree('fixture-repo', 'abc', ['src/**']);
+  expect(snapshot.tree).toEqual([{ path: 'src/b.ts', size: 10 }]);
+});
+
+test('collectTree is incomplete past the tree entry cap', async () => {
+  mocks.getTree.mockResolvedValue({
+    data: {
+      truncated: false,
+      tree: Array.from({ length: 10_001 }, (_, i) => blob(`f${i}.ts`, `s${i}`, 1)),
+    },
+  });
+  const snapshot = await collectTree('fixture-repo', 'abc', ['**/*']);
+  expect(snapshot.complete).toBe(false);
+});
+
+test('collectTree walks a truncated recursive tree breadth first', async () => {
+  mocks.getTree.mockImplementation(async ({ tree_sha, recursive }) => {
+    if (recursive) return { data: { truncated: true, tree: [blob('partial.ts')] } };
+    if (tree_sha === 'tree-abc')
+      return {
+        data: {
+          truncated: false,
+          tree: [blob('README.md', 'b1', 4), { path: 'src', type: 'tree', sha: 't-src', mode: '040000' }],
+        },
+      };
+    return { data: { truncated: false, tree: [blob('a.ts', 'b3', 7)] } };
+  });
+  const snapshot = await collectTree('fixture-repo', 'abc', ['**/*']);
+  expect(snapshot).toEqual({
+    sha: 'abc',
+    complete: true,
+    tree: [
+      { path: 'README.md', size: 4 },
+      { path: 'src/a.ts', size: 7 },
+    ],
+  });
+});
+
+test('collectTree maps provider failures the way collectFiles does', async () => {
+  mocks.getCommit.mockRejectedValue(Object.assign(new Error('Not Found'), { status: 404 }));
+  await expect(collectTree('fixture-repo', 'abc', ['**/*'])).rejects.toMatchObject({
+    code: 'repository_unavailable',
+  });
 });

@@ -1,5 +1,5 @@
 import { globToRegExp } from '../domain/grading/glob';
-import type { RepositorySnapshot, SourceDocument } from '../domain/grading/types';
+import type { RepositorySnapshot, SourceDocument, TreeEntry } from '../domain/grading/types';
 import { repositoryClient } from './repositories';
 
 const limits = {
@@ -94,7 +94,7 @@ export async function resolveHeadSha(repositoryId: string): Promise<string> {
     throw safeError(error);
   }
 }
-type TreeEntry = { path?: string; sha?: string; mode?: string; type?: string; size?: number };
+type GitTreeEntry = { path?: string; sha?: string; mode?: string; type?: string; size?: number };
 // Always case-insensitive. The `needs` globs say what to fetch; each check
 // carries its own caseInsensitive flag and does the real matching. Over-
 // fetching a case variant of a file the grader explicitly asked for is
@@ -104,6 +104,78 @@ function matcher(patterns: string[]): (path: string) => boolean {
   const expressions = patterns.map((pattern) => globToRegExp(pattern, true));
   return (path) => expressions.some((expression) => expression.test(path));
 }
+
+/**
+ * Every entry of the pinned commit's tree, within the entry cap, falling back
+ * to a breadth-first walk of the immutable root when GitHub truncates the
+ * recursive listing. The visitor returns false to mark the walk incomplete.
+ * Shared by collectFiles and collectTree so the caps are one set of caps.
+ */
+async function walkTree(
+  repositoryId: string,
+  sha: string,
+  visit: (entry: GitTreeEntry, path: string) => boolean,
+) {
+  const { repo, client } = await context(repositoryId);
+  const identity = { owner: repo.owner, repo: repo.name };
+  const { data: commit } = await withDeadline((signal) =>
+    client.rest.git.getCommit({ request: { signal }, ...identity, commit_sha: sha }),
+  );
+  const { data: recursive } = await withDeadline((signal) =>
+    client.rest.git.getTree({
+      request: { signal },
+      ...identity,
+      tree_sha: commit.tree.sha,
+      recursive: '1',
+    }),
+  );
+  let complete = true;
+  let entries = 0;
+  const consider = (entry: GitTreeEntry, prefix: string) => {
+    if (!visit(entry, prefix + (entry.path ?? ''))) complete = false;
+  };
+  if (!recursive.truncated) {
+    for (const entry of recursive.tree) {
+      if (++entries > limits.entries) {
+        complete = false;
+        break;
+      }
+      consider(entry, '');
+    }
+  } else {
+    // Discard partial recursive data and traverse the immutable root breadth first.
+    const queue = [{ sha: commit.tree.sha, prefix: '' }];
+    let treeRequests = 0;
+    for (let index = 0; index < queue.length; index++) {
+      if (++treeRequests > limits.entries || entries >= limits.entries) {
+        complete = false;
+        break;
+      }
+      const current = queue[index];
+      const { data: tree } = await withDeadline((signal) =>
+        client.rest.git.getTree({ request: { signal }, ...identity, tree_sha: current.sha }),
+      );
+      if (tree.truncated) complete = false;
+      for (const entry of tree.tree) {
+        if (++entries > limits.entries) {
+          complete = false;
+          break;
+        }
+        consider(entry, current.prefix);
+        if (entry.type === 'tree') {
+          if (!entry.sha || !entry.path) complete = false;
+          else queue.push({ sha: entry.sha, prefix: `${current.prefix}${entry.path}/` });
+        }
+      }
+      if (entries > limits.entries) break;
+    }
+  }
+  return { complete, client, identity };
+}
+
+const isFile = (entry: GitTreeEntry) =>
+  entry.type === 'blob' && ['100644', '100755'].includes(entry.mode ?? '');
+
 /** Server-side evidence collection only; callers must not serialize raw documents to clients. */
 export async function collectFiles(
   repositoryId: string,
@@ -113,35 +185,10 @@ export async function collectFiles(
   const relevant = matcher(patterns);
   try {
     const pinnedSha = sha;
-    const { repo, client } = await context(repositoryId);
-    const identity = { owner: repo.owner, repo: repo.name };
-    const { data: commit } = await withDeadline((signal) =>
-      client.rest.git.getCommit({
-        request: { signal },
-        ...identity,
-        commit_sha: pinnedSha,
-      }),
-    );
-    const { data: recursive } = await withDeadline((signal) =>
-      client.rest.git.getTree({
-        request: { signal },
-        ...identity,
-        tree_sha: commit.tree.sha,
-        recursive: '1',
-      }),
-    );
-    let complete = true;
-    let entries = 0;
     const candidates: { path: string; sha: string }[] = [];
     let reservedBytes = 0;
-    function consider(entry: TreeEntry, prefix: string) {
-      const path = prefix + (entry.path ?? '');
-      if (
-        entry.type !== 'blob' ||
-        !['100644', '100755'].includes(entry.mode ?? '') ||
-        !relevant(path)
-      )
-        return;
+    const walked = await walkTree(repositoryId, pinnedSha, (entry, path) => {
+      if (!isFile(entry) || !relevant(path)) return true;
       if (
         !entry.sha ||
         entry.size === undefined ||
@@ -150,53 +197,14 @@ export async function collectFiles(
         entry.size > limits.fileBytes ||
         candidates.length >= limits.documents ||
         reservedBytes + entry.size > limits.totalBytes
-      ) {
-        complete = false;
-        return;
-      }
+      )
+        return false;
       reservedBytes += entry.size;
       candidates.push({ path, sha: entry.sha });
-    }
-    if (!recursive.truncated) {
-      for (const entry of recursive.tree) {
-        if (++entries > limits.entries) {
-          complete = false;
-          break;
-        }
-        consider(entry, '');
-      }
-    } else {
-      // Discard partial recursive data and traverse the immutable root breadth first.
-      const queue = [{ sha: commit.tree.sha, prefix: '' }];
-      let treeRequests = 0;
-      for (let index = 0; index < queue.length; index++) {
-        if (++treeRequests > limits.entries || entries >= limits.entries) {
-          complete = false;
-          break;
-        }
-        const current = queue[index];
-        const { data: tree } = await withDeadline((signal) =>
-          client.rest.git.getTree({
-            request: { signal },
-            ...identity,
-            tree_sha: current.sha,
-          }),
-        );
-        if (tree.truncated) complete = false;
-        for (const entry of tree.tree) {
-          if (++entries > limits.entries) {
-            complete = false;
-            break;
-          }
-          consider(entry, current.prefix);
-          if (entry.type === 'tree') {
-            if (!entry.sha || !entry.path) complete = false;
-            else queue.push({ sha: entry.sha, prefix: `${current.prefix}${entry.path}/` });
-          }
-        }
-        if (entries > limits.entries) break;
-      }
-    }
+      return true;
+    });
+    const { client, identity } = walked;
+    let complete = walked.complete;
     const documents: SourceDocument[] = [];
     let totalBytes = 0;
     // Batches bound concurrency and make byte accounting/order deterministic.
@@ -248,6 +256,33 @@ export async function collectFiles(
       }
     }
     return { sha: pinnedSha, complete, documents };
+  } catch (error) {
+    throw safeError(error);
+  }
+}
+
+export type TreeSnapshot = { sha: string; complete: boolean; tree: TreeEntry[] };
+
+/** repo.tree: the paths and sizes a grader declared, at the pinned commit. No blob is fetched. */
+export async function collectTree(
+  repositoryId: string,
+  sha: string,
+  patterns: string[],
+): Promise<TreeSnapshot> {
+  const relevant = matcher(patterns);
+  try {
+    const tree: TreeEntry[] = [];
+    const { complete } = await walkTree(repositoryId, sha, (entry, path) => {
+      if (!isFile(entry) || !relevant(path)) return true;
+      if (entry.size === undefined || entry.size < 0 || !Number.isSafeInteger(entry.size))
+        return false;
+      tree.push({ path, size: entry.size });
+      return true;
+    });
+    // The same order runDeclarative sorts documents into, so a program sees a
+    // stable list whatever order GitHub returned.
+    tree.sort((left, right) => left.path.localeCompare(right.path, 'en'));
+    return { sha, complete, tree };
   } catch (error) {
     throw safeError(error);
   }

@@ -4,10 +4,18 @@ export type SourceDocument = {
   text: string;
 };
 
+/** One file at the pinned commit: where it is and how big, never what it says. */
+export type TreeEntry = {
+  path: string;
+  size: number;
+};
+
 export type RepositorySnapshot = {
   sha: string;
   complete: boolean;
   documents: SourceDocument[];
+  /** Present only for a grader that declared repo.tree. */
+  tree?: TreeEntry[] | null;
   metrics?: MetricsWindow | null;
   /** The grader's own sentence when its declared floor was not met. */
   incompleteReason?: string;
