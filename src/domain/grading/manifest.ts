@@ -20,22 +20,9 @@ export const GRADER_CATEGORIES = [
 export const GRADER_METRICS = ['first-pass-rate', 'ci-success-rate', 'ci-recovery-rate'] as const;
 export type GraderMetric = (typeof GRADER_METRICS)[number];
 
-// A lookup, not a conditional, on purpose: with two families a binary else
-// reads fine, but it silently classifies any future third family's checks as
-// 'repo.files'. Keying this by primitive makes adding a primitive without
-// deciding its family a compile error — TypeScript rejects a Record missing a
-// key of its declared key type — instead of a runtime needs_mismatch.
-const FAMILY_OF: Record<GraderCheck['primitive'], 'repo.files' | 'fieldnote.metrics'> = {
-  'file-exists': 'repo.files',
-  'glob-count': 'repo.files',
-  'heading-has-fence': 'repo.files',
-  'metric-threshold': 'fieldnote.metrics',
-};
-
 export type ManifestErrorCode =
   | 'schema'
   | 'subject_unsupported'
-  | 'kind_unsupported'
   | 'unknown_grader'
   | 'points_not_100'
   | 'duplicate_check_id'
@@ -109,7 +96,29 @@ const checkSchema = z.discriminatedUnion('primitive', [
   }),
 ]);
 
-const manifestSchema = z.object({
+// A code grader's check is the common half and nothing else. Strict, so a
+// primitive smuggled onto one is refused rather than silently stripped: the
+// program decides the status, and a primitive nobody runs would be a lie on
+// the page.
+const codeCheckSchema = z.strictObject(checkBase);
+
+const needsSchema = z.object({
+  'repo.files': z.array(nonEmpty).min(1).optional(),
+  // Paths and sizes at the pinned commit, never contents. Globs, like
+  // repo.files, and bound by the same needs_too_broad limit.
+  'repo.tree': z.array(nonEmpty).min(1).optional(),
+  'fieldnote.metrics': z
+    .object({
+      // The product's own presets, and only those: resolveRange() accepts
+      // no others, so a manifest cannot name a window nothing can build.
+      windowDays: z.union([z.literal(7), z.literal(30), z.literal(90)]),
+      minMergedPullRequests: z.number().int().nonnegative(),
+      insufficientReason: nonEmpty,
+    })
+    .optional(),
+});
+
+const manifestBase = {
   // owner/name. Namespaced because a marketplace has two people who both want
   // the name `test-coverage`. Immutable for the life of a grader.
   id: z.string().regex(/^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9-]*$/),
@@ -121,23 +130,9 @@ const manifestSchema = z.object({
   subject: nonEmpty,
   mode: z.enum(['deterministic', 'llm', 'hybrid']),
   category: z.enum(GRADER_CATEGORIES),
-  kind: z.enum(['declarative', 'code']),
-  // A grader declares the families it reads. Every family is optional and the
-  // invariants below require the declared set to be exactly the set its checks
-  // need: an undeclared family cannot be collected, and a declared one nobody
-  // reads would ask an installer for access to evidence that is never used.
-  needs: z.object({
-    'repo.files': z.array(nonEmpty).min(1).optional(),
-    'fieldnote.metrics': z
-      .object({
-        // The product's own presets, and only those: resolveRange() accepts
-        // no others, so a manifest cannot name a window nothing can build.
-        windowDays: z.union([z.literal(7), z.literal(30), z.literal(90)]),
-        minMergedPullRequests: z.number().int().nonnegative(),
-        insufficientReason: nonEmpty,
-      })
-      .optional(),
-  }),
+  // A grader declares the families it reads. Every family is optional; the
+  // invariants below tie the declared set to what the grader can use.
+  needs: needsSchema,
   // Appended to every explanation. The caveat is the grader's, not fieldnote's.
   disclaimer: nonEmpty,
   card: z.object({
@@ -145,11 +140,68 @@ const manifestSchema = z.object({
     tagline: nonEmpty,
     groups: z.array(z.object({ title: nonEmpty, checks: z.array(nonEmpty).min(1) })).min(1),
   }),
-  checks: z.array(checkSchema).min(1),
-});
+};
+
+const manifestSchema = z.discriminatedUnion('kind', [
+  z.object({
+    ...manifestBase,
+    kind: z.literal('declarative'),
+    checks: z.array(checkSchema).min(1),
+    // A declarative grader's floor lives in needs['fieldnote.metrics'], where
+    // the collector enforces it; neither field below belongs on one.
+    code: z.never().optional(),
+    insufficientReason: z.never().optional(),
+  }),
+  z.object({
+    ...manifestBase,
+    kind: z.literal('code'),
+    checks: z.array(codeCheckSchema).min(1),
+    // The program's text. Part of the manifest, so registerRubric() stores and
+    // hashes it: changing the program without a version bump throws the same
+    // "Rubric version definition mismatch" a changed threshold does.
+    code: z.object({ source: nonEmpty }),
+    // The program enforces its own floor, so its sentence sits at the top level.
+    insufficientReason: nonEmpty.optional(),
+  }),
+]);
 
 export type GraderManifest = z.infer<typeof manifestSchema>;
-export type GraderCheck = GraderManifest['checks'][number];
+export type DeclarativeManifest = Extract<GraderManifest, { kind: 'declarative' }>;
+export type CodeManifest = Extract<GraderManifest, { kind: 'code' }>;
+export type GraderCheck = DeclarativeManifest['checks'][number];
+export type EvidenceFamily = keyof GraderManifest['needs'];
+
+// A lookup, not a conditional, on purpose: keying this by primitive makes
+// adding a primitive without deciding its family a compile error — TypeScript
+// rejects a Record missing a key of its declared key type — instead of a
+// runtime needs_mismatch.
+const FAMILY_OF: Record<GraderCheck['primitive'], EvidenceFamily> = {
+  'file-exists': 'repo.files',
+  'glob-count': 'repo.files',
+  'heading-has-fence': 'repo.files',
+  'metric-threshold': 'fieldnote.metrics',
+};
+
+// Whether a family's evidence can change without a new commit. Keyed by the
+// family type for the reason FAMILY_OF is keyed by primitive: a family added
+// without a label is a compile error. Both the subject invariant and the
+// nightly skip read this table, so the two rules cannot drift apart.
+// repo.history gets its label when it is built, and whether history at a
+// pinned sha can change without a commit is that slice's question.
+export const FAMILY_CHANGES: Record<EvidenceFamily, 'with-commits' | 'over-time'> = {
+  'repo.files': 'with-commits',
+  'repo.tree': 'with-commits',
+  'fieldnote.metrics': 'over-time',
+};
+
+function declaredFamilies(needs: GraderManifest['needs']): EvidenceFamily[] {
+  return (Object.keys(needs) as EvidenceFamily[]).filter((family) => needs[family] !== undefined);
+}
+
+/** True when any declared family can change without a new commit. */
+export function changesOverTime(manifest: { needs: GraderManifest['needs'] }): boolean {
+  return declaredFamilies(manifest.needs).some((family) => FAMILY_CHANGES[family] === 'over-time');
+}
 
 export function parseManifest(input: unknown): GraderManifest {
   const parsed = manifestSchema.safeParse(input);
@@ -188,9 +240,7 @@ export function parseManifest(input: unknown): GraderManifest {
   if (ungrouped)
     throw new ManifestError('check_not_grouped', `Check '${ungrouped}' is in no card group.`);
 
-  const declared = Object.entries(manifest.needs)
-    .filter(([, value]) => value !== undefined)
-    .map(([family]) => family) as Array<'repo.files' | 'fieldnote.metrics'>;
+  const declared = declaredFamilies(manifest.needs);
   if (declared.length === 0)
     throw new ManifestError('needs_empty', 'A grader must declare at least one evidence family.');
 
@@ -198,42 +248,48 @@ export function parseManifest(input: unknown): GraderManifest {
   // run against every tree entry. Twenty is four times what either built-in
   // needs. Its own code rather than a Zod .max(), so an author is told which
   // rule they broke.
-  const patterns = manifest.needs['repo.files'];
-  if (patterns && patterns.length > 20)
-    throw new ManifestError(
-      'needs_too_broad',
-      `Manifest declares ${patterns.length} repo.files patterns; the limit is 20.`,
-    );
+  for (const family of ['repo.files', 'repo.tree'] as const) {
+    const patterns = manifest.needs[family];
+    if (patterns && patterns.length > 20)
+      throw new ManifestError(
+        'needs_too_broad',
+        `Manifest declares ${patterns.length} ${family} patterns; the limit is 20.`,
+      );
+  }
 
-  const required = new Set(manifest.checks.map((check) => FAMILY_OF[check.primitive]));
-  const undeclared = [...required].find((family) => !declared.includes(family));
-  if (undeclared)
-    throw new ManifestError(
-      'needs_mismatch',
-      `Checks read '${undeclared}', which the manifest does not declare.`,
-    );
-  const unread = declared.find((family) => !required.has(family));
-  if (unread)
-    throw new ManifestError(
-      'needs_mismatch',
-      `Manifest declares '${unread}', which no check reads.`,
-    );
+  // Only a declarative grader's checks say which family they read. A code
+  // grader's program is opaque to fieldnote, so its declaration is a ceiling —
+  // it receives nothing it did not declare — rather than an inventory.
+  if (manifest.kind === 'declarative') {
+    const required = new Set(manifest.checks.map((check) => FAMILY_OF[check.primitive]));
+    const undeclared = [...required].find((family) => !declared.includes(family));
+    if (undeclared)
+      throw new ManifestError(
+        'needs_mismatch',
+        `Checks read '${undeclared}', which the manifest does not declare.`,
+      );
+    const unread = declared.find((family) => !required.has(family));
+    if (unread)
+      throw new ManifestError(
+        'needs_mismatch',
+        `Manifest declares '${unread}', which no check reads.`,
+      );
+  }
 
-  // The subject and the evidence cannot disagree. A grader that reads a
-  // moving window while claiming to grade a commit is the bug open question 6
-  // described; after this it is unregistrable rather than merely undocumented.
-  // Placed after the needs invariants so a broken `needs` reports its own
-  // error rather than this one.
-  const window = manifest.needs['fieldnote.metrics'] !== undefined;
+  // The subject and the evidence cannot disagree. A grader that reads evidence
+  // which moves without a commit, while claiming to grade a commit, is the bug
+  // open question 6 described; it is unregistrable. Placed after the needs
+  // invariants so a broken `needs` reports its own error rather than this one.
+  const window = changesOverTime(manifest);
   if (window && manifest.subject !== 'repository_window')
     throw new ManifestError(
       'subject_mismatch',
-      "A grader reading 'fieldnote.metrics' grades a window and must say subject: repository_window.",
+      'A grader reading evidence that changes over time grades a window and must say subject: repository_window.',
     );
   if (!window && manifest.subject !== 'repository')
     throw new ManifestError(
       'subject_mismatch',
-      "Only a grader reading 'fieldnote.metrics' may say subject: repository_window.",
+      'Only a grader reading evidence that changes over time may say subject: repository_window.',
     );
 
   return manifest;

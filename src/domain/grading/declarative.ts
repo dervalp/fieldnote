@@ -24,6 +24,9 @@ export function runDeclarative(
   manifest: GraderManifest,
   snapshot: RepositorySnapshot,
 ): GradeResult {
+  // Callers holding a manifest of unknown kind reach code graders through
+  // evaluate(); this engine interprets primitives and nothing else.
+  if (manifest.kind !== 'declarative') throw new Error('runDeclarative runs declarative graders only');
   const evidence: CheckEvidence = {
     documents: ordered(snapshot.documents),
     metrics: snapshot.metrics ?? null,

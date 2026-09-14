@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { ManifestError, parseManifest } from './manifest';
+import { changesOverTime, FAMILY_CHANGES, ManifestError, parseManifest } from './manifest';
 
 type Draft = Record<string, unknown>;
 
@@ -85,12 +85,6 @@ test('an unknown subject is accepted by the schema and rejected by the invariant
   rejects((m) => void (m.subject = 'pull_request'), 'subject_unsupported');
 });
 
-test('kind: code parses — it is rejected at registration, not here', () => {
-  const manifest = valid();
-  manifest.kind = 'code';
-  expect(parseManifest(manifest).kind).toBe('code');
-});
-
 test('an unknown category, an unknown primitive and a missing field are schema errors', () => {
   rejects((m) => void (m.category = 'vibes'), 'schema');
   rejects((m) => void (m.checks[0].primitive = 'file-vibes'), 'schema');
@@ -112,6 +106,7 @@ test('heading-has-fence scope entries carry their own case sensitivity', () => {
     },
   };
   const parsed = parseManifest(manifest);
+  if (parsed.kind !== 'declarative') throw new Error('expected a declarative manifest');
   expect(parsed.checks[1].primitive).toBe('heading-has-fence');
   expect(parsed.checks[1].args).toMatchObject({
     scope: [
@@ -157,6 +152,7 @@ test('a metrics manifest parses and keeps its window', () => {
     windowDays: 30,
     minMergedPullRequests: 10,
   });
+  if (manifest.kind !== 'declarative') throw new Error('expected a declarative manifest');
   expect(manifest.checks[0].primitive).toBe('metric-threshold');
 });
 
@@ -302,4 +298,93 @@ test('an unrecognised subject is still subject_unsupported', () => {
     'subject_unsupported',
     () => windowManifest({}),
   );
+});
+
+const validCode = (): Draft => ({
+  ...valid(),
+  id: 'fieldnote/code-example',
+  kind: 'code',
+  needs: { 'repo.tree': ['**/*'] },
+  code: { source: 'export default () => ({ checks: [] });' },
+  insufficientReason: 'Too little here to judge.',
+  checks: [
+    { id: 'a', title: 'A', points: 60, explain: { pass: 'Yes.', fail: 'No.' } },
+    { id: 'b', title: 'B', points: 40, explain: { pass: 'Yes.', fail: 'No.' } },
+  ],
+});
+
+test('a code manifest parses and keeps its program', () => {
+  const manifest = parseManifest(validCode());
+  expect(manifest.kind).toBe('code');
+  if (manifest.kind !== 'code') throw new Error('expected a code manifest');
+  expect(manifest.code.source).toContain('export default');
+  expect(manifest.insufficientReason).toBe('Too little here to judge.');
+});
+
+test('a code check carrying a primitive is a schema error', () => {
+  rejects((m) => {
+    m.checks[0].primitive = 'file-exists';
+    m.checks[0].args = { anyOf: ['README.md'] };
+  }, 'schema', validCode);
+});
+
+test('a code manifest without its program is a schema error', () => {
+  rejects((m) => void delete m.code, 'schema', validCode);
+});
+
+test('a declarative manifest carrying a program is a schema error', () => {
+  rejects((m) => void (m.code = { source: 'export default () => ({});' }), 'schema');
+});
+
+test('a declarative manifest with a top-level insufficientReason is a schema error', () => {
+  rejects((m) => void (m.insufficientReason = 'Too little.'), 'schema');
+});
+
+test('a declarative manifest declaring repo.tree is needs_mismatch, because no primitive reads it', () => {
+  rejects((m) => void (m.needs['repo.tree'] = ['**/*']), 'needs_mismatch');
+});
+
+test('a code grader may declare a family fieldnote cannot see it read', () => {
+  const draft = validCode();
+  draft.needs = { 'repo.files': ['README.md'], 'repo.tree': ['**/*'] };
+  expect(parseManifest(draft).kind).toBe('code');
+});
+
+test('more than twenty repo.tree patterns is needs_too_broad', () => {
+  rejects(
+    (m) => void (m.needs['repo.tree'] = Array.from({ length: 21 }, (_, i) => `dir${i}/**`)),
+    'needs_too_broad',
+    validCode,
+  );
+});
+
+test('a repo.tree grader must say subject: repository', () => {
+  rejects((m) => void (m.subject = 'repository_window'), 'subject_mismatch', validCode);
+});
+
+test('a code grader reading fieldnote.metrics must say subject: repository_window', () => {
+  rejects(
+    (m) =>
+      void (m.needs = {
+        'fieldnote.metrics': { windowDays: 30, minMergedPullRequests: 1, insufficientReason: 'Quiet.' },
+      }),
+    'subject_mismatch',
+    validCode,
+  );
+});
+
+test('every evidence family has exactly one label', () => {
+  expect(Object.keys(FAMILY_CHANGES).sort()).toEqual(['fieldnote.metrics', 'repo.files', 'repo.tree']);
+});
+
+test('changesOverTime reads the labels of the declared families only', () => {
+  expect(changesOverTime({ needs: { 'repo.tree': ['**/*'] } })).toBe(false);
+  expect(changesOverTime({ needs: { 'repo.files': ['README.md'] } })).toBe(false);
+  expect(
+    changesOverTime({
+      needs: {
+        'fieldnote.metrics': { windowDays: 30, minMergedPullRequests: 10, insufficientReason: 'Quiet.' },
+      },
+    }),
+  ).toBe(true);
 });

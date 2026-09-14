@@ -8,11 +8,6 @@ const graders = new Map<string, GraderManifest>();
 
 export function registerGrader(input: unknown): GraderManifest {
   const manifest = parseManifest(input);
-  if (manifest.kind === 'code')
-    throw new ManifestError(
-      'kind_unsupported',
-      `Grader '${manifest.id}' ships code, which is not yet supported.`,
-    );
   graders.set(manifest.id, manifest);
   return manifest;
 }

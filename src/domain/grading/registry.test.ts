@@ -41,16 +41,32 @@ test('a registered grader is retrievable by id and publishes its check titles', 
   });
 });
 
-test('kind: code is accepted by the schema and rejected at registration', () => {
-  try {
-    registerGrader(manifest({ id: 'fieldnote/code-fixture', kind: 'code' }));
-  } catch (error) {
-    expect(error).toBeInstanceOf(ManifestError);
-    expect((error as ManifestError).code).toBe('kind_unsupported');
-    expect((error as ManifestError).message).toMatch(/not yet supported/);
-    return;
-  }
-  throw new Error('expected kind_unsupported');
+test('kind: code registers like any other grader', () => {
+  const registered = registerGrader({
+    ...manifest({
+      id: 'fieldnote/code-fixture',
+      kind: 'code',
+      code: { source: 'export default () => ({ checks: [] });' },
+      needs: { 'repo.tree': ['**/*'] },
+    }),
+    checks: [
+      {
+        id: 'readme',
+        title: 'Project documentation',
+        points: 100,
+        explain: { pass: 'Found a README.', fail: 'No README.' },
+      },
+    ],
+  });
+  expect(registered.kind).toBe('code');
+  expect(getGrader('fieldnote/code-fixture').kind).toBe('code');
+});
+
+test('runDeclarative refuses a code manifest by kind', () => {
+  const code = getGrader('fieldnote/code-fixture');
+  expect(() => runDeclarative(code, { sha: 'abc', complete: true, documents: [] })).toThrow(
+    'runDeclarative runs declarative graders only',
+  );
 });
 
 test('an unknown grader id is a distinguishable error, not undefined', () => {

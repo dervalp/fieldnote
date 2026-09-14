@@ -283,7 +283,7 @@ test('a version still freezes a threshold that would move every score', async ()
   const reweighted = {
     ...agentReadinessManifest,
     checks: agentReadinessManifest.checks.map((check, index) =>
-      index === 0 ? { ...check, args: { ...check.args, nonempty: false } } : check,
+      index === 0 && 'args' in check ? { ...check, args: { ...check.args, nonempty: false } } : check,
     ),
   } as typeof agentReadinessManifest;
   await expect(registerRubric(reweighted)).rejects.toThrow('Rubric version definition mismatch');
@@ -359,7 +359,7 @@ test('validateGradeRun accepts card drift but rejects frozen field changes', asy
     const frozenDrifted = {
       ...agentReadinessManifest,
       checks: agentReadinessManifest.checks.map((check, index) =>
-        index === 0 ? { ...check, args: { ...check.args, nonempty: false } } : check,
+        index === 0 && 'args' in check ? { ...check, args: { ...check.args, nonempty: false } } : check,
       ),
     } as typeof agentReadinessManifest;
     await db()
