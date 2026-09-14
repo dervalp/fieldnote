@@ -377,10 +377,23 @@ the install consent prompt generated from `needs` rather than hand-written by
 the author, the history collector and its per-sha cache, and nightly cron per
 installation. The largest slice, and deliberately after the contract is settled.
 
-**Slice 4 — code graders.** Sandboxed execution reusing the Act leg's sandbox
-port, `judge()`, budget enforcement before the call, BYOK key handling,
-metering. The highest-risk slice, last, once three slices of contract have said
-what it must support.
+**Slice 4 — code graders.** *Rescoped 2026-09-14, before design, on two
+findings. First, there is no Act sandbox port to reuse: `sandbox` appears three
+times in `src/` — two comments and `authoring_runs.sandbox_id`, a reserved
+column nothing writes. Plan 2b, which would have built it, has not happened.
+Second, `kind` and `mode` are orthogonal: a `kind: code` grader that is
+`mode: deterministic` needs an execution sandbox and nothing else — no model,
+no key, no budget, no meter. The sketch below is therefore two slices.* Slice 4
+is the first pair: a sandbox, and the `kind: code` contract — what a grader
+ships, how it is loaded, what it returns, how a bad one fails. That pair is
+what makes the extraction rule's promise in Risks true. The model broker,
+budget enforcement before the call, BYOK key handling and metering are a later
+slice; they are what make `mode: llm` real, and they add nothing to the
+extraction rule. *Also decided: slice 4 admits `kind: code` for fieldnote's own
+graders only, which parks open question 3 rather than answering it.* The
+grading sandbox is the read-only case — evidence in, `CheckResult` out, no
+repository writes — so it is the cheaper of the two sandboxes to build first,
+and Act's plan 2b can adopt it rather than the reverse.
 
 **Slice 5 — registry, publishing, the public card and the pill.** *Now blocked
 on open questions 1, 2, 4 and 6.* Marketplace
@@ -413,8 +426,11 @@ rather than discovered later.
 3. **AGPL and code graders.** fieldnote is AGPL-3.0-only. Does a `kind: code`
    grader executing inside fieldnote's sandbox constitute a derived work? This
    will be the first question in the first GitHub issue an author opens. It
-   needs a written answer before the first code grader runs, not after.
-   *Blocks slice 4.*
+   needs a written answer before the first *third-party* code grader runs.
+   *Deferred 2026-09-14: slice 4 admits `kind: code` for fieldnote's own
+   graders only, so nothing loads foreign code and the question no longer
+   blocks it. It blocks whichever slice opens `kind: code` to authors, and that
+   slice cannot begin design until this is answered.*
 
 4. **The bottom two rungs.** `gradePresentation()` labels 0–49 "Bad" and 50–69
    "Mediocre". Those are verdicts on a team, about to become printable on a
