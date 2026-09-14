@@ -17,6 +17,7 @@ const props = {
   isPrivate: false,
   shared: false,
   canShare: true,
+  isDemo: false,
 };
 const render = (over: Partial<typeof props> = {}) =>
   renderToStaticMarkup(createElement(ShareToggle, { ...props, ...over }));
@@ -44,4 +45,12 @@ test('a member sees the state and no control', () => {
 test('a private repository is told what sharing reveals', () => {
   expect(render({ isPrivate: true })).toContain('never file names');
   expect(render({ isPrivate: false })).not.toContain('never file names');
+});
+
+// "Demo mode renders no switch" — not a switch, and not the member-shaped line
+// about a workspace owner either. A demo repository has nothing to share.
+test('a demo repository is offered no sharing, and told nothing about it', () => {
+  expect(render({ isDemo: true, canShare: false })).toBe('');
+  expect(render({ isDemo: true, canShare: false, shared: true })).toBe('');
+  expect(render({ isDemo: true, canShare: false, isPrivate: true })).toBe('');
 });

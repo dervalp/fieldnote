@@ -93,11 +93,31 @@ which failed:
 - a `public_grades` row exists for the pair with `revoked_at IS NULL`;
 - `DEMO_MODE` is not `true`.
 
+**"Exactly one" is counted after the sharing join, not before it.** The query
+asks for repositories that match the name *and* are shared, and refuses only
+when that answers with more than one row. Two same-named repositories of which
+one is shared therefore resolve to the shared one rather than to `private`. It
+leaks nothing: the visitor learns only that this address is shared, which is
+what an owner switched on, and the other repository is never named, counted or
+hinted at — a shared repository with no namesake answers identically. Two rows
+that are *both* shared still answer `private`, because then "which repository
+is this" really is a guess.
+
 **What it copies out, and only this.** `PublicRepository` is owner, name and
-whether it is private. `PublicGrader` is the manifest's card title, author,
-mode, category and disclaimer. `PublicGrade` is the score, the graded sha, the
-completion time, the window if any, and each check's id, title, status, points,
-explanation — and paths **only when the repository is public**. Line ranges,
+whether it is private. `PublicGrader` is the grader's id, the manifest's card
+title, author, mode, category and disclaimer, and its `version`,
+`evaluatorVersion` and check titles — all manifest constants, identical for
+every repository that grader has ever scored, and all of them on screen: the
+page prints the version and names each check, and compares the stored versions
+against the manifest's to say when a report is historical. `PublicGrade` is the
+score, the graded sha, the completion time, the rubric version, the evaluator
+version, the window if any, and each check's id, status, points, `maxPoints`
+and explanation — and paths **only when the repository is public**. `maxPoints`
+is the rubric's own arithmetic, without which "20" is a number with no
+denominator. A check's title is not copied per check — it is read from the
+grader's `checkTitles`, one map for the whole page. `lineRanges` is present and
+**always empty**, because a check is a `CheckResult` and that is the shape;
+no range ever crosses, for a public repository or a private one.
 `requested_by`, workspace, run id, trigger and every other stored field stay
 behind. The stored `GradeResult` is never passed through whole.
 

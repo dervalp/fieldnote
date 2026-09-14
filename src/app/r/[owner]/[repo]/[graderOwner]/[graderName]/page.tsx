@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { GradeCard, Surface } from '@fieldnote/design-system';
@@ -11,9 +12,16 @@ export const dynamic = 'force-dynamic';
 
 type Params = Promise<{ owner: string; repo: string; graderOwner: string; graderName: string }>;
 
+// generateMetadata and the page body ask the same question of the same
+// request; cache() keyed on the three resolved strings — not on the params
+// promise, which Next need not hand out twice — makes that one query.
+const lookup = cache((owner: string, repo: string, graderId: string): Promise<PublicGradeView> =>
+  publicGrade(owner, repo, graderId),
+);
+
 async function view(params: Params): Promise<PublicGradeView> {
   const { owner, repo, graderOwner, graderName } = await params;
-  return publicGrade(owner, repo, `${graderOwner}/${graderName}`);
+  return lookup(owner, repo, `${graderOwner}/${graderName}`);
 }
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
@@ -44,6 +52,9 @@ export default async function PublicGrade({ params }: { params: Params }) {
         </Surface>
       ) : (
         <>
+          <h1>
+            {resolved.grader.title} · {resolved.repository.owner}/{resolved.repository.name}
+          </h1>
           <GradeCard
             {...gradeCardProps({
               score: resolved.grade.score,

@@ -11,6 +11,10 @@ import { setPublicGrade } from '../../app/app/repos/[repoId]/grading/actions';
  * and a member sees the state rather than a control that would refuse them.
  * Turning it off keeps the link alive as `private`, so the copy says "stop
  * sharing", not "delete".
+ *
+ * A demo repository renders nothing at all: "Demo mode renders no switch", and
+ * the member-shaped line about asking a workspace owner is a promise nobody in
+ * a demo can keep.
  */
 export function ShareToggle({
   repositoryId,
@@ -18,6 +22,7 @@ export function ShareToggle({
   graderTitle,
   shared,
   canShare,
+  isDemo,
   isPrivate,
   pagePath,
   badgePath,
@@ -28,6 +33,7 @@ export function ShareToggle({
   graderTitle: string;
   shared: boolean;
   canShare: boolean;
+  isDemo: boolean;
   isPrivate: boolean;
   pagePath: string;
   badgePath: string;
@@ -43,6 +49,7 @@ export function ShareToggle({
       return 'Could not change sharing. A workspace owner can share a grade publicly.';
     }
   }, '');
+  if (isDemo) return null;
   const pageUrl = `${baseUrl}${pagePath}`;
   const markdown = `[![${graderTitle}](${baseUrl}${badgePath})](${pageUrl})`;
   return (

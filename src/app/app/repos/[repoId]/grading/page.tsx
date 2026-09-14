@@ -187,6 +187,7 @@ export default async function Grading({
         graderTitle={selectedGrader.card.title}
         shared={sharing[selectedGrader.id]?.shared ?? false}
         canShare={workspace.role === 'owner' && !repo.isDemo}
+        isDemo={repo.isDemo}
         isPrivate={repo.isPrivate}
         pagePath={publicGradePath(repo.owner, repo.name, selectedGrader.id)}
         badgePath={publicBadgePath(repo.owner, repo.name, selectedGrader.id)}

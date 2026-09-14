@@ -81,3 +81,19 @@ test('the badge is a complete SVG document with an accessible name', () => {
   expect(svg).toContain('role="img"');
   expect(svg).toContain('aria-label="Agent Readiness: 82 · Very good"');
 });
+
+// Slice 6 loads manifests written by strangers, and a title is a manifest
+// string: a 200-character one would render a pill wider than the README it
+// sits in. The cap is on what is drawn, not on what the manifest says.
+test('a runaway grader title is capped, with an ellipsis to say so', () => {
+  const long = { ...grader, title: 'A'.repeat(200) };
+  const { left } = badgeParts({ ...graded, grader: long });
+  expect(left).toHaveLength(40);
+  expect(left.endsWith('…')).toBe(true);
+  expect(renderBadge({ ...graded, grader: long })).not.toContain('A'.repeat(41));
+});
+
+test('a title that fits is left alone', () => {
+  expect(badgeParts(graded).left).toBe('Agent Readiness');
+  expect(badgeParts({ state: 'ungraded', repository, grader }).left).toBe('Agent Readiness');
+});

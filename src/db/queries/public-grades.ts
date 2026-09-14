@@ -19,7 +19,10 @@ import {
   type PublicGradeView,
 } from '../../domain/grading/public-grade';
 
-const PRIVATE: PublicGradeView = { state: 'private' };
+// Frozen because this one object is handed by reference to every caller: the
+// page, the badge and the share image all receive the same value, and a
+// caller that mutated it would change what the next request is told.
+const PRIVATE: PublicGradeView = Object.freeze({ state: 'private' });
 
 /**
  * The only thing the public page, the badge and the share image read. No
@@ -37,6 +40,9 @@ export async function publicGrade(
   graderId: string,
   now = new Date(),
 ): Promise<PublicGradeView> {
+  // process.env, not env(): env() parses the GitHub integration variables too
+  // and throws when they are absent, and a public request has no business
+  // needing them. DEMO_MODE is the one value this module reads.
   if (process.env.DEMO_MODE === 'true') return PRIVATE;
   let manifest;
   try {

@@ -45,6 +45,14 @@ test('a graded page shows the card, the commit and the checks', async () => {
   expect(html).not.toContain('more than 30 days');
 });
 
+// The private and ungraded branches each have an h1; the graded one had none,
+// which left the page a heading short of an outline.
+test('a graded page has a heading naming the repository and the grader', async () => {
+  deps.publicGrade.mockResolvedValue({ state: 'graded', repository, grader, grade, stale: false });
+  const html = renderToStaticMarkup(await PublicGrade({ params: params() }));
+  expect(html).toContain('<h1>Agent Readiness · acme/widgets</h1>');
+});
+
 test('a stale grade says so on the page', async () => {
   deps.publicGrade.mockResolvedValue({ state: 'graded', repository, grader, grade, stale: true });
   const html = renderToStaticMarkup(await PublicGrade({ params: params() }));

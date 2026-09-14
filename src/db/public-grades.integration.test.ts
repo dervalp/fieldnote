@@ -383,6 +383,23 @@ test('every private answer is byte-identical, page and badge alike', async () =>
     .values({ repositoryId: unlinked, graderId: AGENT_READINESS, enabledBy: owner, workspaceId: workspace });
   const [unlinkedRepo] = await db().select().from(repositories).where(eq(repositories.id, unlinked));
 
+  // writePublicGrade refuses a demo repository too, so this row is written
+  // directly for the same reason as the unlinked one above: the lookup must
+  // refuse a demo repository on its own, not lean on the writer having.
+  const demo = await fixtureRepository({ isDemo: true });
+  await completedRun(demo);
+  await db()
+    .insert(publicGradeRows)
+    .values({ repositoryId: demo, graderId: AGENT_READINESS, enabledBy: owner, workspaceId: workspace });
+  const [demoRepo] = await db().select().from(repositories).where(eq(repositories.id, demo));
+
+  // A repository that is shared, graded and would otherwise render a score:
+  // under DEMO_MODE it has to answer with the same bytes as all of the above.
+  const live = await fixtureRepository();
+  await completedRun(live);
+  await writePublicGrade(live, AGENT_READINESS, true);
+  const [liveRepo] = await db().select().from(repositories).where(eq(repositories.id, live));
+
   const cases: [string, string, string?][] = [
     ['nobody', 'nothing'],
     [revokedRepo.owner, revokedRepo.name],
@@ -390,10 +407,23 @@ test('every private answer is byte-identical, page and badge alike', async () =>
     [inactiveRepo.owner, inactiveRepo.name],
     [uninstalledRepo.owner, uninstalledRepo.name],
     [unlinkedRepo.owner, unlinkedRepo.name],
+    [demoRepo.owner, demoRepo.name],
     [revokedRepo.owner, revokedRepo.name, 'nobody/nothing'],
   ];
   const pages = await Promise.all(cases.map(([owner, repo, grader]) => pageHtml(owner, repo, grader)));
   const badges = await Promise.all(cases.map(([owner, repo, grader]) => badgeSvg(owner, repo, grader)));
+
+  expect(await pageHtml(liveRepo.owner, liveRepo.name)).not.toBe(pages[0]);
+  const previous = process.env.DEMO_MODE;
+  process.env.DEMO_MODE = 'true';
+  try {
+    pages.push(await pageHtml(liveRepo.owner, liveRepo.name));
+    badges.push(await badgeSvg(liveRepo.owner, liveRepo.name));
+  } finally {
+    if (previous === undefined) delete process.env.DEMO_MODE;
+    else process.env.DEMO_MODE = previous;
+  }
+
   for (const html of pages) expect(html).toBe(pages[0]);
   for (const svg of badges) expect(svg).toEqual(badges[0]);
   expect(pages[0]).toContain('This grade is private.');

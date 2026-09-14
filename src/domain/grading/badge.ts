@@ -12,6 +12,14 @@ const escape = (text: string) =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!,
   );
 
+// A card title is a manifest string, and slice 6 makes manifests come from
+// strangers. Forty characters is about as wide as a README pill can be before
+// it stops looking like a badge; the ellipsis says the title was cut rather
+// than misspelled. Only what is drawn is capped — nothing else reads this.
+const TITLE_LIMIT = 40;
+const capped = (title: string) =>
+  title.length > TITLE_LIMIT ? `${title.slice(0, TITLE_LIMIT - 1)}…` : title;
+
 // Verdana at 11px averages a little over six pixels a character. Close enough
 // for a pill nobody measures, and it needs no font metrics at request time.
 const width = (text: string) => Math.round(text.length * 6.5) + 20;
@@ -24,11 +32,11 @@ const width = (text: string) => Math.round(text.length * 6.5) + 20;
 export function badgeParts(view: PublicGradeView): { left: string; right: string; color: string } {
   if (view.state === 'private') return { left: 'fieldnote', right: 'private', color: NEUTRAL };
   if (view.state === 'ungraded')
-    return { left: view.grader.title, right: 'not graded', color: NEUTRAL };
-  if (view.stale) return { left: view.grader.title, right: 'stale', color: NEUTRAL };
+    return { left: capped(view.grader.title), right: 'not graded', color: NEUTRAL };
+  if (view.stale) return { left: capped(view.grader.title), right: 'stale', color: NEUTRAL };
   const presentation = gradePresentation(view.grade.score);
   return {
-    left: view.grader.title,
+    left: capped(view.grader.title),
     right: `${view.grade.score} · ${presentation.label}`,
     color: presentation.color,
   };

@@ -180,3 +180,21 @@ test('a grader whose evidence changes over time confirms nothing', async () => {
   expect(await scheduleIfDue(deliveryRow)).toBe('run-1');
   expect(runs.confirmGrade).not.toHaveBeenCalled();
 });
+
+// latestFinishedGrade() is the latest run that *finished*, scored or not. When
+// an insufficient run is the latest and the head has not moved, the skip
+// confirms that run — and only that run. The older complete run the public
+// page still shows is not confirmed by it and goes on ageing, which is what
+// makes a repository whose grader keeps coming back empty eventually read
+// `stale` rather than fresh forever.
+test('a skip confirms the later insufficient run it matched, not the older scored one', async () => {
+  runs.latestFinishedGrade.mockResolvedValue({
+    id: 'run-insufficient',
+    sha: 'a'.repeat(40),
+    rubricVersion: agentReadinessManifest.version,
+  });
+  expect(await scheduleIfDue(readinessRow)).toBeNull();
+  expect(runs.confirmGrade).toHaveBeenCalledTimes(1);
+  expect(runs.confirmGrade).toHaveBeenCalledWith('run-insufficient');
+  expect(runs.confirmGrade).not.toHaveBeenCalledWith('run-scored');
+});
