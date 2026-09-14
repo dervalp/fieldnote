@@ -98,6 +98,14 @@
   gap: 8px;
   margin-top: 12px;
 }
+.grade-share {
+  margin-top: 16px;
+}
+.grade-share-markdown {
+  overflow-x: auto;
+  padding: 8px;
+  font-size: 13px;
+}
 @media (max-width: 900px) {
   .grading-layout {
     grid-template-columns: 1fr;

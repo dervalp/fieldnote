@@ -10,8 +10,13 @@ const deps = vi.hoisted(() => ({
   fetchGrantedPermissions: vi.fn(),
   latestPlan: vi.fn(),
   schedules: vi.fn(),
+  workspace: vi.fn(),
+  publicSettings: vi.fn(),
 }));
-vi.mock('../../../../../workspaces/access', () => ({ requireRepository: deps.authorize }));
+vi.mock('../../../../../workspaces/access', () => ({
+  requireRepository: deps.authorize,
+  requireWorkspace: deps.workspace,
+}));
 vi.mock('../../../../../db/queries/grade-runs', () => ({
   gradeSummaries: deps.summaries,
   gradeHistory: deps.history,
@@ -42,6 +47,20 @@ vi.mock('../../../../../components/grading/schedule-toggle', () => ({
   ScheduleToggle: ({ graderId, schedule }: { graderId: string; schedule: unknown }) =>
     createElement('p', null, `schedule:${graderId}:${schedule ? 'on' : 'off'}`),
 }));
+vi.mock('../../../../../db/queries/public-grade-settings', () => ({
+  publicGradeSettings: deps.publicSettings,
+}));
+vi.mock('../../../../../components/grading/share-toggle', () => ({
+  ShareToggle: ({
+    graderId,
+    shared,
+    canShare,
+  }: {
+    graderId: string;
+    shared: boolean;
+    canShare: boolean;
+  }) => createElement('p', null, `share:${graderId}:${shared ? 'on' : 'off'}:${canShare ? 'owner' : 'member'}`),
+}));
 import Grading from './page';
 import { DELIVERY_HEALTH } from '../../../../../domain/grading/graders/delivery-health';
 const completed = {
@@ -65,6 +84,7 @@ beforeEach(() => {
     owner: 'owner',
     name: 'repo',
     isDemo: false,
+    isPrivate: false,
   });
   deps.summaries.mockResolvedValue([
     {
@@ -80,6 +100,8 @@ beforeEach(() => {
   deps.fetchGrantedPermissions.mockResolvedValue({ contents: null, pullRequests: null });
   deps.latestPlan.mockResolvedValue(null);
   deps.schedules.mockResolvedValue({});
+  deps.workspace.mockResolvedValue({ id: 'workspace', name: 'W', role: 'owner' });
+  deps.publicSettings.mockResolvedValue({});
 });
 test('latest completed score remains visible alongside failed current attempt', async () => {
   const html = renderToStaticMarkup(await call());
@@ -225,4 +247,16 @@ test('a failed permissions fetch is logged before falling back to nothing grante
   expect(errorSpy).toHaveBeenCalled();
   expect(html).toContain('fieldnote needs write access');
   errorSpy.mockRestore();
+});
+
+test('an owner gets the sharing switch for the selected grader', async () => {
+  deps.publicSettings.mockResolvedValue({ 'fieldnote/agent-readiness': { shared: true } });
+  const html = renderToStaticMarkup(await call());
+  expect(html).toContain('share:fieldnote/agent-readiness:on:owner');
+});
+
+test('a member gets the state without the control', async () => {
+  deps.workspace.mockResolvedValue({ id: 'workspace', name: 'W', role: 'member' });
+  const html = renderToStaticMarkup(await call());
+  expect(html).toContain('share:fieldnote/agent-readiness:off:member');
 });

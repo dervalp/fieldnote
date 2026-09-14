@@ -1,8 +1,10 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Surface, GradeCard } from '@fieldnote/design-system';
-import { requireRepository } from '../../../../../workspaces/access';
+import { requireRepository, requireWorkspace } from '../../../../../workspaces/access';
 import { getGrade, gradeHistory, gradeSummaries } from '../../../../../db/queries/grade-runs';
+import { publicGradeSettings } from '../../../../../db/queries/public-grade-settings';
+import { ShareToggle } from '../../../../../components/grading/share-toggle';
 // Importing the barrel (not just agent-readiness) registers every built-in
 // grader as a side effect, the way registry.ts's own docstring on
 // listGraders() asks a caller to. This is the one page that needs the full
@@ -13,7 +15,7 @@ import { ManifestError } from '../../../../../domain/grading/manifest';
 import { gradeCardProps } from '../../../../../components/grading/grade-presentation';
 import { GradeControls, GradeReport } from '../../../../../components/grading/report';
 import { pageRouteId } from '../../../../../lib/page-route-id';
-import { repoSectionPath } from '../../../../../lib/app-routes';
+import { publicBadgePath, publicGradePath, repoSectionPath } from '../../../../../lib/app-routes';
 import { actEnabled } from '../../../../../db/queries/act-settings';
 import { fetchGrantedPermissions } from '../../../../../github/installation-permissions';
 import { actAvailability, nothingGranted } from '../../../../../domain/act/availability';
@@ -64,17 +66,20 @@ export default async function Grading({
     query.set('run', runId);
     return gradingHref(`?${query}`);
   };
-  const [summaries, history, historical, enabled, plan, schedules] = await Promise.all([
-    gradeSummaries(
-      [repoId],
-      graders.map((entry) => entry.id),
-    ),
-    gradeHistory(repoId, selectedGrader.id),
-    run ? getGrade(repoId, run, selectedGrader.id) : Promise.resolve(null),
-    actEnabled(repoId),
-    latestPlan(repoId),
-    gradeSchedules(repoId),
-  ]);
+  const [summaries, history, historical, enabled, plan, schedules, sharing, workspace] =
+    await Promise.all([
+      gradeSummaries(
+        [repoId],
+        graders.map((entry) => entry.id),
+      ),
+      gradeHistory(repoId, selectedGrader.id),
+      run ? getGrade(repoId, run, selectedGrader.id) : Promise.resolve(null),
+      actEnabled(repoId),
+      latestPlan(repoId),
+      gradeSchedules(repoId),
+      publicGradeSettings(repoId),
+      requireWorkspace(),
+    ]);
   if (run && !historical) notFound();
   const summaryFor = (graderId: string) => summaries.find((entry) => entry.graderId === graderId);
   const summary = summaryFor(selectedGrader.id);
@@ -174,6 +179,19 @@ export default async function Grading({
         graderId={selectedGrader.id}
         schedule={schedules[selectedGrader.id] ?? null}
         canRun={!repo.isDemo}
+      />
+      <ShareToggle
+        repositoryId={repoId}
+        graderId={selectedGrader.id}
+        graderTitle={selectedGrader.card.title}
+        shared={sharing[selectedGrader.id]?.shared ?? false}
+        canShare={workspace.role === 'owner' && !repo.isDemo}
+        isPrivate={repo.isPrivate}
+        pagePath={publicGradePath(repo.owner, repo.name, selectedGrader.id)}
+        badgePath={publicBadgePath(repo.owner, repo.name, selectedGrader.id)}
+        // A README needs an absolute URL. APP_URL is absent in demo mode, where
+        // sharing is refused anyway, so an empty base is never pasted anywhere.
+        baseUrl={process.env.APP_URL ?? ''}
       />
       {run && (
         <p>
