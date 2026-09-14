@@ -650,6 +650,9 @@ export const gradeRuns = pgTable(
       .notNull()
       .references(() => workspaces.id),
     retryOf: text('retry_of').references((): AnyPgColumn => gradeRuns.id),
+    // Provenance. Without it a nightly run is indistinguishable from one the
+    // enabler clicked, and "nobody asked for this run" stops being answerable.
+    trigger: text('trigger').$type<'manual' | 'schedule'>().notNull().default('manual'),
     state: text('state')
       .$type<'queued' | 'running' | 'complete' | 'failed' | 'insufficient'>()
       .notNull(),
@@ -666,6 +669,7 @@ export const gradeRuns = pgTable(
       'grade_runs_state',
       sql`${t.state} IN ('queued','running','complete','failed','insufficient')`,
     ),
+    check('grade_runs_trigger', sql`${t.trigger} IN ('manual','schedule')`),
     // Unchanged: a SQL check passes on NULL, so this already tolerates the
     // null score an insufficient run stores.
     check('grade_runs_score', sql`(${t.result}->>'score')::integer BETWEEN 0 AND 100`),
@@ -678,6 +682,32 @@ export const gradeRuns = pgTable(
       .where(sql`${t.state} IN ('queued','running')`),
     index('grade_runs_latest').on(t.repositoryId, t.createdAt.desc()),
   ],
+);
+
+// One row per (repository, grader) that grades nightly. Presence means on;
+// turning it off deletes the row. Per grader rather than per repository
+// because the graders answer different questions and move at different
+// speeds — and because a repository-wide switch would silently start grading
+// with a grader installed later that nobody chose.
+export const gradeSchedules = pgTable(
+  'grade_schedules',
+  {
+    repositoryId: text('repository_id')
+      .notNull()
+      .references(() => repositories.id),
+    graderId: text('grader_id').notNull(),
+    // Not decoration: grade_runs.requested_by and requested_workspace_id are
+    // both NOT NULL, and a scheduled run has to be somebody's. This is the
+    // provenance it copies.
+    enabledBy: text('enabled_by')
+      .notNull()
+      .references(() => users.id),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    createdAt: created(),
+  },
+  (t) => [primaryKey({ columns: [t.repositoryId, t.graderId] })],
 );
 
 export const authoringRuns = pgTable(
