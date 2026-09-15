@@ -8,6 +8,7 @@ const queries = vi.hoisted(() => ({
   insufficientGrade: vi.fn(),
   beginGrade: vi.fn(),
   pinGradeSha: vi.fn(),
+  pinnedManifest: vi.fn(),
 }));
 const broker = vi.hoisted(() => ({ collectEvidence: vi.fn() }));
 vi.mock('../../db/queries/grade-runs', () => queries);
@@ -30,7 +31,7 @@ const { config } = client.createFunction.mock.results[0].value as {
   config: { onFailure: (context: { event: unknown; error: unknown }) => Promise<void> };
 };
 const { agentReadinessManifest } = await import('../../domain/grading/graders/agent-readiness');
-const { registerGrader } = await import('../../domain/grading/registry');
+const { parseManifest } = await import('../../domain/grading/registry');
 const { GraderFailedError } = await import('../../domain/grading/code');
 const { SandboxUnavailableError } = await import('../../grading/sandbox/errors');
 const { NonRetriableError } = await import('inngest');
@@ -46,7 +47,7 @@ const run = {
   evaluatorVersion: agentReadinessManifest.evaluatorVersion,
 };
 
-const codeGrader = registerGrader({
+const codeGrader = parseManifest({
   id: 'fieldnote/worker-code-fixture',
   version: '0.1.0',
   evaluatorVersion: '1.0.0',
@@ -76,6 +77,9 @@ beforeEach(() => {
   vi.resetAllMocks();
   queries.loadGradeRun.mockResolvedValue(run);
   queries.validateGradeRun.mockResolvedValue(undefined);
+  queries.pinnedManifest.mockImplementation(async (graderId: string) =>
+    graderId === codeGrader.id ? codeGrader : agentReadinessManifest,
+  );
   sandbox.selectSandbox.mockReturnValue({});
 });
 
@@ -234,4 +238,10 @@ test("the function's failure handler stores any other spent failure without a co
     error: new Error('private stack'),
   });
   expect(queries.failGrade).toHaveBeenCalledWith('run-1', undefined);
+});
+
+test('a run whose pinned version is gone fails rather than grading against another', async () => {
+  queries.pinnedManifest.mockRejectedValue(new Error('Unsupported rubric version'));
+  await expect(evaluateGradeRun('run-1')).rejects.toThrow();
+  expect(queries.completeGrade).not.toHaveBeenCalled();
 });

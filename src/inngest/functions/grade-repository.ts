@@ -5,6 +5,7 @@ import {
   beginGrade,
   loadGradeRun,
   pinGradeSha,
+  pinnedManifest,
   validateGradeRun,
   completeGrade,
   failGrade,
@@ -12,7 +13,6 @@ import {
 } from '../../db/queries/grade-runs';
 import { resolveHeadSha, FileCollectionError } from '../../github/collect-files';
 import { collectEvidence } from '../../grading/evidence';
-import { getGrader } from '../../domain/grading/registry';
 import { GraderFailedError } from '../../domain/grading/code';
 import { evaluate, sandboxFor } from '../../grading/evaluate';
 import { SandboxUnavailableError } from '../../grading/sandbox/errors';
@@ -74,7 +74,7 @@ export async function evaluateGradeRun(runId: string) {
   if (!run) return;
   if (!run.sha) throw new NonRetriableError('Grade commit is missing');
   try {
-    const manifest = getGrader(run.graderId);
+    const manifest = await pinnedManifest(run.graderId, run.rubricVersion);
     // Before collecting: no sandbox should cost no GitHub calls.
     const sandbox = sandboxFor(manifest);
     const collected = await collectEvidence(manifest, run.repositoryId, run.sha, run.createdAt);

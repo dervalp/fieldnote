@@ -12,7 +12,7 @@ import {
   scheduleGrade,
 } from '../../db/queries/grade-runs';
 import { resolveHeadSha } from '../../github/collect-files';
-import { getGrader } from '../../domain/grading/registry';
+import { installedGrader } from '../../db/queries/graders';
 import { changesOverTime } from '../../domain/grading/manifest';
 import { sandboxFor } from '../../grading/evaluate';
 
@@ -28,13 +28,10 @@ export async function scheduleIfDue(row: GradeScheduleRow): Promise<string | nul
   // Steps 1 and 2: an available repository, and a schedule whose enabler still
   // has access. A paused schedule is skipped and its row survives.
   if (!(await scheduleAvailable(row))) return null;
-  let manifest;
-  try {
-    manifest = getGrader(row.graderId);
-  } catch {
-    // A schedule for a grader nothing registers is inert, not fatal.
-    return null;
-  }
+  const installed = await installedGrader(row.workspaceId, row.graderId);
+  // A schedule for a grader this workspace has uninstalled is inert, not fatal.
+  if (!installed) return null;
+  const manifest = installed.manifest;
   // A code grader with no sandbox to run in would otherwise create a run that
   // fails sandbox_unavailable every night. Skipped like any other skip: the
   // row survives, and the first night a sandbox exists it runs.

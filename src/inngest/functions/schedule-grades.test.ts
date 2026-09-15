@@ -8,8 +8,10 @@ const runs = vi.hoisted(() => ({
   confirmGrade: vi.fn(),
 }));
 const github = vi.hoisted(() => ({ resolveHeadSha: vi.fn() }));
+const graders = vi.hoisted(() => ({ installedGrader: vi.fn() }));
 vi.mock('../../db/queries/grade-schedules', () => schedules);
 vi.mock('../../db/queries/grade-runs', () => runs);
+vi.mock('../../db/queries/graders', () => graders);
 vi.mock('../../github/collect-files', () => github);
 const sandbox = vi.hoisted(() => ({ selectSandbox: vi.fn() }));
 vi.mock('../../grading/sandbox', () => sandbox);
@@ -19,8 +21,12 @@ const {
   AGENT_READINESS,
   agentReadinessManifest,
 } = await import('../../domain/grading/graders/agent-readiness');
-const { DELIVERY_HEALTH } = await import('../../domain/grading/graders/delivery-health');
-const { TEST_DISCIPLINE } = await import('../../domain/grading/graders/test-discipline');
+const { DELIVERY_HEALTH, deliveryHealthManifest } = await import(
+  '../../domain/grading/graders/delivery-health'
+);
+const { TEST_DISCIPLINE, testDisciplineManifest } = await import(
+  '../../domain/grading/graders/test-discipline'
+);
 const { SandboxUnavailableError } = await import('../../grading/sandbox/errors');
 
 const readinessRow = {
@@ -32,6 +38,19 @@ const readinessRow = {
 const deliveryRow = { ...readinessRow, graderId: DELIVERY_HEALTH };
 const codeRow = { ...readinessRow, graderId: TEST_DISCIPLINE };
 
+// Wraps a manifest the way installedGrader() would for a workspace that
+// installed it — only `manifest` is read by scheduleIfDue.
+function installedAs(manifest: { id: string; version: string }) {
+  return {
+    manifest,
+    version: manifest.version,
+    consentedNeeds: 'consented',
+    verifiedAt: null,
+    withdrawnAt: null,
+    latestVersion: manifest.version,
+  };
+}
+
 beforeEach(() => {
   vi.resetAllMocks();
   schedules.scheduleAvailable.mockResolvedValue(true);
@@ -40,6 +59,12 @@ beforeEach(() => {
   runs.scheduleGrade.mockResolvedValue({ id: 'run-1', state: 'queued' });
   github.resolveHeadSha.mockResolvedValue('a'.repeat(40));
   sandbox.selectSandbox.mockReturnValue({});
+  graders.installedGrader.mockImplementation(async (_workspaceId: string, graderId: string) => {
+    if (graderId === AGENT_READINESS) return installedAs(agentReadinessManifest);
+    if (graderId === DELIVERY_HEALTH) return installedAs(deliveryHealthManifest);
+    if (graderId === TEST_DISCIPLINE) return installedAs(testDisciplineManifest);
+    return null;
+  });
 });
 
 test('an unavailable repository or a paused schedule creates nothing', async () => {
@@ -87,6 +112,12 @@ test('a window grader always runs and never looks up a sha', async () => {
 
 test('an unknown grader is skipped rather than thrown', async () => {
   expect(await scheduleIfDue({ ...readinessRow, graderId: 'nobody/nothing' })).toBeNull();
+  expect(runs.scheduleGrade).not.toHaveBeenCalled();
+});
+
+test('a grader the workspace no longer has installed is skipped, and its row survives', async () => {
+  graders.installedGrader.mockResolvedValue(null);
+  expect(await scheduleIfDue(readinessRow)).toBeNull();
   expect(runs.scheduleGrade).not.toHaveBeenCalled();
 });
 
