@@ -44,6 +44,11 @@ test('appSections names exactly the five directories under src/app/app', () => {
     withFileTypes: true,
   })
     .filter((entry) => entry.isDirectory())
+    // `admin` is staff-only and never had a bare pre-/app URL, so it carries
+    // no legacy redirect and is deliberately absent from appSections — the
+    // review queue does not advertise that it exists, and neither does this
+    // check.
+    .filter((entry) => entry.name !== 'admin')
     .map((entry) => entry.name);
 
   expect([...directories].sort()).toEqual([...appSections].sort());

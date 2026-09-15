@@ -1,10 +1,11 @@
 import Link from 'next/link';
 import { Surface } from '@fieldnote/design-system';
 import { requireWorkspace } from '../../../../workspaces/access';
-import { workspaceGraders, type PublishedVersion } from '../../../../db/queries/grader-publishing';
+import { workspaceGraders } from '../../../../db/queries/grader-publishing';
 import { browsableGraders, installedGraders, type BrowsableGrader } from '../../../../db/queries/graders';
 import { SettingsForm } from '../../../../components/settings-form';
 import { ConsentScreen } from '../../../../components/grading/consent';
+import { GraderStateLine } from '../../../../components/grading/grader-state';
 import {
   publishGraderVersion,
   withdrawGraderVersion,
@@ -16,11 +17,6 @@ import { accountSettingsPath, workspaceSettingsPath } from '../../../../lib/app-
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Graders' };
-
-function stateLabel(entry: Pick<PublishedVersion, 'verifiedAt' | 'withdrawnAt'>): string {
-  if (entry.withdrawnAt) return 'Withdrawn';
-  return entry.verifiedAt ? 'Reviewed' : 'Not reviewed';
-}
 
 // Shared by the browse list's installed entries and the "installed, no
 // longer offered" section below — the same permission grant, the same way
@@ -106,6 +102,7 @@ export default async function Graders({
           // either way, because a new version may want to read more.
           action={installing.installed ? updateGraderInstall : installGraderVersion}
           mode={installing.installed ? 'update' : 'install'}
+          verifiedAt={installing.verifiedAt}
           cancelHref="/app/settings/graders"
         />
       ) : (
@@ -119,7 +116,7 @@ export default async function Graders({
                   <strong>{entry.manifest.card.title}</strong>
                   <p className="fine">
                     {entry.id} · v{entry.version} · {entry.author} ·{' '}
-                    {entry.verifiedAt ? 'Reviewed' : 'Not reviewed'}
+                    <GraderStateLine verifiedAt={entry.verifiedAt} withdrawnAt={null} />
                   </p>
                 </div>
                 {entry.installed ? (
@@ -161,7 +158,8 @@ export default async function Graders({
                   <div>
                     <strong>{entry.manifest.card.title}</strong>
                     <p className="fine">
-                      {entry.manifest.id} · v{entry.version} · Withdrawn by its author
+                      {entry.manifest.id} · v{entry.version} ·{' '}
+                      <GraderStateLine verifiedAt={entry.verifiedAt} withdrawnAt={entry.withdrawnAt} />
                     </p>
                   </div>
                   {owner && <UninstallForm graderId={entry.manifest.id} />}
@@ -177,7 +175,8 @@ export default async function Graders({
                 <div>
                   <strong>{entry.title}</strong>
                   <p className="fine">
-                    {entry.graderId} · v{entry.version} · {stateLabel(entry)}
+                    {entry.graderId} · v{entry.version} ·{' '}
+                    <GraderStateLine verifiedAt={entry.verifiedAt} withdrawnAt={entry.withdrawnAt} />
                   </p>
                 </div>
                 {owner && !entry.withdrawnAt && (

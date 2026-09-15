@@ -1,6 +1,7 @@
 import { Surface } from '@fieldnote/design-system';
 import { consentSentences } from '../../domain/grading/needs-consent';
 import { SettingsForm } from '../settings-form';
+import { GraderStateLine } from './grader-state';
 import type { GraderManifest } from '../../domain/grading/manifest';
 
 /**
@@ -16,6 +17,8 @@ export function ConsentScreen({
   action,
   cancelHref,
   mode = 'install',
+  verifiedAt = null,
+  withdrawnAt = null,
 }: {
   manifest: GraderManifest;
   author: string;
@@ -27,6 +30,11 @@ export function ConsentScreen({
   // way. 'install' is the default so every existing caller says what it
   // always said.
   mode?: 'install' | 'update';
+  // A reviewer reads exactly what a customer is shown here: the same
+  // verified/withdrawn/not-reviewed line as everywhere else a grader is
+  // named, beneath the author.
+  verifiedAt?: Date | null;
+  withdrawnAt?: Date | null;
 }) {
   const verb = mode === 'update' ? 'Update' : 'Install';
   return (
@@ -37,6 +45,7 @@ export function ConsentScreen({
       <p>
         {author} · version {version}
       </p>
+      <GraderStateLine verifiedAt={verifiedAt} withdrawnAt={withdrawnAt} />
       <p>{manifest.card.tagline}</p>
       <h3>This grader will be allowed to read</h3>
       <ul>

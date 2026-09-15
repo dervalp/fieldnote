@@ -4,7 +4,13 @@ import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { eq, inArray } from 'drizzle-orm';
 import { db, closeDb } from './index';
 import { users, workspaces, workspaceMemberships, graders, graderVersions } from './schema';
-import { claimHandle, publishGrader, withdrawVersion } from './queries/grader-publishing';
+import {
+  claimHandle,
+  publishGrader,
+  withdrawVersion,
+  reviewQueue,
+  verifyVersion,
+} from './queries/grader-publishing';
 import { graderVersion, latestPublishedVersion } from './queries/graders';
 import { ManifestError } from '../domain/grading/manifest';
 
@@ -115,6 +121,12 @@ beforeEach(async () => {
   context.demo = false;
   await db().update(workspaces).set({ handle: null }).where(eq(workspaces.id, workspace));
   await db().update(workspaces).set({ handle: null }).where(eq(workspaces.id, otherWorkspace));
+  // Tests below flip users.staff on owner and secondOwner; reset it here so a
+  // later test never inherits a staff flag left set by an earlier one.
+  await db()
+    .update(users)
+    .set({ staff: false })
+    .where(inArray(users.id, [owner, secondOwner, member]));
   await deletePublishedGraders();
 });
 
@@ -294,4 +306,116 @@ test('withdrawing a version that was never published is refused, not silently ac
   await expect(withdrawVersion('acme/test-coverage', '9.9.9', 'Nope.')).rejects.toThrow(
     'Version unavailable',
   );
+});
+
+test('staff can withdraw a version they do not own', async () => {
+  await claimHandle('acme');
+  await publishGrader(JSON.stringify(manifest()));
+  context.user = secondOwner;
+  context.workspace = otherWorkspace;
+  await claimHandle('other');
+  await db().update(users).set({ staff: true }).where(eq(users.id, secondOwner));
+  await withdrawVersion('acme/test-coverage', '0.1.0', 'Staff pulled this.');
+  const [row] = await db()
+    .select()
+    .from(graderVersions)
+    .where(eq(graderVersions.graderId, 'acme/test-coverage'));
+  expect(row.withdrawnAt).toBeInstanceOf(Date);
+  expect(row.withdrawnNote).toBe('Staff pulled this.');
+});
+
+test('a user who is neither staff nor the owner still cannot withdraw', async () => {
+  await claimHandle('acme');
+  await publishGrader(JSON.stringify(manifest()));
+  context.user = secondOwner;
+  context.workspace = otherWorkspace;
+  await claimHandle('other');
+  await expect(withdrawVersion('acme/test-coverage', '0.1.0', 'Nope.')).rejects.toThrow(
+    'Grader unavailable',
+  );
+  const [row] = await db()
+    .select()
+    .from(graderVersions)
+    .where(eq(graderVersions.graderId, 'acme/test-coverage'));
+  expect(row.withdrawnAt).toBeNull();
+});
+
+test('verifying a version that does not exist is refused, not silently accepted', async () => {
+  await claimHandle('acme');
+  await publishGrader(JSON.stringify(manifest()));
+  await db().update(users).set({ staff: true }).where(eq(users.id, owner));
+  await expect(verifyVersion('acme/test-coverage', '9.9.9')).rejects.toThrow(
+    'Version unavailable',
+  );
+});
+
+test('the queue holds every unreviewed, unwithdrawn version, newest first', async () => {
+  await claimHandle('acme');
+  await publishGrader(JSON.stringify(manifest()));
+  await publishGrader(JSON.stringify(manifest({ version: '0.2.0' })));
+  await db().update(users).set({ staff: true }).where(eq(users.id, owner));
+  const queue = await reviewQueue();
+  expect(queue.map((entry) => entry.version)).toEqual(['0.2.0', '0.1.0']);
+  expect(queue[0].manifest.card.title).toBe('Test Coverage');
+  expect(queue[0].author).toBe('acme');
+});
+
+test('a queue tie on publishedAt breaks by version, newest first', async () => {
+  await claimHandle('acme');
+  await publishGrader(JSON.stringify(manifest()));
+  await publishGrader(JSON.stringify(manifest({ version: '0.2.0' })));
+  const tied = new Date('2026-09-15T00:00:00Z');
+  await db()
+    .update(graderVersions)
+    .set({ publishedAt: tied })
+    .where(eq(graderVersions.graderId, 'acme/test-coverage'));
+  await db().update(users).set({ staff: true }).where(eq(users.id, owner));
+  const queue = await reviewQueue();
+  expect(queue.map((entry) => entry.version)).toEqual(['0.2.0', '0.1.0']);
+});
+
+test('a non-staff user cannot read the queue or verify', async () => {
+  await claimHandle('acme');
+  await publishGrader(JSON.stringify(manifest()));
+  await db().update(users).set({ staff: false }).where(eq(users.id, owner));
+  await expect(reviewQueue()).rejects.toThrow('not found');
+  await expect(verifyVersion('acme/test-coverage', '0.1.0')).rejects.toThrow('not found');
+  // Filtered by graderId, not a bare select: the shared _test database also
+  // carries the seeded built-in graders' rows by the time this test runs.
+  const [row] = await db()
+    .select()
+    .from(graderVersions)
+    .where(eq(graderVersions.graderId, 'acme/test-coverage'));
+  expect(row.verifiedAt).toBeNull();
+});
+
+test('verifying records the reviewer and the date, and takes it out of the queue', async () => {
+  await claimHandle('acme');
+  await publishGrader(JSON.stringify(manifest()));
+  await db().update(users).set({ staff: true }).where(eq(users.id, owner));
+  await verifyVersion('acme/test-coverage', '0.1.0');
+  const [row] = await db()
+    .select()
+    .from(graderVersions)
+    .where(eq(graderVersions.graderId, 'acme/test-coverage'));
+  expect(row.verifiedAt).toBeInstanceOf(Date);
+  expect(row.verifiedBy).toBe(owner);
+  expect(await reviewQueue()).toEqual([]);
+});
+
+test('a new version starts unreviewed however many predecessors were read', async () => {
+  await claimHandle('acme');
+  await publishGrader(JSON.stringify(manifest()));
+  await db().update(users).set({ staff: true }).where(eq(users.id, owner));
+  await verifyVersion('acme/test-coverage', '0.1.0');
+  await publishGrader(JSON.stringify(manifest({ version: '0.2.0' })));
+  expect((await reviewQueue()).map((entry) => entry.version)).toEqual(['0.2.0']);
+});
+
+test('a withdrawn version leaves the queue without being verified', async () => {
+  await claimHandle('acme');
+  await publishGrader(JSON.stringify(manifest()));
+  await withdrawVersion('acme/test-coverage', '0.1.0', 'Not ready.');
+  await db().update(users).set({ staff: true }).where(eq(users.id, owner));
+  expect(await reviewQueue()).toEqual([]);
 });
