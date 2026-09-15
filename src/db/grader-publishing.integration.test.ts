@@ -310,6 +310,56 @@ test('withdrawing hides a version from browsing and keeps it resolvable', async 
   expect(await latestPublishedVersion('acme/test-coverage')).toBeNull();
 });
 
+test('withdrawing an already-withdrawn version is refused, and its note and date stay put', async () => {
+  await claimHandle('acme');
+  await publishGrader(JSON.stringify(manifest()));
+  await withdrawVersion('acme/test-coverage', '0.1.0', 'First reason.');
+  const [first] = await db()
+    .select()
+    .from(graderVersions)
+    .where(eq(graderVersions.graderId, 'acme/test-coverage'));
+  await expect(withdrawVersion('acme/test-coverage', '0.1.0', 'Second reason.')).rejects.toThrow(
+    'Version unavailable',
+  );
+  const [after] = await db()
+    .select()
+    .from(graderVersions)
+    .where(eq(graderVersions.graderId, 'acme/test-coverage'));
+  expect(after.withdrawnNote).toBe('First reason.');
+  expect(after.withdrawnAt).toEqual(first.withdrawnAt);
+});
+
+test('verifying a withdrawn version is refused, not silently re-stamped', async () => {
+  await claimHandle('acme');
+  await publishGrader(JSON.stringify(manifest()));
+  await withdrawVersion('acme/test-coverage', '0.1.0', 'Not ready.');
+  await db().update(users).set({ staff: true }).where(eq(users.id, owner));
+  await expect(verifyVersion('acme/test-coverage', '0.1.0')).rejects.toThrow('Version unavailable');
+  const [row] = await db()
+    .select()
+    .from(graderVersions)
+    .where(eq(graderVersions.graderId, 'acme/test-coverage'));
+  expect(row.verifiedAt).toBeNull();
+});
+
+test('re-verifying an already-verified version still refreshes the reviewer and the date', async () => {
+  await claimHandle('acme');
+  await publishGrader(JSON.stringify(manifest()));
+  await db()
+    .update(users)
+    .set({ staff: true })
+    .where(inArray(users.id, [owner, secondOwner]));
+  await verifyVersion('acme/test-coverage', '0.1.0');
+  context.user = secondOwner;
+  await verifyVersion('acme/test-coverage', '0.1.0');
+  const [row] = await db()
+    .select()
+    .from(graderVersions)
+    .where(eq(graderVersions.graderId, 'acme/test-coverage'));
+  expect(row.verifiedBy).toBe(secondOwner);
+  expect(row.verifiedAt).toBeInstanceOf(Date);
+});
+
 test('withdrawing a version that was never published is refused, not silently accepted', async () => {
   await claimHandle('acme');
   await publishGrader(JSON.stringify(manifest()));

@@ -39,7 +39,7 @@ test('every section sits under the prefix', () => {
 // resolved from this file, not from process.cwd(), so it does not depend on
 // where vitest was invoked; the comparison is order-insensitive because
 // readdirSync order is not a guarantee worth being flaky over.
-test('appSections names exactly the five directories under src/app/app', () => {
+test('appSections names exactly the five non-admin directories under src/app/app', () => {
   const directories = readdirSync(join(import.meta.dirname, '..', 'app', 'app'), {
     withFileTypes: true,
   })

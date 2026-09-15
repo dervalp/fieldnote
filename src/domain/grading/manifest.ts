@@ -156,9 +156,12 @@ const manifestSchema = z.discriminatedUnion('kind', [
     ...manifestBase,
     kind: z.literal('code'),
     checks: z.array(codeCheckSchema).min(1),
-    // The program's text. Part of the manifest, so registerRubric() stores and
-    // hashes it: changing the program without a version bump throws the same
-    // "Rubric version definition mismatch" a changed threshold does.
+    // The program's text. Part of the manifest, so it is stored (and hashed
+    // by frozen-rubrics.test.ts) in grader_versions.manifest exactly like a
+    // declarative check's threshold: changing it without bumping `version`
+    // is caught the same way a changed threshold is, not at publish time —
+    // (grader_id, version) rows are immutable, and re-publishing an existing
+    // one is what fails, with 'Version already published'.
     code: z.object({ source: nonEmpty }),
     // The program enforces its own floor, so its sentence sits at the top level.
     insufficientReason: nonEmpty.optional(),

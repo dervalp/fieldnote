@@ -2,19 +2,25 @@ import { expect, test } from 'vitest';
 import { manifestHash } from '../manifest-hash';
 import { builtInManifests } from '../registry';
 
-// What registerRubric freezes for an (id, version): the whole manifest except
-// `card`, which is copy. Computed here the way registerRubric computes it
-// rather than by exporting its private helper.
+// What must never change for an already-shipped (id, version): the whole
+// manifest except `card`, which is copy. Computed here directly rather than
+// by exporting a private helper — nothing in production hashes a manifest
+// this way any more, since (grader_id, version) rows are immutable and
+// publishing over an existing one fails on its own, with 'Version already
+// published'.
 function frozenHash(manifest: object) {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- discarded on purpose
   const { card: _card, ...rest } = manifest as Record<string, unknown>;
   return manifestHash(rest);
 }
 
-// Changing a frozen field or a program without bumping `version` breaks every
-// database that registered this version: registerRubric rejects the manifest
-// with "Rubric version definition mismatch" on every grade request. Bump the
-// version, then update the pin. A card-only change keeps the hash.
+// Changing a frozen field or a program without bumping `version` is not
+// caught at publish time — seedBuiltInGraders() re-seeds a built-in with
+// onConflictDoNothing, so a changed manifest under an unbumped version just
+// silently loses to whatever is already stored. This pinned hash is the
+// guard: it fails here, in CI, rather than as a database quietly out of sync
+// with the code that thinks it published it. Bump the version, then update
+// the pin. A card-only change keeps the hash.
 const PINNED: Record<string, string> = {
   'fieldnote/agent-readiness@0.1.0':
     '5d9fa1bb2bd768c1a6dd0b61d049ab2faab80d43ba5a78554a67e745ee413f01',

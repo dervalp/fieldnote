@@ -58,6 +58,19 @@ afterAll(async () => {
       .delete(graderVersions)
       .where(and(eq(graderVersions.graderId, graderId), eq(graderVersions.version, version)));
   }
+  // publishAndInstall() fixtures a grader entirely of its own, never a real
+  // built-in — its id is filtered out here as a belt-and-braces check, so
+  // this cleanup can never reach a row seedBuiltInGraders() owns (those have
+  // ownedByWorkspaceId null and must outlive every file). FK-safe order:
+  // installs before versions before the grader row itself, since
+  // graders.owned_by_workspace_id and grader_installs.grader_id both carry
+  // no cascade.
+  const sweepableGraderIds = fixtureGraderIds.filter((id) => !builtInIds.includes(id));
+  if (sweepableGraderIds.length) {
+    await db().delete(graderInstalls).where(inArray(graderInstalls.graderId, sweepableGraderIds));
+    await db().delete(graderVersions).where(inArray(graderVersions.graderId, sweepableGraderIds));
+    await db().delete(graders).where(inArray(graders.id, sweepableGraderIds));
+  }
   await db()
     .delete(workspaceMemberships)
     .where(eq(workspaceMemberships.workspaceId, context.workspace));
@@ -120,12 +133,19 @@ import { runDeclarative } from '../domain/grading/declarative';
 import { AGENT_READINESS, agentReadinessManifest } from '../domain/grading/graders/agent-readiness';
 import { DELIVERY_HEALTH, deliveryHealthManifest } from '../domain/grading/graders/delivery-health';
 import { needsHash } from '../domain/grading/needs-consent';
+import { builtInManifests } from '../domain/grading/registry';
 import type { GraderManifest } from '../domain/grading/manifest';
+const builtInIds = builtInManifests().map((manifest) => manifest.id);
 // Publishes and installs a fixture grader directly into the registry tables —
 // the equivalent, under a seeded registry, of the old registerGrader(): a
 // grader that exists only for this file's "a second grader" fixture, never a
-// real built-in.
+// real built-in. Its id is tracked and swept in afterAll — installs, then
+// versions, then the grader row itself — the same class of leak
+// publishWithdrawnVersion below already guards against for a built-in's own
+// extra version.
+const fixtureGraderIds: string[] = [];
 async function publishAndInstall(manifest: GraderManifest) {
+  fixtureGraderIds.push(manifest.id);
   await db().insert(graders).values({ id: manifest.id }).onConflictDoNothing();
   await db()
     .insert(graderVersions)

@@ -10,8 +10,8 @@ export type RubricView = {
 /**
  * The rubric a run is pinned to: the immutable, versioned definition of checks
  * and their points, and nothing operational. Derived from the manifest so the
- * two can never disagree, and stored in grading_rubrics.definition as it
- * always was.
+ * two can never disagree — the manifest itself is what is stored, in
+ * grader_versions.manifest.
  */
 export function rubricView(manifest: GraderManifest): RubricView {
   return Object.freeze({

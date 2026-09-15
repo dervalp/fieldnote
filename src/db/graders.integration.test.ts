@@ -252,6 +252,41 @@ test("installedGraders reports a newer published version than the one it pinned,
   expect(entry?.latestVersion).toBe('0.2.0');
 });
 
+// The bug this guards: latestPublishedVersion() (and latestVersionsById())
+// skip withdrawn rows, so once the version a workspace is pinned to is
+// itself withdrawn, the newest surviving row can be OLDER than what is
+// installed — an "Update available" that would actually be a downgrade.
+test('withdrawing the installed version never offers an older one as an update', async () => {
+  const graderId = fixtureGraderId();
+  await publishVersion({ graderId, version: '0.1.0', publishedAt: new Date('2026-01-01T00:00:00Z') });
+  const pinned = await publishVersion({
+    graderId,
+    version: '0.2.0',
+    publishedAt: new Date('2026-02-01T00:00:00Z'),
+  });
+  await db()
+    .insert(graderInstalls)
+    .values({
+      workspaceId: workspace,
+      graderId,
+      version: pinned.version,
+      installedBy: null,
+      consentedNeeds: needsHash(pinned.needs),
+    });
+  await db()
+    .update(graderVersions)
+    .set({ withdrawnAt: new Date() })
+    .where(and(eq(graderVersions.graderId, graderId), eq(graderVersions.version, '0.2.0')));
+
+  const entry = (await installedGraders(workspace)).find((row) => row.manifest.id === graderId);
+  expect(entry?.version).toBe('0.2.0');
+  expect(entry?.latestVersion).toBe('0.2.0');
+  expect(await installedGrader(workspace, graderId)).toMatchObject({
+    version: '0.2.0',
+    latestVersion: '0.2.0',
+  });
+});
+
 test('installedGraders returns a deterministic order, by install time, not insertion order', async () => {
   // Two fixture ids, both random UUID-derived — nothing about their string
   // order can explain the assertion below. Installed in the OPPOSITE order

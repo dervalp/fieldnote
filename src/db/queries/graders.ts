@@ -4,6 +4,7 @@ import { graders, graderInstalls, graderVersions, workspaces } from '../schema';
 import { parseManifest, type GraderManifest } from '../../domain/grading/manifest';
 import { builtInManifests } from '../../domain/grading/registry';
 import { needsHash } from '../../domain/grading/needs-consent';
+import { isNewerVersion } from '../../domain/grading/semver';
 
 /** A published grader, resolved by its pinned (grader_id, version). */
 export async function graderVersion(
@@ -100,7 +101,12 @@ export async function installedGrader(
     consentedNeeds: row.consentedNeeds,
     verifiedAt: row.verifiedAt,
     withdrawnAt: row.withdrawnAt,
-    latestVersion: latest?.version ?? row.version,
+    // Never older than what is installed: latestPublishedVersion() skips
+    // withdrawn rows, so once the installed version itself is withdrawn, the
+    // newest surviving row can be older than it — an "update" that would
+    // actually be a downgrade. isNewerVersion() is the guard.
+    latestVersion:
+      latest && isNewerVersion(latest.version, row.version) ? latest.version : row.version,
   };
 }
 
@@ -130,14 +136,20 @@ export async function installedGraders(workspaceId: string): Promise<InstalledGr
     .where(eq(graderInstalls.workspaceId, workspaceId))
     .orderBy(asc(graderInstalls.installedAt), asc(graderInstalls.graderId));
   const latest = await latestVersionsById(rows.map((row) => row.graderId));
-  return rows.map((row) => ({
-    manifest: parseManifest(row.manifest),
-    version: row.version,
-    consentedNeeds: row.consentedNeeds,
-    verifiedAt: row.verifiedAt,
-    withdrawnAt: row.withdrawnAt,
-    latestVersion: latest.get(row.graderId) ?? row.version,
-  }));
+  return rows.map((row) => {
+    const candidate = latest.get(row.graderId);
+    return {
+      manifest: parseManifest(row.manifest),
+      version: row.version,
+      consentedNeeds: row.consentedNeeds,
+      verifiedAt: row.verifiedAt,
+      withdrawnAt: row.withdrawnAt,
+      // Same guard as installedGrader(): never report a withdrawal's leftover
+      // older sibling as an "update" for whoever is pinned to the version
+      // that got withdrawn.
+      latestVersion: candidate && isNewerVersion(candidate, row.version) ? candidate : row.version,
+    };
+  });
 }
 
 export type BrowsableGrader = {

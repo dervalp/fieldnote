@@ -135,10 +135,20 @@ export async function withdrawVersion(
   const updated = await db()
     .update(graderVersions)
     .set({ withdrawnAt: new Date(), withdrawnNote: note })
-    .where(and(eq(graderVersions.graderId, graderId), eq(graderVersions.version, version)))
+    .where(
+      and(
+        eq(graderVersions.graderId, graderId),
+        eq(graderVersions.version, version),
+        // Already withdrawn matches zero rows here, the same as never
+        // published: withdrawing twice would otherwise silently overwrite
+        // the first withdrawal's date and note with the second's.
+        isNull(graderVersions.withdrawnAt),
+      ),
+    )
     .returning({ version: graderVersions.version });
-  // A grader you own but a version that never existed updates zero rows;
-  // reporting success there tells the caller a no-op worked.
+  // A grader you own but a version that never existed — or is already
+  // withdrawn — updates zero rows; reporting success there tells the caller
+  // a no-op worked.
   if (updated.length === 0) throw new Error('Version unavailable');
 }
 
@@ -178,16 +188,29 @@ export async function reviewQueue(): Promise<QueuedVersion[]> {
   }));
 }
 
-/** A person read this version. Not "it is correct" — the card says which. */
+/**
+ * A person read this version. Not "it is correct" — the card says which.
+ * Re-verifying an already-verified version is fine and just refreshes the
+ * reviewer and the date; verifying a withdrawn one is not — a version pulled
+ * from browsing must not gain a fresh "read by fieldnote" stamp on the way
+ * out.
+ */
 export async function verifyVersion(graderId: string, version: string): Promise<void> {
   const staff = await requireStaff();
   const updated = await db()
     .update(graderVersions)
     .set({ verifiedAt: new Date(), verifiedBy: staff.id })
-    .where(and(eq(graderVersions.graderId, graderId), eq(graderVersions.version, version)))
+    .where(
+      and(
+        eq(graderVersions.graderId, graderId),
+        eq(graderVersions.version, version),
+        isNull(graderVersions.withdrawnAt),
+      ),
+    )
     .returning({ version: graderVersions.version });
-  // A version that does not exist updates zero rows; reporting success there
-  // would tell the caller a no-op worked, the same defect withdrawVersion had.
+  // A version that does not exist, or is withdrawn, updates zero rows;
+  // reporting success there would tell the caller a no-op worked, the same
+  // defect withdrawVersion had.
   if (updated.length === 0) throw new Error('Version unavailable');
 }
 
