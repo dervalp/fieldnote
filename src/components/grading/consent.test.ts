@@ -38,3 +38,25 @@ test('the screen names the grader, its author and the version being installed', 
 test('it says plainly that nothing else is collected', () => {
   expect(render(agentReadinessManifest)).toContain('Nothing else is collected.');
 });
+
+test('the default mode asks to install', () => {
+  const html = render(agentReadinessManifest);
+  expect(html).toContain(`Install ${agentReadinessManifest.card.title}`);
+  expect(html).toContain('>Install<');
+});
+
+test("update mode says 'Update', not 'Install', in the heading and the button", () => {
+  const html = renderToStaticMarkup(
+    createElement(ConsentScreen, {
+      manifest: agentReadinessManifest,
+      author: 'fieldnote',
+      version: agentReadinessManifest.version,
+      action: vi.fn(),
+      cancelHref: '/app/settings/graders',
+      mode: 'update',
+    }),
+  );
+  expect(html).toContain(`Update ${agentReadinessManifest.card.title}`);
+  expect(html).toContain('>Update<');
+  expect(html).not.toContain(`Install ${agentReadinessManifest.card.title}`);
+});

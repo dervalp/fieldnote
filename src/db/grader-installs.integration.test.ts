@@ -89,7 +89,10 @@ beforeAll(async () => {
 // does), so an install row for the fixture grader must go before the version
 // row, which must go before the grader row itself — FK order, every time.
 async function deleteFixtureGrader(): Promise<void> {
-  await db().delete(graderInstalls).where(eq(graderInstalls.workspaceId, workspace));
+  // otherWorkspace gets its own install in the cross-workspace uninstall
+  // test below, so it needs sweeping here too, or it leaks into every test
+  // after it in this file.
+  await db().delete(graderInstalls).where(inArray(graderInstalls.workspaceId, [workspace, otherWorkspace]));
   await db().delete(graderVersions).where(eq(graderVersions.graderId, FIXTURE_GRADER_ID));
   await db().delete(graders).where(eq(graders.id, FIXTURE_GRADER_ID));
 }
@@ -362,9 +365,35 @@ test('uninstalling leaves another workspace rows for the same repository alone',
   await db()
     .insert(gradeSchedules)
     .values({ repositoryId, graderId: manifest.id, enabledBy: secondOwner, workspaceId: otherWorkspace });
+  await db()
+    .insert(publicGrades)
+    .values({ repositoryId, graderId: manifest.id, enabledBy: secondOwner, workspaceId: otherWorkspace });
+  // otherWorkspace's own install of the same grader — the row a wrong
+  // uninstallGrader (one missing its workspaceId predicate on graderInstalls)
+  // would delete right alongside this workspace's own.
+  context.user = secondOwner;
+  context.workspace = otherWorkspace;
+  await installGrader(manifest.id, manifest.version);
+  context.user = owner;
+  context.workspace = workspace;
+
   await uninstallGrader(manifest.id);
-  const rows = await db().select().from(gradeSchedules).where(eq(gradeSchedules.graderId, manifest.id));
-  expect(rows.map((row) => row.workspaceId)).toEqual([otherWorkspace]);
+
+  const scheduleRows = await db().select().from(gradeSchedules).where(eq(gradeSchedules.graderId, manifest.id));
+  expect(scheduleRows.map((row) => row.workspaceId)).toEqual([otherWorkspace]);
+
+  const [foreignPublicGrade] = await db()
+    .select()
+    .from(publicGrades)
+    .where(and(eq(publicGrades.graderId, manifest.id), eq(publicGrades.workspaceId, otherWorkspace)));
+  expect(foreignPublicGrade).toBeDefined();
+  expect(foreignPublicGrade.revokedAt).toBeNull();
+
+  const foreignInstall = await db()
+    .select()
+    .from(graderInstalls)
+    .where(and(eq(graderInstalls.workspaceId, otherWorkspace), eq(graderInstalls.graderId, manifest.id)));
+  expect(foreignInstall).toHaveLength(1);
 });
 
 test('uninstalling leaves grade history intact', async () => {

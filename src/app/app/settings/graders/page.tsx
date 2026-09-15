@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { Surface } from '@fieldnote/design-system';
 import { requireWorkspace } from '../../../../workspaces/access';
 import { workspaceGraders, type PublishedVersion } from '../../../../db/queries/grader-publishing';
-import { browsableGraders, type BrowsableGrader } from '../../../../db/queries/graders';
+import { browsableGraders, installedGraders, type BrowsableGrader } from '../../../../db/queries/graders';
 import { SettingsForm } from '../../../../components/settings-form';
 import { ConsentScreen } from '../../../../components/grading/consent';
 import {
@@ -20,6 +20,21 @@ export const metadata = { title: 'Graders' };
 function stateLabel(entry: Pick<PublishedVersion, 'verifiedAt' | 'withdrawnAt'>): string {
   if (entry.withdrawnAt) return 'Withdrawn';
   return entry.verifiedAt ? 'Reviewed' : 'Not reviewed';
+}
+
+// Shared by the browse list's installed entries and the "installed, no
+// longer offered" section below — the same permission grant, the same way
+// out, wherever it's found.
+function UninstallForm({ graderId }: { graderId: string }) {
+  return (
+    <SettingsForm action={uninstallGraderVersion} submitLabel="Uninstall">
+      <input type="hidden" name="graderId" value={graderId} />
+      <p className="fine">
+        Uninstalling also turns off this workspace&rsquo;s nightly grading and public sharing for
+        this grader. Grades already produced stay.
+      </p>
+    </SettingsForm>
+  );
 }
 
 // `?install=<graderId>@<version>` names exactly the (grader_id, version) an
@@ -49,6 +64,16 @@ export default async function Graders({
   const owner = workspace.role === 'owner';
   const published = await workspaceGraders();
   const browsable = await browsableGraders(workspace.id);
+  // browsableGraders() only carries a grader that still has a non-withdrawn
+  // version — an author who withdraws every version of a grader a workspace
+  // installed makes that grader vanish from Browse entirely. A permission
+  // grant this workspace cannot revoke is exactly what uninstalling exists
+  // to prevent, so anything installed but no longer in `browsable` gets its
+  // own entry below, uninstall form included.
+  const browsableIds = new Set(browsable.map((entry) => entry.id));
+  const orphanedInstalls = (await installedGraders(workspace.id)).filter(
+    (entry) => !browsableIds.has(entry.manifest.id),
+  );
   const search = (await searchParams) ?? {};
   // Owner-gated like the link that produces this query: a member who types
   // the URL by hand must land on the browse list, not on a permission-grant
@@ -80,6 +105,7 @@ export default async function Graders({
           // confirming an update, not a first install — the same screen
           // either way, because a new version may want to read more.
           action={installing.installed ? updateGraderInstall : installGraderVersion}
+          mode={installing.installed ? 'update' : 'install'}
           cancelHref="/app/settings/graders"
         />
       ) : (
@@ -113,15 +139,7 @@ export default async function Graders({
                         )}
                       </>
                     )}
-                    {owner && (
-                      <SettingsForm action={uninstallGraderVersion} submitLabel="Uninstall">
-                        <input type="hidden" name="graderId" value={entry.id} />
-                        <p className="fine">
-                          Uninstalling also turns off this workspace&rsquo;s nightly grading and
-                          public sharing for this grader. Grades already produced stay.
-                        </p>
-                      </SettingsForm>
-                    )}
+                    {owner && <UninstallForm graderId={entry.id} />}
                   </div>
                 ) : (
                   owner && (
@@ -135,6 +153,22 @@ export default async function Graders({
               </div>
             ))}
           </Surface>
+          {orphanedInstalls.length > 0 && (
+            <Surface className="settings-panel">
+              <h2>Installed, no longer offered</h2>
+              {orphanedInstalls.map((entry) => (
+                <div className="settings-row" key={entry.manifest.id}>
+                  <div>
+                    <strong>{entry.manifest.card.title}</strong>
+                    <p className="fine">
+                      {entry.manifest.id} · v{entry.version} · Withdrawn by its author
+                    </p>
+                  </div>
+                  {owner && <UninstallForm graderId={entry.manifest.id} />}
+                </div>
+              ))}
+            </Surface>
+          )}
           <Surface className="settings-panel">
             <h2>Published by this workspace</h2>
             {published.length === 0 && <p>Nothing published yet.</p>}

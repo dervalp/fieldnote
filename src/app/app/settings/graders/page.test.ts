@@ -1,10 +1,11 @@
-import { expect, test, vi } from 'vitest';
+import { beforeEach, expect, test, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { agentReadinessManifest } from '../../../../domain/grading/graders/agent-readiness';
 const deps = vi.hoisted(() => ({
   workspace: vi.fn(),
   workspaceGraders: vi.fn(),
   browsableGraders: vi.fn(),
+  installedGraders: vi.fn(),
   installGraderVersion: vi.fn(),
   updateGraderInstall: vi.fn(),
   uninstallGraderVersion: vi.fn(),
@@ -17,6 +18,7 @@ vi.mock('../../../../db/queries/grader-publishing', () => ({
 }));
 vi.mock('../../../../db/queries/graders', () => ({
   browsableGraders: deps.browsableGraders,
+  installedGraders: deps.installedGraders,
 }));
 vi.mock('./actions', () => ({
   publishGraderVersion: vi.fn(),
@@ -26,6 +28,15 @@ vi.mock('./actions', () => ({
   uninstallGraderVersion: deps.uninstallGraderVersion,
 }));
 import Graders from './page';
+
+// Every test renders the page, which now unconditionally calls
+// installedGraders() to find installs that fell out of the browse list (a
+// fully-withdrawn grader). Most tests don't care about that path, so this
+// default keeps them from having to say so; the withdrawn-install test below
+// overrides it.
+beforeEach(() => {
+  deps.installedGraders.mockResolvedValue([]);
+});
 
 test('an owner with a handle is offered the publish form', async () => {
   deps.workspace.mockResolvedValue({ id: 'w', name: 'W', role: 'owner', handle: 'acme' });
@@ -107,6 +118,87 @@ test('an already-installed grader offers no install link', async () => {
   const html = renderToStaticMarkup(await Graders());
   expect(html).toContain('Installed');
   expect(html).not.toContain('install=');
+});
+
+test('an owner sees the update line, the update link and the uninstall sentence when a newer version exists', async () => {
+  deps.workspace.mockResolvedValue({ id: 'w', name: 'W', role: 'owner', handle: 'acme' });
+  deps.workspaceGraders.mockResolvedValue([]);
+  deps.browsableGraders.mockResolvedValue([
+    {
+      id: agentReadinessManifest.id,
+      manifest: agentReadinessManifest,
+      version: '0.2.0',
+      verifiedAt: new Date('2026-09-01'),
+      author: 'fieldnote',
+      installed: {
+        manifest: agentReadinessManifest,
+        version: '0.1.0',
+        consentedNeeds: 'hash',
+        verifiedAt: new Date('2026-09-01'),
+        withdrawnAt: null,
+        latestVersion: '0.2.0',
+      },
+    },
+  ]);
+  const html = renderToStaticMarkup(await Graders());
+  expect(html).toContain('Update available — version 0.2.0');
+  expect(html).toContain(
+    `install=${encodeURIComponent(`${agentReadinessManifest.id}@0.2.0`)}`,
+  );
+  expect(html).toContain('Grades already produced stay.');
+  expect(html).toContain('name="graderId" value="' + agentReadinessManifest.id + '"');
+});
+
+test('a member sees neither an update link nor an uninstall form for an installed grader', async () => {
+  deps.workspace.mockResolvedValue({ id: 'w', name: 'W', role: 'member', handle: 'acme' });
+  deps.workspaceGraders.mockResolvedValue([]);
+  deps.browsableGraders.mockResolvedValue([
+    {
+      id: agentReadinessManifest.id,
+      manifest: agentReadinessManifest,
+      version: '0.2.0',
+      verifiedAt: new Date('2026-09-01'),
+      author: 'fieldnote',
+      installed: {
+        manifest: agentReadinessManifest,
+        version: '0.1.0',
+        consentedNeeds: 'hash',
+        verifiedAt: new Date('2026-09-01'),
+        withdrawnAt: null,
+        latestVersion: '0.2.0',
+      },
+    },
+  ]);
+  const html = renderToStaticMarkup(await Graders());
+  expect(html).not.toContain('install=');
+  expect(html).not.toContain('Uninstall');
+  expect(html).not.toContain('Grades already produced stay.');
+});
+
+test('a grader withdrawn in every version stays reachable through its own install entry', async () => {
+  deps.workspace.mockResolvedValue({ id: 'w', name: 'W', role: 'owner', handle: 'acme' });
+  deps.workspaceGraders.mockResolvedValue([]);
+  // browsableGraders() filters out a grader with no non-withdrawn version —
+  // it never carries this grader at all, which is exactly the bug: nothing
+  // here comes from the browse list.
+  deps.browsableGraders.mockResolvedValue([]);
+  deps.installedGraders.mockResolvedValue([
+    {
+      manifest: agentReadinessManifest,
+      version: '0.1.0',
+      consentedNeeds: 'hash',
+      verifiedAt: new Date('2026-09-01'),
+      withdrawnAt: new Date('2026-09-10'),
+      latestVersion: '0.1.0',
+    },
+  ]);
+  const html = renderToStaticMarkup(await Graders());
+  expect(html).toContain('Installed, no longer offered');
+  expect(html).toContain(agentReadinessManifest.card.title);
+  expect(html).toContain('Uninstall');
+  expect(html).toContain(
+    'name="graderId" value="' + agentReadinessManifest.id + '"',
+  );
 });
 
 test('a member sees no install link, even for a grader it has not installed', async () => {

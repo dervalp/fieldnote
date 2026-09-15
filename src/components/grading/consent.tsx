@@ -15,16 +15,25 @@ export function ConsentScreen({
   version,
   action,
   cancelHref,
+  mode = 'install',
 }: {
   manifest: GraderManifest;
   author: string;
   version: string;
   action: (form: FormData) => Promise<{ error?: string }>;
   cancelHref: string;
+  // The page reuses this same screen to confirm an update, not just a first
+  // install — a new version may want to read more, so it re-asks the same
+  // way. 'install' is the default so every existing caller says what it
+  // always said.
+  mode?: 'install' | 'update';
 }) {
+  const verb = mode === 'update' ? 'Update' : 'Install';
   return (
     <Surface className="grader-consent">
-      <h2>Install {manifest.card.title}</h2>
+      <h2>
+        {verb} {manifest.card.title}
+      </h2>
       <p>
         {author} · version {version}
       </p>
@@ -42,7 +51,7 @@ export function ConsentScreen({
           discard the Result and leave a failed install looking identical to
           a successful one; installGraderVersion redirects on success, so
           this screen never re-renders itself either way. */}
-      <SettingsForm action={action} submitLabel="Install">
+      <SettingsForm action={action} submitLabel={verb}>
         <input type="hidden" name="graderId" value={manifest.id} />
         <input type="hidden" name="version" value={version} />
       </SettingsForm>
