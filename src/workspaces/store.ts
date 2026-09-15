@@ -17,9 +17,13 @@ export async function ensureDefaultWorkspace(userId: string): Promise<Workspace>
   // foreign key against a workspace row the first connection has inserted but
   // not yet committed — a lock wait the first connection can never resolve,
   // because it is itself waiting on this call. So it runs after, once the
-  // workspace is visible to any connection; idempotent, so a workspace that
-  // already existed and already has its built-ins costs one no-op pass.
-  const workspace = await db().transaction(async (tx) => {
+  // workspace is visible to any connection.
+  //
+  // It runs only when this call is the one that created the workspace, never
+  // on the early-return path: this function is called on every authenticated
+  // request, and re-running it there would resurrect an install a user (or
+  // Task 10's uninstall) had deleted, on every single page load.
+  const { workspace, created } = await db().transaction(async (tx) => {
     await tx.execute(sql`select id from users where id = ${userId} for update`);
 
     const [existing] = await tx
@@ -27,7 +31,7 @@ export async function ensureDefaultWorkspace(userId: string): Promise<Workspace>
       .from(workspaces)
       .where(eq(workspaces.defaultForUserId, userId))
       .limit(1);
-    if (existing) return existing;
+    if (existing) return { workspace: existing, created: false };
 
     const workspace = {
       id: randomUUID(),
@@ -39,9 +43,9 @@ export async function ensureDefaultWorkspace(userId: string): Promise<Workspace>
       userId,
       role: 'owner',
     });
-    return workspace;
+    return { workspace, created: true };
   });
-  await installBuiltIns(workspace.id);
+  if (created) await installBuiltIns(workspace.id);
   return workspace;
 }
 

@@ -4,11 +4,14 @@ import type { GraderManifest } from './manifest';
 // GraderManifest['needs'] itself, but with readonly arrays: neither function
 // here mutates a pattern list, and a caller — including a `needs` literal
 // frozen with `as const` — should not have to widen it first just to hash or
-// describe it.
+// describe it. Mapped from GraderManifest['needs'] rather than hand-listed,
+// so a family added to the schema arrives here automatically — it is
+// consentSentences() below that must then fail to compile until it handles
+// the new family, not this type falling silently out of date with it.
 type Needs = {
-  'repo.files'?: readonly string[];
-  'repo.tree'?: readonly string[];
-  'fieldnote.metrics'?: GraderManifest['needs']['fieldnote.metrics'];
+  [K in keyof GraderManifest['needs']]: NonNullable<GraderManifest['needs'][K]> extends readonly string[]
+    ? readonly string[]
+    : GraderManifest['needs'][K];
 };
 
 /**
