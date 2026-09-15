@@ -3,7 +3,6 @@ import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm
 import { db } from '../index';
 import {
   gradeRuns as runs,
-  gradingRubrics,
   installations,
   repositories,
   workspaceRepositories,
@@ -15,10 +14,8 @@ import {
   requireWorkspace,
 } from '../../workspaces/access';
 import { currentUser } from '../../auth/session';
-import { getGrader } from '../../domain/grading/registry';
-import { manifestHash } from '../../domain/grading/manifest-hash';
-import { rubricView } from '../../domain/grading/rubric-view';
-import type { GraderManifest } from '../../domain/grading/manifest';
+import { graderVersion, installedGrader } from './graders';
+import { ManifestError, type GraderManifest } from '../../domain/grading/manifest';
 import type { GradeResult } from '../../domain/grading/types';
 export type GradeRun = typeof runs.$inferSelect;
 export type CompletedGrade = GradeResult & { id: string; sha: string; computedAt: Date };
@@ -35,57 +32,16 @@ export type GradeSummary = {
   unscored: UnscoredGrade | null;
   status: Pick<GradeRun, 'id' | 'state' | 'errorCode' | 'createdAt'> | null;
 };
-// A version freezes what a grade means, not how it is captioned. `card` is
-// title, tagline and grouping — copy a reader sees, which no score and no
-// collection depends on. Everything else is frozen, including each check's
-// `args`: rubricView keeps only { id, maxPoints }, so a moved threshold is
-// invisible to the definition hash and must be caught here.
-function withoutCard(manifest: Record<string, unknown>) {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- discarded on purpose
-  const { card: _card, ...rest } = manifest;
-  return rest;
-}
-export async function registerRubric(manifest: GraderManifest) {
-  const definition = rubricView(manifest);
-  await db()
-    .insert(gradingRubrics)
-    .values({
-      graderId: manifest.id,
-      version: manifest.version,
-      evaluatorVersion: manifest.evaluatorVersion,
-      definition,
-      manifest,
-    })
-    .onConflictDoNothing();
-  const [stored] = await db()
-    .select()
-    .from(gradingRubrics)
-    .where(
-      and(eq(gradingRubrics.graderId, manifest.id), eq(gradingRubrics.version, manifest.version)),
-    );
-  // A canonical hash rather than a deep equality: JSONB hands back plain
-  // objects with no key order and no frozen identity, and the question being
-  // asked is whether the stored rubric is the same rubric, not the same object.
-  if (
-    !stored ||
-    stored.evaluatorVersion !== manifest.evaluatorVersion ||
-    manifestHash(stored.definition) !== manifestHash(definition) ||
-    manifestHash(withoutCard(stored.manifest)) !== manifestHash(withoutCard(manifest))
-  )
-    throw new Error('Rubric version definition mismatch');
-  // Copy-only drift refreshes the stored record rather than failing. Without
-  // this, adding a card title to a built-in throws on every grade request in
-  // every database that already holds the old row.
-  if (manifestHash(stored.manifest) !== manifestHash(manifest)) {
-    await db()
-      .update(gradingRubrics)
-      .set({ manifest })
-      .where(
-        and(eq(gradingRubrics.graderId, manifest.id), eq(gradingRubrics.version, manifest.version)),
-      );
-    return { ...stored, manifest };
-  }
-  return stored;
+/**
+ * The manifest a run is pinned to. grader_versions is immutable, so this is a
+ * read: a run that was queued against a version resolves that version, and a
+ * version that has since been withdrawn still resolves — a withdrawal stops new
+ * installs, it does not rewrite history.
+ */
+export async function pinnedManifest(graderId: string, version: string): Promise<GraderManifest> {
+  const manifest = await graderVersion(graderId, version);
+  if (!manifest) throw new Error('Unsupported rubric version');
+  return manifest;
 }
 /**
  * The half of a grade request that has no session: the advisory lock keyed by
@@ -93,9 +49,10 @@ export async function registerRubric(manifest: GraderManifest) {
  * conflict fallback. Both callers go through it, so a scheduled run cannot be
  * created where a clicked one would have been refused.
  *
- * Trusted primitive. The caller is responsible for having resolved the grader
- * and registered its rubric; the availability join here re-checks repository,
- * installation, workspace link, membership and demo mode regardless.
+ * Trusted primitive. The caller is responsible for having resolved the
+ * workspace's installed (or pinned) grader version; the availability join here
+ * re-checks repository, installation, workspace link, membership and demo mode
+ * regardless.
  */
 export async function insertGradeRun(input: {
   repositoryId: string;
@@ -188,16 +145,16 @@ export async function requestGrade(
   repositoryId: string,
   graderId: string,
 ): Promise<{ id: string; state: GradeRun['state'] }> {
-  const manifest = getGrader(graderId);
   const repository = await requireRepository(repositoryId);
   const workspace = await requireWorkspace();
   if (workspace.id === 'demo' || repository.isDemo) throw new Error('Demo workspace is read-only');
   const user = await currentUser();
-  await registerRubric(manifest);
+  const installed = await installedGrader(workspace.id, graderId);
+  if (!installed) throw new ManifestError('unknown_grader', `No grader '${graderId}' is installed.`);
   return insertGradeRun({
     repositoryId,
     graderId,
-    manifest,
+    manifest: installed.manifest,
     userId: user.id,
     workspaceId: workspace.id,
     trigger: 'manual',
@@ -215,12 +172,13 @@ export async function scheduleGrade(input: {
   enabledBy: string;
   workspaceId: string;
 }): Promise<{ id: string; state: GradeRun['state'] }> {
-  const manifest = getGrader(input.graderId);
-  await registerRubric(manifest);
+  const installed = await installedGrader(input.workspaceId, input.graderId);
+  if (!installed)
+    throw new ManifestError('unknown_grader', `No grader '${input.graderId}' is installed.`);
   return insertGradeRun({
     repositoryId: input.repositoryId,
     graderId: input.graderId,
-    manifest,
+    manifest: installed.manifest,
     userId: input.enabledBy,
     workspaceId: input.workspaceId,
     trigger: 'schedule',
@@ -427,28 +385,8 @@ export async function validateGradeRun(run: GradeRun) {
       ),
     );
   if (!available || process.env.DEMO_MODE === 'true') throw new Error('Grade access revoked');
-  let manifest: GraderManifest;
-  try {
-    manifest = getGrader(run.graderId);
-  } catch {
-    throw new Error('Unsupported rubric version');
-  }
-  const [rubric] = await db()
-    .select()
-    .from(gradingRubrics)
-    .where(
-      and(eq(gradingRubrics.graderId, run.graderId), eq(gradingRubrics.version, run.rubricVersion)),
-    );
-  if (
-    !rubric ||
-    run.rubricVersion !== manifest.version ||
-    run.evaluatorVersion !== manifest.evaluatorVersion ||
-    rubric.evaluatorVersion !== run.evaluatorVersion ||
-    // A grade must not complete against a manifest that changed after the run
-    // was queued.
-    manifestHash(withoutCard(rubric.manifest)) !== manifestHash(withoutCard(manifest)) ||
-    manifestHash(rubric.definition) !== manifestHash(rubricView(manifest))
-  )
+  const manifest = await pinnedManifest(run.graderId, run.rubricVersion);
+  if (run.evaluatorVersion !== manifest.evaluatorVersion)
     throw new Error('Unsupported rubric version');
 }
 export async function beginGrade(runId: string) {

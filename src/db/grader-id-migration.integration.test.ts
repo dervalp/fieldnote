@@ -11,19 +11,26 @@ afterAll(async () => {
 });
 
 test('both grading tables identify a grader by grader_id, and no family column survives', async () => {
+  // A single scan: the two tables that now carry a grader's identity contribute
+  // their grader_id/manifest columns, and — scoped to the whole public schema,
+  // not just these two tables — any surviving `family` column would show up as
+  // an extra row and fail the exact-match assertion below.
   const rows = [
     ...(await db().execute(sql`
       select table_name, column_name, is_nullable
       from information_schema.columns
-      where table_name in ('grade_runs','grading_rubrics')
-        and column_name in ('family','grader_id','manifest')
+      where table_schema = 'public'
+        and (
+          (table_name in ('grade_runs','grader_versions') and column_name in ('grader_id','manifest'))
+          or column_name = 'family'
+        )
       order by table_name, column_name
     `)),
   ] as unknown as { table_name: string; column_name: string; is_nullable: string }[];
   expect(rows.map((row) => `${row.table_name}.${row.column_name}`)).toEqual([
     'grade_runs.grader_id',
-    'grading_rubrics.grader_id',
-    'grading_rubrics.manifest',
+    'grader_versions.grader_id',
+    'grader_versions.manifest',
   ]);
   expect(rows.find((row) => row.column_name === 'manifest')?.is_nullable).toBe('NO');
 });

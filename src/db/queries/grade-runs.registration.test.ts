@@ -1,20 +1,29 @@
-import { expect, test } from 'vitest';
-import { listGraders } from '../../domain/grading/registry';
-// Side-effect import only, and deliberately the only grading import in this
-// file: grade-runs.ts is the chokepoint every grader resolution passes
-// through (requestGrade for the page, validateGradeRun for the Inngest
-// worker), and importing a grader module registers it — there is no boot
-// step in a serverless deployment to do that for us. This test proves the
-// worker's half of that claim without any help from the page: it never
-// imports domain/grading/graders or an individual grader module directly. If
-// someone removes the barrel import from grade-runs.ts, this test goes back
-// to seeing only whatever built-in some unrelated import happens to drag in
-// — today that's a single grader, by accident — and fails.
-import './grade-runs';
+import { expect, test, vi } from 'vitest';
 
-test('importing grade-runs alone registers every built-in grader', () => {
-  const ids = listGraders().map((grader) => grader.id);
-  expect(ids).toContain('fieldnote/agent-readiness');
-  expect(ids).toContain('fieldnote/delivery-health');
-  expect(ids).toContain('fieldnote/test-discipline');
+// registerRubric registered a grader by publishing its rubric on demand;
+// requestGrade now resolves a workspace's installed grader instead, by id,
+// through installedGrader(workspace, graderId). This test proves that refusal
+// without touching the database's grade tables at all: installedGrader is
+// mocked to report nothing installed, so a real database would never see an
+// insert attempt for a grader the workspace never installed.
+const installed = vi.hoisted(() => vi.fn());
+vi.mock('../../auth/session', () => ({ currentUser: async () => ({ id: 'user-fixture' }) }));
+vi.mock('../../workspaces/access', () => ({
+  requireRepository: async (id: string) => ({ id, isDemo: false }),
+  requireWorkspace: async () => ({ id: 'workspace-fixture' }),
+  accessibleRepositories: async () => [],
+}));
+vi.mock('./graders', () => ({
+  installedGrader: installed,
+  graderVersion: vi.fn(),
+}));
+
+import { requestGrade } from './grade-runs';
+
+test('requestGrade refuses a grader the workspace has not installed', async () => {
+  installed.mockResolvedValueOnce(null);
+  await expect(requestGrade('repo-fixture', 'nobody/unknown-grader')).rejects.toThrow(
+    "No grader 'nobody/unknown-grader' is installed.",
+  );
+  expect(installed).toHaveBeenCalledWith('workspace-fixture', 'nobody/unknown-grader');
 });
