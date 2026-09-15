@@ -1,7 +1,10 @@
-import { eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { db } from '../index';
-import { workspaces } from '../schema';
+import { graders, graderVersions, workspaces } from '../schema';
 import { requireWorkspace } from '../../workspaces/access';
+import { currentUser } from '../../auth/session';
+import { ManifestError, type GraderManifest } from '../../domain/grading/manifest';
+import { parseManifest } from '../../domain/grading/registry';
 
 // A handle becomes the owner segment of every grader id this workspace
 // publishes, so these are the names a URL, a route or fieldnote itself needs.
@@ -55,4 +58,92 @@ function isUniqueViolation(error: unknown): boolean {
       : undefined;
   const cause = (error as { cause?: unknown } | null)?.cause;
   return code(error) === '23505' || code(cause) === '23505';
+}
+
+/**
+ * Publish one version. Owners only, under this workspace's own handle, and
+ * never over an existing (grader_id, version): installs point at a version and
+ * grades are pinned to it, so a published version is immutable.
+ */
+export async function publishGrader(manifestJson: string): Promise<GraderManifest> {
+  const workspace = await requireWorkspace(undefined, 'owner');
+  const user = await currentUser();
+  const [row] = await db()
+    .select({ handle: workspaces.handle })
+    .from(workspaces)
+    .where(eq(workspaces.id, workspace.id));
+  if (!row?.handle) throw new Error('Claim a handle first');
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(manifestJson);
+  } catch {
+    throw new ManifestError('schema', 'That is not valid JSON.');
+  }
+  const manifest = parseManifest(parsed);
+  // Open question 3 — whether a grader running inside fieldnote's sandbox is a
+  // derived work of an AGPL application — is unanswered, so nothing that ships
+  // code is published. fieldnote's own code grader is seeded, not published.
+  if (manifest.kind === 'code') throw new Error('Code graders cannot be published yet');
+  if (manifest.id.split('/')[0] !== row.handle) throw new Error('Wrong namespace');
+  await db()
+    .insert(graders)
+    .values({ id: manifest.id, ownedByWorkspaceId: workspace.id })
+    .onConflictDoNothing();
+  const [grader] = await db().select().from(graders).where(eq(graders.id, manifest.id));
+  if (grader.ownedByWorkspaceId !== workspace.id) throw new Error('Grader name taken');
+  const inserted = await db()
+    .insert(graderVersions)
+    .values({
+      graderId: manifest.id,
+      version: manifest.version,
+      evaluatorVersion: manifest.evaluatorVersion,
+      manifest,
+      publishedBy: user.id,
+    })
+    .onConflictDoNothing()
+    .returning({ version: graderVersions.version });
+  if (inserted.length === 0) throw new Error('Version already published');
+  return manifest;
+}
+
+/** Take a version out of browsing. Whoever already installed it keeps running it. */
+export async function withdrawVersion(
+  graderId: string,
+  version: string,
+  note: string,
+): Promise<void> {
+  const workspace = await requireWorkspace(undefined, 'owner');
+  const [grader] = await db().select().from(graders).where(eq(graders.id, graderId));
+  if (!grader || grader.ownedByWorkspaceId !== workspace.id) throw new Error('Grader unavailable');
+  await db()
+    .update(graderVersions)
+    .set({ withdrawnAt: new Date(), withdrawnNote: note })
+    .where(and(eq(graderVersions.graderId, graderId), eq(graderVersions.version, version)));
+}
+
+export type PublishedVersion = {
+  graderId: string;
+  version: string;
+  title: string;
+  publishedAt: Date;
+  verifiedAt: Date | null;
+  withdrawnAt: Date | null;
+};
+
+/** Every version this workspace has published, newest first. */
+export async function workspaceGraders(): Promise<PublishedVersion[]> {
+  const workspace = await requireWorkspace();
+  return db()
+    .select({
+      graderId: graderVersions.graderId,
+      version: graderVersions.version,
+      title: sql<string>`${graderVersions.manifest}->'card'->>'title'`,
+      publishedAt: graderVersions.publishedAt,
+      verifiedAt: graderVersions.verifiedAt,
+      withdrawnAt: graderVersions.withdrawnAt,
+    })
+    .from(graderVersions)
+    .innerJoin(graders, eq(graders.id, graderVersions.graderId))
+    .where(eq(graders.ownedByWorkspaceId, workspace.id))
+    .orderBy(desc(graderVersions.publishedAt));
 }
