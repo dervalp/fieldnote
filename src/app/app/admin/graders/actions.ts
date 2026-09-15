@@ -2,6 +2,7 @@
 import { revalidatePath } from 'next/cache';
 import { unstable_rethrow } from 'next/navigation';
 import { verifyVersion, withdrawVersion } from '../../../../db/queries/grader-publishing';
+import { requireStaff } from '../../../../workspaces/staff';
 
 type Result = { error?: string };
 const value = (form: FormData, key: string) => String(form.get(key) ?? '');
@@ -36,9 +37,14 @@ export async function verifyGraderVersion(form: FormData): Promise<Result> {
   );
 }
 
+// withdrawVersion() alone would let a non-staff workspace owner through too
+// (it already permits that, for the settings page's own withdraw action) —
+// no escalation, since an owner can already withdraw their own grader there,
+// but this action's name promises staff-only, so it checks that itself
+// rather than relying on withdrawVersion()'s unrelated ownership rule.
 export async function withdrawGraderVersionAsStaff(form: FormData): Promise<Result> {
-  return save(
-    () => withdrawVersion(value(form, 'graderId'), value(form, 'version'), value(form, 'note')),
-    'We could not withdraw this version. Please try again.',
-  );
+  return save(async () => {
+    await requireStaff();
+    await withdrawVersion(value(form, 'graderId'), value(form, 'version'), value(form, 'note'));
+  }, 'We could not withdraw this version. Please try again.');
 }

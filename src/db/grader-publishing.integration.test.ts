@@ -200,6 +200,16 @@ const manifest = (over: Record<string, unknown> = {}) => ({
 });
 const publishedCount = async () => (await db().select().from(graderVersions)).length;
 
+// reviewQueue() is deliberately global — staff review every workspace's
+// unreviewed versions, not one workspace's own — so it is never scoped by
+// this suite's fixture ids. The shared _test database means other suites'
+// fixtures (fileParallelism: false runs them in the same database in file
+// order) can leave their own unreviewed, unwithdrawn rows sitting in it, so
+// every queue assertion below filters to this suite's own grader id rather
+// than asserting on the whole queue.
+const ours = (queue: Awaited<ReturnType<typeof reviewQueue>>) =>
+  queue.filter((entry) => entry.graderId === 'acme/test-coverage');
+
 test('an owner publishes a declarative grader under their own handle, unreviewed', async () => {
   await claimHandle('acme');
   const published = await publishGrader(JSON.stringify(manifest()));
@@ -324,6 +334,26 @@ test('staff can withdraw a version they do not own', async () => {
   expect(row.withdrawnNote).toBe('Staff pulled this.');
 });
 
+// requireWorkspace(undefined, 'owner') would 404 `member` here — their role
+// in `workspace` (their cookie's own workspace) is 'member', not 'owner' —
+// so this only passes if the staff branch skips that requirement entirely
+// rather than merely skipping the ownership comparison after it.
+test('a staff member who only belongs to their own cookie workspace can still withdraw another workspace\'s version', async () => {
+  context.user = secondOwner;
+  context.workspace = otherWorkspace;
+  await claimHandle('other');
+  await publishGrader(JSON.stringify(manifest({ id: 'other/test-coverage' })));
+  await db().update(users).set({ staff: true }).where(eq(users.id, member));
+  context.user = member;
+  context.workspace = workspace;
+  await withdrawVersion('other/test-coverage', '0.1.0', 'Staff pulled this.');
+  const [row] = await db()
+    .select()
+    .from(graderVersions)
+    .where(eq(graderVersions.graderId, 'other/test-coverage'));
+  expect(row.withdrawnAt).toBeInstanceOf(Date);
+});
+
 test('a user who is neither staff nor the owner still cannot withdraw', async () => {
   await claimHandle('acme');
   await publishGrader(JSON.stringify(manifest()));
@@ -354,24 +384,35 @@ test('the queue holds every unreviewed, unwithdrawn version, newest first', asyn
   await publishGrader(JSON.stringify(manifest()));
   await publishGrader(JSON.stringify(manifest({ version: '0.2.0' })));
   await db().update(users).set({ staff: true }).where(eq(users.id, owner));
-  const queue = await reviewQueue();
+  const queue = ours(await reviewQueue());
   expect(queue.map((entry) => entry.version)).toEqual(['0.2.0', '0.1.0']);
   expect(queue[0].manifest.card.title).toBe('Test Coverage');
   expect(queue[0].author).toBe('acme');
 });
 
+// Three versions, not two: with only two rows tied on publishedAt, Postgres's
+// heap-scan order can coincidentally still come back descending even with no
+// ORDER BY tiebreak at all, so the assertion would not reliably fail if the
+// desc(version) clause were ever removed. Three rows pinned to the exact same
+// timestamp, asserted in exact descending order, does fail without it —
+// verified locally by removing the `desc(version)` tiebreak and re-running
+// this test, which returned ['0.3.0', '0.1.0', '0.2.0']: not descending, and
+// not the plain ascending insertion order either — just whatever order
+// Postgres's plan happened to produce for three rows with an identical sort
+// key and no tiebreak.
 test('a queue tie on publishedAt breaks by version, newest first', async () => {
   await claimHandle('acme');
   await publishGrader(JSON.stringify(manifest()));
   await publishGrader(JSON.stringify(manifest({ version: '0.2.0' })));
+  await publishGrader(JSON.stringify(manifest({ version: '0.3.0' })));
   const tied = new Date('2026-09-15T00:00:00Z');
   await db()
     .update(graderVersions)
     .set({ publishedAt: tied })
     .where(eq(graderVersions.graderId, 'acme/test-coverage'));
   await db().update(users).set({ staff: true }).where(eq(users.id, owner));
-  const queue = await reviewQueue();
-  expect(queue.map((entry) => entry.version)).toEqual(['0.2.0', '0.1.0']);
+  const queue = ours(await reviewQueue());
+  expect(queue.map((entry) => entry.version)).toEqual(['0.3.0', '0.2.0', '0.1.0']);
 });
 
 test('a non-staff user cannot read the queue or verify', async () => {
@@ -400,7 +441,7 @@ test('verifying records the reviewer and the date, and takes it out of the queue
     .where(eq(graderVersions.graderId, 'acme/test-coverage'));
   expect(row.verifiedAt).toBeInstanceOf(Date);
   expect(row.verifiedBy).toBe(owner);
-  expect(await reviewQueue()).toEqual([]);
+  expect(ours(await reviewQueue())).toEqual([]);
 });
 
 test('a new version starts unreviewed however many predecessors were read', async () => {
@@ -409,7 +450,7 @@ test('a new version starts unreviewed however many predecessors were read', asyn
   await db().update(users).set({ staff: true }).where(eq(users.id, owner));
   await verifyVersion('acme/test-coverage', '0.1.0');
   await publishGrader(JSON.stringify(manifest({ version: '0.2.0' })));
-  expect((await reviewQueue()).map((entry) => entry.version)).toEqual(['0.2.0']);
+  expect(ours(await reviewQueue()).map((entry) => entry.version)).toEqual(['0.2.0']);
 });
 
 test('a withdrawn version leaves the queue without being verified', async () => {
@@ -417,5 +458,5 @@ test('a withdrawn version leaves the queue without being verified', async () => 
   await publishGrader(JSON.stringify(manifest()));
   await withdrawVersion('acme/test-coverage', '0.1.0', 'Not ready.');
   await db().update(users).set({ staff: true }).where(eq(users.id, owner));
-  expect(await reviewQueue()).toEqual([]);
+  expect(ours(await reviewQueue())).toEqual([]);
 });

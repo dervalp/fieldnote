@@ -116,18 +116,21 @@ export async function publishGrader(manifestJson: string): Promise<GraderManifes
 /**
  * Take a version out of browsing. Whoever already installed it keeps running
  * it. An owner withdraws their own workspace's grader; staff withdraw any
- * grader from the review queue — the ownership branch below applies only
- * when the caller is not staff.
+ * grader from the review queue. The staff branch is checked first and, when
+ * it applies, skips requireWorkspace() entirely — a staff member who is
+ * merely a member (not an owner) of whatever workspace their cookie names
+ * must not be turned away by a workspace-role requirement that has nothing
+ * to do with the grader they are reviewing.
  */
 export async function withdrawVersion(
   graderId: string,
   version: string,
   note: string,
 ): Promise<void> {
-  const workspace = await requireWorkspace(undefined, 'owner');
   const staff = await isStaff();
+  const ownerWorkspaceId = staff ? null : (await requireWorkspace(undefined, 'owner')).id;
   const [grader] = await db().select().from(graders).where(eq(graders.id, graderId));
-  if (!grader || (!staff && grader.ownedByWorkspaceId !== workspace.id))
+  if (!grader || (ownerWorkspaceId !== null && grader.ownedByWorkspaceId !== ownerWorkspaceId))
     throw new Error('Grader unavailable');
   const updated = await db()
     .update(graderVersions)
