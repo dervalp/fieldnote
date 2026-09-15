@@ -208,8 +208,14 @@ export async function seedBuiltInGraders(): Promise<void> {
  * Installs every built-in into a workspace, pinned to its seeded version and
  * consented to as declared. `installedBy` is null: a seeded install has no
  * user behind it, which is exactly what the column being nullable is for.
+ *
+ * Seeds first: workspace creation must work against a freshly migrated
+ * database that has never run the seed (a fresh test database, or a
+ * deployment where migrate and seed raced), and seeding is idempotent and
+ * cheap — an install row is never installing a grader row that doesn't exist.
  */
 export async function installBuiltIns(workspaceId: string): Promise<void> {
+  await seedBuiltInGraders();
   for (const manifest of builtInManifests()) {
     await db()
       .insert(graderInstalls)

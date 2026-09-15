@@ -661,9 +661,14 @@ export const graderVersions = pgTable(
 export const graderInstalls = pgTable(
   'grader_installs',
   {
+    // Cascades: an install belongs to its workspace, not the other way
+    // around, and removing the workspace should remove what it installed
+    // rather than block the delete forever. graders.owned_by_workspace_id is
+    // deliberately not this — a workspace that published a grader should not
+    // become silently deletable.
     workspaceId: text('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     graderId: text('grader_id')
       .notNull()
       .references(() => graders.id),
