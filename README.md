@@ -6,7 +6,7 @@ Evidence-first analytics for AI-written pull requests. Every number is
 recomputed from GitHub facts and replays identically. There are no LLM judges
 anywhere in the pipeline.
 
-[![CI](https://github.com/pierrederval/ai-metrics/actions/workflows/ci.yml/badge.svg)](https://github.com/pierrederval/ai-metrics/actions/workflows/ci.yml)
+[![CI](https://github.com/dervalp/fieldnote/actions/workflows/ci.yml/badge.svg)](https://github.com/dervalp/fieldnote/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Node 24+](https://img.shields.io/badge/node-24%2B-green.svg)](package.json)
 
