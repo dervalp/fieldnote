@@ -3,11 +3,20 @@ import { revalidatePath } from 'next/cache';
 import { unstable_rethrow } from 'next/navigation';
 import { ManifestError } from '../../../../domain/grading/manifest';
 import { publishGrader, withdrawVersion } from '../../../../db/queries/grader-publishing';
+import { installGrader } from '../../../../db/queries/grader-installs';
 
 type Result = { error?: string };
 const value = (form: FormData, key: string) => String(form.get(key) ?? '');
 
-async function save(operation: () => Promise<unknown>, fallback: string): Promise<Result> {
+// `overrides` lets one call give an error code its own wording — installing
+// and withdrawing both throw 'Version unavailable' for unrelated reasons, and
+// deserve different sentences for it — without duplicating the codes every
+// action shares.
+async function save(
+  operation: () => Promise<unknown>,
+  fallback: string,
+  overrides: Record<string, string> = {},
+): Promise<Result> {
   try {
     await operation();
     revalidatePath('/', 'layout');
@@ -24,6 +33,7 @@ async function save(operation: () => Promise<unknown>, fallback: string): Promis
       'Code graders cannot be published yet': 'Code graders cannot be published yet.',
       'Grader unavailable': 'That grader is not yours to change.',
       'Version unavailable': 'That version is no longer available.',
+      ...overrides,
     };
     return {
       error: (error instanceof Error && messages[error.message]) || fallback,
@@ -42,5 +52,13 @@ export async function withdrawGraderVersion(form: FormData): Promise<Result> {
   return save(
     () => withdrawVersion(value(form, 'graderId'), value(form, 'version'), value(form, 'note')),
     'We could not withdraw this version. Please try again.',
+  );
+}
+
+export async function installGraderVersion(form: FormData): Promise<Result> {
+  return save(
+    () => installGrader(value(form, 'graderId'), value(form, 'version')),
+    'We could not install this grader. Please try again.',
+    { 'Version unavailable': 'That version is no longer available to install.' },
   );
 }
