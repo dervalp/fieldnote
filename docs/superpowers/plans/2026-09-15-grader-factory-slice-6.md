@@ -988,13 +988,17 @@ test('a version that already exists is refused, and the stored one is untouched'
   expect(stored?.disclaimer).toBe('Evidence, not certification.');
 });
 
-test('a grader id another workspace owns is refused', async () => {
+test('another workspace cannot reach this grader name, because it cannot hold the handle', async () => {
   await claimHandle('acme');
   await publishGrader(JSON.stringify(manifest()));
   context.user = secondOwner;
   context.workspace = otherWorkspace;
-  await claimHandle('acme');            // refused: taken — claim a different one
+  // The namespace check is only as strong as the handle's uniqueness, so this
+  // is where that is pinned: the second workspace cannot own `acme`, and
+  // therefore cannot publish anything under `acme/`.
   await expect(claimHandle('acme')).rejects.toThrow('Handle unavailable');
+  await claimHandle('other');
+  await expect(publishGrader(JSON.stringify(manifest()))).rejects.toThrow('Wrong namespace');
 });
 
 test('a manifest that fails parseManifest is refused with its own error', async () => {
@@ -1490,7 +1494,9 @@ test('uninstalling clears this workspace nightly schedules and public sharing fo
   await installGrader(manifest.id, manifest.version);
   const repositoryId = await fixtureRepository();
   await db().insert(gradeSchedules).values({ repositoryId, graderId: manifest.id, enabledBy: owner, workspaceId: workspace });
-  await db().insert(publicGrades).values({ repositoryId, graderId: manifest.id, enabledBy: owner, workspaceId: workspace, consentedNeeds: undefined as never });
+  await db()
+    .insert(publicGrades)
+    .values({ repositoryId, graderId: manifest.id, enabledBy: owner, workspaceId: workspace });
   await uninstallGrader(manifest.id);
   expect(await db().select().from(graderInstalls).where(eq(graderInstalls.workspaceId, workspace))).toEqual([]);
   expect(await db().select().from(gradeSchedules).where(eq(gradeSchedules.graderId, manifest.id))).toEqual([]);
@@ -1526,7 +1532,7 @@ test('a member cannot update or uninstall', async () => {
 });
 ```
 
-(The `publicGrades` insert takes the columns that table actually has — copy them from `src/db/public-grades.integration.test.ts`; the `consentedNeeds: undefined as never` above is a placeholder for whatever that fixture passes, and must be replaced with the real shape.)
+(`public_grades` takes `repositoryId`, `graderId`, `enabledBy` and `workspaceId`; `enabledAt` defaults and `revokedAt` stays null, which is what "shared" means.)
 
 - [ ] **Step 2: Implement**
 
