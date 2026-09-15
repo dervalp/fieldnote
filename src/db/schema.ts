@@ -244,6 +244,9 @@ export const users = pgTable('users', {
   credentials: text('credentials').notNull(),
   displayName: text('display_name'),
   avatarUrl: text('avatar_url'),
+  // fieldnote staff. Set directly in the database — there is no screen for it,
+  // and the design records that as knowingly wrong.
+  staff: boolean('staff').notNull().default(false),
   createdAt: created(),
   updatedAt: updated(),
 });
@@ -517,6 +520,9 @@ export const workspaces = pgTable('workspaces', {
   defaultForUserId: text('default_for_user_id')
     .unique()
     .references(() => users.id),
+  // Claimed once by an owner and never changed: published grader ids contain
+  // it, and other workspaces' installs point at those ids.
+  handle: text('handle').unique(),
   createdAt: created(),
   updatedAt: updated(),
 });
@@ -618,20 +624,58 @@ export const invitationDeliveries = pgTable(
   ],
 );
 
-export const gradingRubrics = pgTable(
-  'grading_rubrics',
+// One row per grader name, and which workspace owns that name. A null owner is
+// fieldnote's own, seeded from the manifests in src/domain/grading/graders.
+export const graders = pgTable('graders', {
+  id: text('id').primaryKey(),
+  ownedByWorkspaceId: text('owned_by_workspace_id').references(() => workspaces.id),
+  createdAt: created(),
+});
+
+// The registry entry and the rubric a run is pinned to, in one row: both are
+// the same immutable manifest for the same (grader_id, version), and storing
+// it twice would mean two writers and a drift check between them. Only the
+// four lifecycle columns below may change after publication.
+export const graderVersions = pgTable(
+  'grader_versions',
   {
-    graderId: text('grader_id').notNull(),
+    graderId: text('grader_id')
+      .notNull()
+      .references(() => graders.id),
     version: text('version').notNull(),
     evaluatorVersion: text('evaluator_version').notNull(),
-    definition: jsonb('definition').$type<Record<string, unknown>>().notNull(),
-    // The full validated manifest. `definition` remains the rubric a run is
-    // pinned to — checks and points, nothing operational — and is derived from
-    // this, so the two can never disagree.
     manifest: jsonb('manifest').$type<Record<string, unknown>>().notNull(),
-    createdAt: created(),
+    publishedBy: text('published_by').references(() => users.id),
+    publishedAt: created(),
+    verifiedAt: timestamp('verified_at', { withTimezone: true }),
+    verifiedBy: text('verified_by').references(() => users.id),
+    withdrawnAt: timestamp('withdrawn_at', { withTimezone: true }),
+    withdrawnNote: text('withdrawn_note'),
   },
   (t) => [primaryKey({ columns: [t.graderId, t.version] })],
+);
+
+// What a workspace installed, and what it agreed that grader may read.
+// Installing pins one version; an update re-pins it, and re-consents when the
+// declared needs changed.
+export const graderInstalls = pgTable(
+  'grader_installs',
+  {
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    graderId: text('grader_id')
+      .notNull()
+      .references(() => graders.id),
+    version: text('version').notNull(),
+    // Nullable: a seeded install of a built-in has no user behind it.
+    installedBy: text('installed_by').references(() => users.id),
+    installedAt: created(),
+    // The canonical hash of the manifest's `needs`. collectEvidence refuses to
+    // collect anything when the running manifest's needs do not hash to this.
+    consentedNeeds: text('consented_needs').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.workspaceId, t.graderId] })],
 );
 export const gradeRuns = pgTable(
   'grade_runs',

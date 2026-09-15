@@ -120,6 +120,13 @@
       "when": 1789405427243,
       "tag": "0016_public_grades",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1789454352079,
+      "tag": "0017_grader_registry",
+      "breakpoints": true
     }
   ]
 }
