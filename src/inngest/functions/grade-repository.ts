@@ -41,7 +41,7 @@ async function collectionFailure(runId: string, error: unknown): Promise<never> 
   }
   if (error instanceof ConsentError) {
     await failGrade(runId, 'consent_required');
-    throw new NonRetriableError('Grader is not installed');
+    throw new NonRetriableError('Grader needs exceed consent');
   }
   if (error instanceof SandboxUnavailableError) {
     if (!error.retryable) {

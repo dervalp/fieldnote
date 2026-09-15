@@ -25,9 +25,9 @@ export type CollectedEvidence = {
  * the families it named, the file globs it named, and a metrics window pinned
  * to the moment the run was requested rather than the moment it executed.
  *
- * This is the one place a consent check belongs when slice 5 builds the
- * install flow, because it is the one place that knows both the manifest's
- * `needs` and the repository it is about to read. Do not put it anywhere else.
+ * This is the one place a consent check belongs, because it is the one place
+ * that knows both the manifest's `needs` and the repository it is about to
+ * read. The check lives here, and stays here — do not put it anywhere else.
  */
 // The families this dispatcher knows how to collect. Kept as a literal set
 // rather than inferred from the schema so that a family added to
@@ -51,8 +51,8 @@ export async function collectEvidence(
     (family) => !(HANDLED_FAMILIES as readonly string[]).includes(family),
   );
   if (unhandled) throw new Error(`collectEvidence does not handle evidence family '${unhandled}'`);
-  // The one place that knows both the manifest's needs and the repository it is
-  // about to read, which is why slice 3 put the check here and nowhere else.
+  // This is the one place that knows both the manifest's needs and the
+  // repository it is about to read, which is why the check lives here.
   if (needsHash(manifest.needs) !== consentedNeeds) throw new ConsentError();
   const filesNeed = manifest.needs['repo.files'];
   const treeNeed = manifest.needs['repo.tree'];
