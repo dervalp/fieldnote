@@ -48,9 +48,7 @@ describe('GET /api/cli/graders', () => {
 
   it('maps the manifest fields the CLI prints, tagline included', async () => {
     const body = await (await get()).json();
-    const grader = body.graders.find(
-      (g: { id: string }) => g.id === agentReadinessManifest.id,
-    );
+    const grader = body.graders.find((g: { id: string }) => g.id === agentReadinessManifest.id);
     expect(grader).toEqual({
       id: agentReadinessManifest.id,
       version: agentReadinessManifest.version,
