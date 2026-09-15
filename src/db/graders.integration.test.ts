@@ -154,6 +154,42 @@ test('seeding twice changes nothing', async () => {
   expect(rows).toHaveLength(builtInManifests().length);
 });
 
+test("a published version's manifest is never rewritten", async () => {
+  // grading_rubrics is gone, so there is no second row left to hash-compare a
+  // stored manifest against before a run completes: "a grade must not
+  // complete against a manifest that changed after the run was queued" now
+  // rests entirely on this table's insert staying onConflictDoNothing.
+  // "seeding twice changes nothing" only counts rows — an insert switched to
+  // onConflictDoUpdate would rewrite every published manifest under every
+  // live pin and leave that count unchanged. This proves the content itself,
+  // not just the row count, survives an attempted re-seed.
+  await seedBuiltInGraders();
+  const before = await graderVersion(AGENT_READINESS, agentReadinessManifest.version);
+  expect(before).toEqual(agentReadinessManifest);
+  const altered = {
+    ...agentReadinessManifest,
+    disclaimer: 'ALTERED IN A TEST — must never be stored.',
+  };
+  // Mirrors seedBuiltInGraders' own insert for this row exactly, altered
+  // manifest and all: same table, same conflict target, same
+  // onConflictDoNothing. If that insert ever became onConflictDoUpdate — in
+  // seedBuiltInGraders or here — this altered row would win and the
+  // assertion below would fail.
+  await db()
+    .insert(graderVersions)
+    .values({
+      graderId: altered.id,
+      version: altered.version,
+      evaluatorVersion: altered.evaluatorVersion,
+      manifest: altered,
+      publishedBy: null,
+    })
+    .onConflictDoNothing();
+  const after = await graderVersion(AGENT_READINESS, agentReadinessManifest.version);
+  expect(after).toEqual(before);
+  expect(after).toEqual(agentReadinessManifest);
+});
+
 test('a workspace with the built-ins installed resolves them, pinned', async () => {
   await seedBuiltInGraders();
   await installBuiltIns(workspace);
