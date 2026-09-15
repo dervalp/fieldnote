@@ -20,15 +20,13 @@ import { GradeCard, type GradeCardProps, type GradeFinish } from '@fieldnote/des
 const BEATS = ['Self-monitor.', 'Self-act.', 'Self-train.'] as const;
 
 /**
- * The four figures are facts about the rubric, not rounded-up marketing
- * numbers: five checks at twenty points each, six finishes, one perfect score,
- * and no model anywhere in the scoring path.
+ * The three figures describe the readiness rubric: five checks, six finishes,
+ * and one perfect score.
  */
 const PROOF = [
   { figure: '5', label: 'readiness checks' },
   { figure: '6', label: 'finishes to earn' },
   { figure: '100', label: 'a perfect score' },
-  { figure: '0', label: 'LLM judges' },
 ] as const;
 
 /** How long a beat spends climbing, and how long it rests before the next. */

@@ -30,11 +30,23 @@ test('both calls to action go to GitHub sign-in, and no other auth surface', asy
 
 test('renders every section, in the order the design settled on', async () => {
   const html = renderToStaticMarkup(await Landing());
-  const order = ['ladder', 'rubric', 'how', 'measures', 'guarantees', 'self-host'].map((id) =>
+  const order = ['how', 'evidence', 'progress', 'rubric', 'self-host'].map((id) =>
     html.indexOf(`id="${id}"`),
   );
   expect(order.every((position) => position > -1)).toBe(true);
   expect(order).toEqual([...order].sort((a, b) => a - b));
+});
+
+test('keeps every in-page navigation target and the complete static examples', async () => {
+  const html = renderToStaticMarkup(await Landing());
+  for (const [, target] of html.matchAll(/href="#([^"]+)"/g)) {
+    expect(html).toContain(`id="${target}"`);
+  }
+  expect(html).not.toContain('LLM judges');
+  expect(html).not.toContain('Explore the example');
+  expect(html).toContain('Start with the command, not the search.');
+  expect(html).toContain('Green. Still worth a closer look.');
+  expect(html).not.toContain('aria-hidden="true" inert');
 });
 
 // Everything meant to be read is visible at rest. A section parked at

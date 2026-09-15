@@ -43,6 +43,13 @@ export async function pinnedManifest(graderId: string, version: string): Promise
   if (!manifest) throw new Error('Unsupported rubric version');
   return manifest;
 }
+// Exported so callers (the CLI grade route) can match on these exact
+// messages to turn them into actionable HTTP refusals instead of a generic
+// 503 — a named constant makes that coupling a typecheck edge rather than a
+// comment, so rewording one of these strings cannot silently break it.
+export const DEMO_READ_ONLY = 'Demo workspace is read-only';
+export const REPOSITORY_UNAVAILABLE = 'Repository unavailable';
+
 /**
  * The half of a grade request that has no session: the advisory lock keyed by
  * grader, the workspace lock, the availability join, the retry lookup and the
@@ -98,7 +105,7 @@ export async function insertGradeRun(input: {
           eq(installations.active, true),
         ),
       );
-    if (!available) throw new Error('Repository unavailable');
+    if (!available) throw new Error(REPOSITORY_UNAVAILABLE);
     const [latest] = await tx
       .select()
       .from(runs)
@@ -147,7 +154,7 @@ export async function requestGrade(
 ): Promise<{ id: string; state: GradeRun['state'] }> {
   const repository = await requireRepository(repositoryId);
   const workspace = await requireWorkspace();
-  if (workspace.id === 'demo' || repository.isDemo) throw new Error('Demo workspace is read-only');
+  if (workspace.id === 'demo' || repository.isDemo) throw new Error(DEMO_READ_ONLY);
   const user = await currentUser();
   const installed = await installedGrader(workspace.id, graderId);
   if (!installed) throw new ManifestError('unknown_grader', `No grader '${graderId}' is installed.`);

@@ -1,18 +1,20 @@
 import { SiteNav } from '../components/marketing/site-nav';
 import { Hero } from '../components/marketing/hero';
-import { TierLadder } from '../components/marketing/tier-ladder';
-import { RubricGrid } from '../components/marketing/rubric-grid';
-import { LoopStages } from '../components/marketing/loop-stages';
-import { MetricTable } from '../components/marketing/metric-table';
-import { Guarantees } from '../components/marketing/guarantees';
+import {
+  AgentWalkthrough,
+  PullRequestStory,
+  GradeProgress,
+  EvidenceTrust,
+} from '../components/marketing/improvement-story';
 import { Signup } from '../components/marketing/signup';
 import { SiteFooter } from '../components/marketing/site-footer';
 import '../components/marketing/marketing.css';
+import '../components/marketing/improvement-story.css';
 
 export const metadata = {
   title: 'Get your ultimate harness',
   description:
-    'Agent readiness, graded out of 100. fieldnote scores the repository your coding agents work in, across five deterministic checks with file and line evidence — no LLM judges.',
+    'Find your repository’s next improvement. Inspect agent-readiness checks, understand pull-request history, and trace each grade to its evidence.',
 };
 
 /**
@@ -46,12 +48,17 @@ export default async function Landing() {
       <div className="mk-shell">
         <SiteNav />
         <Hero />
-        <TierLadder />
-        <RubricGrid />
-        <LoopStages />
-        <MetricTable />
-        <Guarantees />
-        <Signup />
+      </div>
+      <AgentWalkthrough />
+      <PullRequestStory />
+      <GradeProgress />
+      <EvidenceTrust />
+      <div className="mk-story-wash">
+        <div className="mk-shell">
+          <Signup />
+        </div>
+      </div>
+      <div className="mk-shell">
         <SiteFooter />
       </div>
     </main>

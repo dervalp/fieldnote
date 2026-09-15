@@ -13,7 +13,11 @@ import {
   updateGraderInstall,
   uninstallGraderVersion,
 } from './actions';
-import { accountSettingsPath, workspaceSettingsPath } from '../../../../lib/app-routes';
+import {
+  accountSettingsPath,
+  tokensSettingsPath,
+  workspaceSettingsPath,
+} from '../../../../lib/app-routes';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Graders' };
@@ -90,6 +94,7 @@ export default async function Graders({
         <Link aria-current="page" href="/app/settings/graders">
           Graders
         </Link>
+        <Link href={tokensSettingsPath()}>Tokens</Link>
         <span className={owner ? 'owner-badge' : 'member-badge'}>{owner ? 'Owner' : 'Member'}</span>
       </div>
       {installing ? (

@@ -1,6 +1,6 @@
 {
-  "id": "e0098191-fcb4-4332-8076-b3b88752d4e0",
-  "prevId": "04866a21-76d0-4395-bc57-a4c0d31a327b",
+  "id": "04866a21-76d0-4395-bc57-a4c0d31a327b",
+  "prevId": "76629b9e-8d2a-44dc-8a01-5638d3e52a93",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -623,6 +623,201 @@
             "id"
           ],
           "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.cli_auth_codes": {
+      "name": "cli_auth_codes",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workspace_name": {
+          "name": "workspace_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "login": {
+          "name": "login",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "challenge": {
+          "name": "challenge",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "cli_auth_codes_user_id_users_id_fk": {
+          "name": "cli_auth_codes_user_id_users_id_fk",
+          "tableFrom": "cli_auth_codes",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "cli_auth_codes_workspace_id_workspaces_id_fk": {
+          "name": "cli_auth_codes_workspace_id_workspaces_id_fk",
+          "tableFrom": "cli_auth_codes",
+          "tableTo": "workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.cli_tokens": {
+      "name": "cli_tokens",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'grade'"
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "last_used_at": {
+          "name": "last_used_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "cli_tokens_user": {
+          "name": "cli_tokens_user",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "cli_tokens_user_id_users_id_fk": {
+          "name": "cli_tokens_user_id_users_id_fk",
+          "tableFrom": "cli_tokens",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "cli_tokens_workspace_id_workspaces_id_fk": {
+          "name": "cli_tokens_workspace_id_workspaces_id_fk",
+          "tableFrom": "cli_tokens",
+          "tableTo": "workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -1440,106 +1635,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.grader_installs": {
-      "name": "grader_installs",
-      "schema": "",
-      "columns": {
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "grader_id": {
-          "name": "grader_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "version": {
-          "name": "version",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "installed_by": {
-          "name": "installed_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "consented_needs": {
-          "name": "consented_needs",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "grader_installs_workspace_id_workspaces_id_fk": {
-          "name": "grader_installs_workspace_id_workspaces_id_fk",
-          "tableFrom": "grader_installs",
-          "tableTo": "workspaces",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "grader_installs_grader_id_graders_id_fk": {
-          "name": "grader_installs_grader_id_graders_id_fk",
-          "tableFrom": "grader_installs",
-          "tableTo": "graders",
-          "columnsFrom": [
-            "grader_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "grader_installs_installed_by_users_id_fk": {
-          "name": "grader_installs_installed_by_users_id_fk",
-          "tableFrom": "grader_installs",
-          "tableTo": "users",
-          "columnsFrom": [
-            "installed_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "grader_installs_workspace_id_grader_id_pk": {
-          "name": "grader_installs_workspace_id_grader_id_pk",
-          "columns": [
-            "workspace_id",
-            "grader_id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.grader_versions": {
-      "name": "grader_versions",
+    "public.grading_rubrics": {
+      "name": "grading_rubrics",
       "schema": "",
       "columns": {
         "grader_id": {
@@ -1560,147 +1657,37 @@
           "primaryKey": false,
           "notNull": true
         },
+        "definition": {
+          "name": "definition",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
         "manifest": {
           "name": "manifest",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true
         },
-        "published_by": {
-          "name": "published_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "verified_at": {
-          "name": "verified_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "verified_by": {
-          "name": "verified_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "withdrawn_at": {
-          "name": "withdrawn_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "withdrawn_note": {
-          "name": "withdrawn_note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {},
-      "foreignKeys": {
-        "grader_versions_grader_id_graders_id_fk": {
-          "name": "grader_versions_grader_id_graders_id_fk",
-          "tableFrom": "grader_versions",
-          "tableTo": "graders",
-          "columnsFrom": [
-            "grader_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "grader_versions_published_by_users_id_fk": {
-          "name": "grader_versions_published_by_users_id_fk",
-          "tableFrom": "grader_versions",
-          "tableTo": "users",
-          "columnsFrom": [
-            "published_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "grader_versions_verified_by_users_id_fk": {
-          "name": "grader_versions_verified_by_users_id_fk",
-          "tableFrom": "grader_versions",
-          "tableTo": "users",
-          "columnsFrom": [
-            "verified_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {
-        "grader_versions_grader_id_version_pk": {
-          "name": "grader_versions_grader_id_version_pk",
+        "grading_rubrics_grader_id_version_pk": {
+          "name": "grading_rubrics_grader_id_version_pk",
           "columns": [
             "grader_id",
             "version"
           ]
         }
       },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.graders": {
-      "name": "graders",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "owned_by_workspace_id": {
-          "name": "owned_by_workspace_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "graders_owned_by_workspace_id_workspaces_id_fk": {
-          "name": "graders_owned_by_workspace_id_workspaces_id_fk",
-          "tableFrom": "graders",
-          "tableTo": "workspaces",
-          "columnsFrom": [
-            "owned_by_workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
@@ -3848,13 +3835,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "staff": {
-          "name": "staff",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -4346,12 +4326,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "handle": {
-          "name": "handle",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -4390,13 +4364,6 @@
           "nullsNotDistinct": false,
           "columns": [
             "default_for_user_id"
-          ]
-        },
-        "workspaces_handle_unique": {
-          "name": "workspaces_handle_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "handle"
           ]
         }
       },

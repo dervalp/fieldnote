@@ -36,6 +36,7 @@ vi.mock('../lib/env', () => ({
 }));
 vi.mock('../github/repositories', () => ({ reconcileInstallation: async () => [] }));
 
+import { withPrincipal } from '../auth/principal';
 import { closeDb, db } from '../db';
 import {
   installations,
@@ -180,6 +181,25 @@ test('an explicit empty workspace id is rejected instead of falling back', async
 test('the demo workspace rejects an explicit empty workspace id', async () => {
   fixture.demoMode = true;
   await expect(requireWorkspace('')).rejects.toThrow('not found');
+});
+
+test('fails closed when a principal names a workspace the user is not in', async () => {
+  await expect(
+    withPrincipal({ userId: fixture.userId, workspaceId: 'w_not_a_member', source: 'cli' }, () =>
+      requireWorkspace(),
+    ),
+  ).rejects.toThrow('not found');
+});
+
+test('still honours a principal naming a workspace the user IS in', async () => {
+  // The cookie and the default workspace both name workspaceIds[0]; pinning
+  // workspaceIds[1] — where this user is only a member, not the default — is
+  // what makes this test fail if the withPrincipal wrapper is ever removed.
+  const workspace = await withPrincipal(
+    { userId: fixture.userId, workspaceId: workspaceIds[1], source: 'cli' },
+    () => requireWorkspace(),
+  );
+  expect(workspace).toMatchObject({ id: workspaceIds[1], role: 'member' });
 });
 
 // The regression this guards: scripts/seed.ts and workspaces/access.ts each

@@ -1,0 +1,30 @@
+import { unstable_rethrow } from 'next/navigation';
+import { tokenHash } from '../../../../auth/crypto';
+import { resolveToken, revokeToken } from '../../../../db/queries/cli-tokens';
+import { bearerToken, unauthorized } from '../principal';
+
+const headers = { 'Cache-Control': 'private, no-store' };
+
+// `fieldnote logout` clears the file locally; this lets it also kill the token
+// server-side, so a laptop that is handed on does not leave a live credential
+// behind. It authenticates by the bearer token itself and revokes only that
+// token — it must never accept a token id in the body, which would let one
+// token revoke another. A revoked token, an unknown one and no token at all
+// all look the same to an unauthenticated caller — principal.ts's shared
+// unauthorized() answers all three, in one sentence written there.
+export async function POST(request: Request) {
+  try {
+    // Shared with withCliPrincipal rather than re-spelled: this route and
+    // every other CLI route must agree on what counts as a credential, and
+    // on what a caller without one is told.
+    const token = bearerToken(request);
+    if (!token) return unauthorized();
+    const principal = await resolveToken(token);
+    if ('error' in principal) return unauthorized();
+    await revokeToken(tokenHash(token), principal.userId);
+    return Response.json({ revoked: true }, { headers });
+  } catch (error) {
+    unstable_rethrow(error);
+    return Response.json({ error: 'Try again.' }, { status: 503, headers });
+  }
+}

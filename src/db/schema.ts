@@ -259,6 +259,48 @@ export const sessions = pgTable('sessions', {
   createdAt: created(),
 });
 
+// Not a row in `sessions`. A session is a browser credential with a seven-day
+// life and a cookie's semantics; conflating them is how a revoked CLI token
+// keeps working. This one does not expire on purpose — a CLI that logs you out
+// weekly is a CLI people stop using, and an expiring credential in CI is a
+// broken pipeline at 3am. The price is that revocation has to be real.
+export const cliTokens = pgTable(
+  'cli_tokens',
+  {
+    id: id(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    scope: text('scope').notNull().default('grade'),
+    label: text('label').notNull(),
+    createdAt: created(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  (t) => [index('cli_tokens_user').on(t.userId)],
+);
+
+// Pending CLI sign-ins. Rows live seconds and are deleted on use, so this is a
+// queue rather than a record — but it must be shared storage, because the
+// browser approves on one serverless instance and the CLI exchanges on another.
+export const cliAuthCodes = pgTable('cli_auth_codes', {
+  id: id(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  workspaceId: text('workspace_id')
+    .notNull()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  workspaceName: text('workspace_name').notNull(),
+  login: text('login').notNull(),
+  challenge: text('challenge').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  createdAt: created(),
+});
+
 export const repositoryImports = pgTable(
   'repository_imports',
   {

@@ -255,6 +255,15 @@
   --fn-color-scrim: var(--fn-pine-ink-deep-a40);
 
   /* ---- Type ---- */
+  /* Inverse evidence surfaces for public product demonstrations. */
+  --fn-color-evidence-background: var(--fn-pine-ink-deep);
+  --fn-color-evidence-ink: var(--fn-paper-25);
+  --fn-color-evidence-muted: var(--fn-mist-300);
+  --fn-color-evidence-border: var(--fn-pine-600);
+  --fn-color-evidence-positive: var(--fn-mist-280);
+  --fn-color-evidence-caution: #edbb78;
+  --fn-color-evidence-error: #eda38c;
+
   --fn-font-display: Georgia, 'Times New Roman', serif;
   --fn-font-ui: Arial, Helvetica, sans-serif;
   --fn-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;

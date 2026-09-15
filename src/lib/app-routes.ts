@@ -81,6 +81,13 @@ export function workspaceSettingsPath(hash = ''): string {
   return `${appPrefix}/settings/workspace${hash}`;
 }
 
+/** Where a CLI token is revoked. The CLI prints this URL, so it is a public
+ * address in a way the other settings pages are not — a developer reads it off
+ * their terminal and types it. */
+export function tokensSettingsPath(): string {
+  return `${appPrefix}/settings/tokens`;
+}
+
 // The public surface. Readable on purpose: a badge has to be recognisable in a
 // README to do its job. A grader id is `owner/name`, and it stays two segments
 // here so a route beneath it (badge.svg) is possible at all.
