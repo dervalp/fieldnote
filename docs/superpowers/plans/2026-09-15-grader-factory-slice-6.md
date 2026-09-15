@@ -167,9 +167,8 @@ export const graderInstalls = pgTable(
       .notNull()
       .references(() => graders.id),
     version: text('version').notNull(),
-    installedBy: text('installed_by')
-      .notNull()
-      .references(() => users.id),
+    // Nullable: a seeded install of a built-in has no user behind it.
+    installedBy: text('installed_by').references(() => users.id),
     installedAt: created(),
     // The canonical hash of the manifest's `needs`. collectEvidence refuses to
     // collect anything when the running manifest's needs do not hash to this.
@@ -219,6 +218,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
     - `browsableGraders(workspaceId: string): Promise<BrowsableGrader[]>`
     - `seedBuiltInGraders(): Promise<void>`, `installBuiltIns(workspaceId: string): Promise<void>`
     - `type InstalledGrader = { manifest: GraderManifest; version: string; consentedNeeds: string; verifiedAt: Date | null; withdrawnAt: Date | null; latestVersion: string }`
+    - `latestPublishedVersion(graderId: string): Promise<GraderManifest | null>` — the newest version with no `withdrawn_at`
     - `type BrowsableGrader = { id: string; manifest: GraderManifest; version: string; verifiedAt: Date | null; author: string; installed: InstalledGrader | null }`
 
 - [ ] **Step 1: Write the failing pure tests**
@@ -388,7 +388,7 @@ export async function graderVersion(graderId: string, version: string): Promise<
 
 `installedGrader`/`installedGraders` join `graderInstalls` to `graderVersions` on the pinned version and also select the grader's newest non-withdrawn version as `latestVersion` (a correlated subquery or a second query keyed by grader id — either is fine, say which you chose). `browsableGraders(workspaceId)` lists the newest non-withdrawn version of every grader, verified first then by published date, each with its install if the workspace has one, and the author (`graders.ownedByWorkspaceId`'s handle, or `fieldnote` when null).
 
-`seedBuiltInGraders()` inserts each built-in's `graders` row and `grader_versions` row with `onConflictDoNothing`, `verifiedAt: new Date()`, `publishedBy: null`. `installBuiltIns(workspaceId)` inserts a `grader_installs` row per built-in with the pinned version and `consentedNeeds: needsHash(manifest.needs)`, `installedBy` — there is no user for a seed, so make `grader_installs.installed_by` nullable in Task 1's schema if it is not already, or pass the workspace's owner; **choose one, say which, and keep it consistent**.
+`seedBuiltInGraders()` inserts each built-in's `graders` row and `grader_versions` row with `onConflictDoNothing`, `verifiedAt: new Date()`, `publishedBy: null`. `installBuiltIns(workspaceId)` inserts a `grader_installs` row per built-in with the pinned version and `consentedNeeds: needsHash(manifest.needs)`, `installedBy: null` — the column is nullable for exactly this case, and a seeded install has no user behind it.
 
 Call `seedBuiltInGraders()` at the end of `scripts/migrate.ts`, and `installBuiltIns(workspace.id)` inside `ensureDefaultWorkspace`'s transaction and in `createWorkspace` (`src/workspaces/store.ts`).
 
@@ -699,42 +699,186 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 - Test: `src/db/grader-publishing.integration.test.ts` (create), `src/app/app/settings/actions.test.ts`
 
 **Interfaces:**
-- Produces: `claimHandle(handle: string): Promise<void>` (owner-only, once, reserved names refused) and the server action `saveWorkspaceHandle(form: FormData)`.
+- Consumes: `requireWorkspace(undefined, 'owner')` from `src/workspaces/access.ts`; `currentUser()` from `src/auth/session.ts`.
+- Produces:
+  - `RESERVED_HANDLES: readonly string[]` and `claimHandle(handle: string): Promise<void>` in `src/db/queries/grader-publishing.ts`
+  - the server action `saveWorkspaceHandle(form: FormData): Promise<{ error?: string }>`
 
 - [ ] **Step 1: Write the failing integration tests**
 
+Create `src/db/grader-publishing.integration.test.ts`. Copy the harness from `src/db/public-grades.integration.test.ts` verbatim — the `context` hoisted object, the four `vi.mock`s (`../auth/session`, `next/headers`, `next/navigation`, `../lib/env`), `beforeAll` creating an owner, a second owner and a member in one workspace, and an `afterAll` that deletes memberships, workspaces and users by id. Then add a second workspace (`otherWorkspace`, owned by `secondOwner`) and:
+
 ```ts
+import { claimHandle } from './queries/grader-publishing';
+import { workspaces } from './schema';
+
+beforeEach(async () => {
+  context.user = owner;
+  context.workspace = workspace;
+  context.demo = false;
+  await db().update(workspaces).set({ handle: null }).where(eq(workspaces.id, workspace));
+  await db().update(workspaces).set({ handle: null }).where(eq(workspaces.id, otherWorkspace));
+});
+
 test('an owner claims a handle once, and it is theirs', async () => {
   await claimHandle('acme');
   const [row] = await db().select().from(workspaces).where(eq(workspaces.id, workspace));
   expect(row.handle).toBe('acme');
 });
+
 test('a handle cannot be changed once claimed', async () => {
   await claimHandle('acme');
   await expect(claimHandle('acme-two')).rejects.toThrow('Handle already claimed');
+  const [row] = await db().select().from(workspaces).where(eq(workspaces.id, workspace));
+  expect(row.handle).toBe('acme');
 });
-test('a handle another workspace holds is refused', async () => { /* second workspace claims 'acme' first */ });
-test.each(['fieldnote', 'admin', 'api', 'app', 'r', 'www', 'support'])('%s is reserved', async (handle) => {
-  await expect(claimHandle(handle)).rejects.toThrow('Handle unavailable');
+
+test('a handle another workspace holds is refused', async () => {
+  context.user = secondOwner;
+  context.workspace = otherWorkspace;
+  await claimHandle('acme');
+  context.user = owner;
+  context.workspace = workspace;
+  await expect(claimHandle('acme')).rejects.toThrow('Handle unavailable');
+  const [row] = await db().select().from(workspaces).where(eq(workspaces.id, workspace));
+  expect(row.handle).toBeNull();
 });
-test.each(['Acme', 'a', '-acme', 'acme_two', 'a'.repeat(40)])('%s is not a handle', async (handle) => {
-  await expect(claimHandle(handle)).rejects.toThrow('Invalid handle');
+
+test.each(['fieldnote', 'admin', 'api', 'app', 'r', 'www', 'support'])(
+  '%s is reserved',
+  async (handle) => {
+    await expect(claimHandle(handle)).rejects.toThrow('Handle unavailable');
+  },
+);
+
+test.each(['Acme', 'a', '-acme', 'acme_two', 'acme!', 'a'.repeat(40)])(
+  '%s is not a handle',
+  async (handle) => {
+    await expect(claimHandle(handle)).rejects.toThrow('Invalid handle');
+  },
+);
+
+test('a member cannot claim a handle', async () => {
+  context.user = member;
+  await expect(claimHandle('acme')).rejects.toThrow('not found');
+  const [row] = await db().select().from(workspaces).where(eq(workspaces.id, workspace));
+  expect(row.handle).toBeNull();
 });
-test('a member cannot claim a handle', async () => { /* context.user = member */ });
 ```
 
-- [ ] **Step 2: Implement**
+- [ ] **Step 2: Run it to see it fail**
 
-`claimHandle` requires `requireWorkspace(undefined, 'owner')`, validates against `/^[a-z0-9][a-z0-9-]{1,38}$/` and the reserved list, refuses when the workspace already has one, and inserts — relying on the unique index for the race, mapping a unique violation to `Error('Handle unavailable')`.
+Run: `DEMO_MODE=false pnpm vitest run --config vitest.integration.config.ts src/db/grader-publishing.integration.test.ts`
+Expected: FAIL — `./queries/grader-publishing` does not exist.
 
-Add `saveWorkspaceHandle` to the settings actions using the file's existing `save()` wrapper and message map (add the three new messages), and render the field on the workspace settings page inside a `SettingsForm`, shown only to owners, and read-only once claimed with the sentence "Your graders publish as `acme/…`. A handle cannot be changed."
+- [ ] **Step 3: Implement**
 
-- [ ] **Step 3: Run and commit**
+Create `src/db/queries/grader-publishing.ts`:
 
-Run: `pnpm vitest run src/app/app/settings && pnpm typecheck && pnpm lint`, plus the new integration file.
+```ts
+import { eq } from 'drizzle-orm';
+import { db } from '../index';
+import { workspaces } from '../schema';
+import { requireWorkspace } from '../../workspaces/access';
+
+// A handle becomes the owner segment of every grader id this workspace
+// publishes, so these are the names a URL, a route or fieldnote itself needs.
+export const RESERVED_HANDLES = ['fieldnote', 'admin', 'api', 'app', 'r', 'www', 'support'] as const;
+const HANDLE = /^[a-z0-9][a-z0-9-]{1,38}$/;
+
+/**
+ * Claim the name this workspace publishes under. Owners only, once and never
+ * again: published grader ids contain the handle, and other workspaces' installs
+ * point at those ids, so a rename would orphan them.
+ */
+export async function claimHandle(handle: string): Promise<void> {
+  const workspace = await requireWorkspace(undefined, 'owner');
+  if (!HANDLE.test(handle)) throw new Error('Invalid handle');
+  if ((RESERVED_HANDLES as readonly string[]).includes(handle))
+    throw new Error('Handle unavailable');
+  const [existing] = await db()
+    .select({ handle: workspaces.handle })
+    .from(workspaces)
+    .where(eq(workspaces.id, workspace.id));
+  if (existing?.handle) throw new Error('Handle already claimed');
+  try {
+    await db().update(workspaces).set({ handle }).where(eq(workspaces.id, workspace.id));
+  } catch (error) {
+    // The unique index is the race winner, not this read-then-write.
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === '23505')
+      throw new Error('Handle unavailable');
+    throw error;
+  }
+}
+```
+
+- [ ] **Step 4: Write the failing action test**
+
+In `src/app/app/settings/actions.test.ts`, add `claimHandle: vi.fn()` to a new `vi.mock('../../../db/queries/grader-publishing', …)` and:
+
+```ts
+test('claiming a handle passes the submitted value and reports a taken one in words', async () => {
+  const form = new FormData();
+  form.set('handle', 'acme');
+  vi.mocked(claimHandle).mockResolvedValue(undefined);
+  expect(await saveWorkspaceHandle(form)).toEqual({});
+  expect(claimHandle).toHaveBeenCalledWith('acme');
+
+  vi.mocked(claimHandle).mockRejectedValue(new Error('Handle unavailable'));
+  expect(await saveWorkspaceHandle(form)).toEqual({
+    error: 'That handle is taken or reserved. Try another.',
+  });
+});
+```
+
+- [ ] **Step 5: Implement the action and the field**
+
+In `src/app/app/settings/actions.ts`, add to the `messages` map inside `save()`:
+
+```ts
+      'Invalid handle': 'A handle is 2–39 characters: lowercase letters, numbers and dashes.',
+      'Handle unavailable': 'That handle is taken or reserved. Try another.',
+      'Handle already claimed': 'This workspace already has a handle, and it cannot be changed.',
+```
+
+and the action:
+
+```ts
+export async function saveWorkspaceHandle(form: FormData): Promise<Result> {
+  return save(() => claimHandle(value(form, 'handle')));
+}
+```
+
+In `src/app/app/settings/workspace/page.tsx`, read the workspace's handle alongside the members query and render, for owners only:
+
+```tsx
+      <Surface>
+        <h2>Publishing handle</h2>
+        {workspace.handle ? (
+          <p>
+            Your graders publish as <code>{workspace.handle}/…</code>. A handle cannot be changed.
+          </p>
+        ) : (
+          <SettingsForm action={saveWorkspaceHandle} submitLabel="Claim handle">
+            <p>
+              Claim the name this workspace publishes graders under. Lowercase letters, numbers and
+              dashes. It cannot be changed afterwards.
+            </p>
+            <label htmlFor="handle">Handle</label>
+            <input id="handle" name="handle" required />
+          </SettingsForm>
+        )}
+      </Surface>
+```
+
+`requireWorkspace()` returns `{ id, name, role }` today; add `handle` to what it selects and returns so the page needs no second query, and update its type in `src/workspaces/store.ts`.
+
+- [ ] **Step 6: Run and commit**
+
+Run: `pnpm vitest run src/app/app/settings && pnpm typecheck && pnpm lint`, then the integration file.
 
 ```bash
-git add src/db/queries/grader-publishing.ts src/db/grader-publishing.integration.test.ts src/app/app/settings/actions.ts src/app/app/settings/actions.test.ts src/app/app/settings/workspace/page.tsx
+git add src/db/queries/grader-publishing.ts src/db/grader-publishing.integration.test.ts src/app/app/settings/actions.ts src/app/app/settings/actions.test.ts src/app/app/settings/workspace/page.tsx src/workspaces/access.ts src/workspaces/store.ts
 git commit -m "feat(grading): a workspace claims the name it publishes under
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
@@ -747,40 +891,313 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 **Files:**
 - Modify: `src/db/queries/grader-publishing.ts`
 - Create: `src/app/app/settings/graders/page.tsx`, `src/app/app/settings/graders/actions.ts`
-- Test: `src/db/grader-publishing.integration.test.ts`, `src/app/app/settings/graders/page.test.ts`
+- Test: `src/db/grader-publishing.integration.test.ts`, `src/app/app/settings/graders/page.test.ts` (create)
 
 **Interfaces:**
-- Produces: `publishGrader(manifestJson: string): Promise<GraderManifest>` and `withdrawVersion(graderId, version, note)`; the server action `publishGraderVersion(form: FormData)`.
+- Consumes: `parseManifest` (`src/domain/grading/registry.ts`), `ManifestError` (`src/domain/grading/manifest.ts`), `graderVersion` (`src/db/queries/graders.ts`).
+- Produces:
+  - `publishGrader(manifestJson: string): Promise<GraderManifest>`
+  - `withdrawVersion(graderId: string, version: string, note: string): Promise<void>`
+  - `workspaceGraders(): Promise<PublishedVersion[]>` where `PublishedVersion = { graderId: string; version: string; title: string; publishedAt: Date; verifiedAt: Date | null; withdrawnAt: Date | null }`
+  - the server actions `publishGraderVersion(form)` and `withdrawGraderVersion(form)`
 
-- [ ] **Step 1: Write the failing tests** — one per refusal, each asserting nothing was written:
+- [ ] **Step 1: Write the failing tests**
+
+Append to `src/db/grader-publishing.integration.test.ts` (the fixtures are already there):
 
 ```ts
-test('an owner publishes a declarative grader under their own handle', …);        // accepted, unverified
-test('a manifest whose id is not under this handle is refused', …);               // 'Wrong namespace'
-test('a workspace with no handle cannot publish', …);                             // 'Claim a handle first'
-test('a member cannot publish', …);
-test('a kind: code manifest is refused while the licence question is open', …);   // 'Code graders cannot be published yet'
-test('a version that already exists is refused, and the stored one is untouched', …);
-test('a grader id another workspace owns is refused', …);
-test('a manifest that fails parseManifest is refused with its own code', …);      // ManifestError
-test('a published version is listed for browsing, marked unreviewed', …);
-test('withdrawing hides it from browsing and keeps it resolvable by version', …);
+const manifest = (over: Record<string, unknown> = {}) => ({
+  id: 'acme/test-coverage',
+  version: '0.1.0',
+  evaluatorVersion: '1.0.0',
+  subject: 'repository',
+  mode: 'deterministic',
+  category: 'test-discipline',
+  kind: 'declarative',
+  needs: { 'repo.files': ['README.md'] },
+  disclaimer: 'Evidence, not certification.',
+  card: { title: 'Test Coverage', tagline: 'Is it tested?', groups: [{ title: 'All', checks: ['readme'] }] },
+  checks: [
+    {
+      id: 'readme',
+      title: 'Project documentation',
+      points: 100,
+      explain: { pass: 'Found a README.', fail: 'No README.' },
+      primitive: 'file-exists',
+      args: { root: true, nonempty: true, anyOf: ['README.md'] },
+    },
+  ],
+  ...over,
+});
+const publishedCount = async () => (await db().select().from(graderVersions)).length;
+
+test('an owner publishes a declarative grader under their own handle, unreviewed', async () => {
+  await claimHandle('acme');
+  const published = await publishGrader(JSON.stringify(manifest()));
+  expect(published.id).toBe('acme/test-coverage');
+  const [row] = await db()
+    .select()
+    .from(graderVersions)
+    .where(eq(graderVersions.graderId, 'acme/test-coverage'));
+  expect(row.verifiedAt).toBeNull();
+  expect(row.withdrawnAt).toBeNull();
+  expect(row.publishedBy).toBe(owner);
+  const [grader] = await db().select().from(graders).where(eq(graders.id, 'acme/test-coverage'));
+  expect(grader.ownedByWorkspaceId).toBe(workspace);
+});
+
+test('a manifest whose id is not under this handle is refused', async () => {
+  await claimHandle('acme');
+  const before = await publishedCount();
+  await expect(publishGrader(JSON.stringify(manifest({ id: 'other/thing' })))).rejects.toThrow(
+    'Wrong namespace',
+  );
+  expect(await publishedCount()).toBe(before);
+});
+
+test('a workspace with no handle cannot publish', async () => {
+  await expect(publishGrader(JSON.stringify(manifest()))).rejects.toThrow('Claim a handle first');
+});
+
+test('a member cannot publish', async () => {
+  await claimHandle('acme');
+  context.user = member;
+  await expect(publishGrader(JSON.stringify(manifest()))).rejects.toThrow('not found');
+});
+
+test('a code grader is refused while the licence question is open', async () => {
+  await claimHandle('acme');
+  const code = manifest({
+    kind: 'code',
+    code: { source: 'export default () => ({ checks: [] });' },
+    needs: { 'repo.tree': ['**/*'] },
+    checks: [{ id: 'readme', title: 'T', points: 100, explain: { pass: 'Yes.', fail: 'No.' } }],
+  });
+  await expect(publishGrader(JSON.stringify(code))).rejects.toThrow(
+    'Code graders cannot be published yet',
+  );
+});
+
+test('a version that already exists is refused, and the stored one is untouched', async () => {
+  await claimHandle('acme');
+  await publishGrader(JSON.stringify(manifest()));
+  await expect(
+    publishGrader(JSON.stringify(manifest({ disclaimer: 'Rewritten after the fact.' }))),
+  ).rejects.toThrow('Version already published');
+  const stored = await graderVersion('acme/test-coverage', '0.1.0');
+  expect(stored?.disclaimer).toBe('Evidence, not certification.');
+});
+
+test('a grader id another workspace owns is refused', async () => {
+  await claimHandle('acme');
+  await publishGrader(JSON.stringify(manifest()));
+  context.user = secondOwner;
+  context.workspace = otherWorkspace;
+  await claimHandle('acme');            // refused: taken — claim a different one
+  await expect(claimHandle('acme')).rejects.toThrow('Handle unavailable');
+});
+
+test('a manifest that fails parseManifest is refused with its own error', async () => {
+  await claimHandle('acme');
+  await expect(
+    publishGrader(JSON.stringify(manifest({ checks: [{ ...manifest().checks[0], points: 60 }] }))),
+  ).rejects.toBeInstanceOf(ManifestError);
+  await expect(publishGrader('not json')).rejects.toBeInstanceOf(ManifestError);
+});
+
+test('withdrawing hides a version from browsing and keeps it resolvable', async () => {
+  await claimHandle('acme');
+  await publishGrader(JSON.stringify(manifest()));
+  await withdrawVersion('acme/test-coverage', '0.1.0', 'Superseded.');
+  const [row] = await db()
+    .select()
+    .from(graderVersions)
+    .where(eq(graderVersions.graderId, 'acme/test-coverage'));
+  expect(row.withdrawnAt).toBeInstanceOf(Date);
+  expect(row.withdrawnNote).toBe('Superseded.');
+  expect(await graderVersion('acme/test-coverage', '0.1.0')).not.toBeNull();
+  expect(await latestPublishedVersion('acme/test-coverage')).toBeNull();
+});
 ```
 
-- [ ] **Step 2: Implement `publishGrader`**
+Note the "another workspace owns it" case: a second workspace cannot claim the same handle, which is what makes the grader id unreachable. Keep the assertion as written — it documents why the namespace check is enough.
 
-Owner-only; `parseManifest(JSON.parse(manifestJson))` (a parse failure is `ManifestError('schema', …)`); refuse `kind === 'code'`; require the workspace handle and that `manifest.id.split('/')[0] === handle`; insert the `graders` row `onConflictDoNothing` then verify its `ownedByWorkspaceId` is this workspace; insert the `grader_versions` row and map a primary-key violation to `Error('Version already published')`.
+- [ ] **Step 2: Run to see them fail, then implement**
 
-`withdrawVersion` sets `withdrawnAt`/`withdrawnNote` for a version this workspace owns.
+Add to `src/db/queries/grader-publishing.ts`:
 
-- [ ] **Step 3: The page**
+```ts
+/**
+ * Publish one version. Owners only, under this workspace's own handle, and
+ * never over an existing (grader_id, version): installs point at a version and
+ * grades are pinned to it, so a published version is immutable.
+ */
+export async function publishGrader(manifestJson: string): Promise<GraderManifest> {
+  const workspace = await requireWorkspace(undefined, 'owner');
+  const user = await currentUser();
+  const [row] = await db()
+    .select({ handle: workspaces.handle })
+    .from(workspaces)
+    .where(eq(workspaces.id, workspace.id));
+  if (!row?.handle) throw new Error('Claim a handle first');
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(manifestJson);
+  } catch {
+    throw new ManifestError('schema', 'That is not valid JSON.');
+  }
+  const manifest = parseManifest(parsed);
+  // Open question 3 — whether a grader running inside fieldnote's sandbox is a
+  // derived work of an AGPL application — is unanswered, so nothing that ships
+  // code is published. fieldnote's own code grader is seeded, not published.
+  if (manifest.kind === 'code') throw new Error('Code graders cannot be published yet');
+  if (manifest.id.split('/')[0] !== row.handle) throw new Error('Wrong namespace');
+  await db()
+    .insert(graders)
+    .values({ id: manifest.id, ownedByWorkspaceId: workspace.id })
+    .onConflictDoNothing();
+  const [grader] = await db().select().from(graders).where(eq(graders.id, manifest.id));
+  if (grader.ownedByWorkspaceId !== workspace.id) throw new Error('Grader name taken');
+  const inserted = await db()
+    .insert(graderVersions)
+    .values({
+      graderId: manifest.id,
+      version: manifest.version,
+      evaluatorVersion: manifest.evaluatorVersion,
+      manifest,
+      publishedBy: user.id,
+    })
+    .onConflictDoNothing()
+    .returning({ version: graderVersions.version });
+  if (inserted.length === 0) throw new Error('Version already published');
+  return manifest;
+}
 
-`/app/settings/graders` gains a "Publish a grader" section for owners with a handle: a textarea for the manifest, the errors rendered above it, and a list of this workspace's published graders with each version's state (verified / not reviewed / withdrawn) and a withdraw form. Follow the settings pages' existing `SettingsForm` + `save()` shape.
+/** Take a version out of browsing. Whoever already installed it keeps running it. */
+export async function withdrawVersion(
+  graderId: string,
+  version: string,
+  note: string,
+): Promise<void> {
+  const workspace = await requireWorkspace(undefined, 'owner');
+  const [grader] = await db().select().from(graders).where(eq(graders.id, graderId));
+  if (!grader || grader.ownedByWorkspaceId !== workspace.id) throw new Error('Grader unavailable');
+  await db()
+    .update(graderVersions)
+    .set({ withdrawnAt: new Date(), withdrawnNote: note })
+    .where(and(eq(graderVersions.graderId, graderId), eq(graderVersions.version, version)));
+}
 
-- [ ] **Step 4: Run and commit**
+/** Every version this workspace has published, newest first. */
+export async function workspaceGraders(): Promise<PublishedVersion[]> {
+  const workspace = await requireWorkspace();
+  return db()
+    .select({
+      graderId: graderVersions.graderId,
+      version: graderVersions.version,
+      title: sql<string>`${graderVersions.manifest}->'card'->>'title'`,
+      publishedAt: graderVersions.publishedAt,
+      verifiedAt: graderVersions.verifiedAt,
+      withdrawnAt: graderVersions.withdrawnAt,
+    })
+    .from(graderVersions)
+    .innerJoin(graders, eq(graders.id, graderVersions.graderId))
+    .where(eq(graders.ownedByWorkspaceId, workspace.id))
+    .orderBy(desc(graderVersions.publishedAt));
+}
+```
+
+- [ ] **Step 3: The page and its actions**
+
+Create `src/app/app/settings/graders/actions.ts`:
+
+```ts
+'use server';
+import { revalidatePath } from 'next/cache';
+import { unstable_rethrow } from 'next/navigation';
+import { ManifestError } from '../../../../domain/grading/manifest';
+import { publishGrader, withdrawVersion } from '../../../../db/queries/grader-publishing';
+
+type Result = { error?: string };
+const value = (form: FormData, key: string) => String(form.get(key) ?? '');
+
+async function save(operation: () => Promise<unknown>): Promise<Result> {
+  try {
+    await operation();
+    revalidatePath('/', 'layout');
+    return {};
+  } catch (error) {
+    unstable_rethrow(error);
+    // A manifest error is the author's own words about their own file: show it.
+    if (error instanceof ManifestError) return { error: `${error.code}: ${error.message}` };
+    const messages: Record<string, string> = {
+      'Claim a handle first': 'Claim a publishing handle for this workspace first.',
+      'Wrong namespace': 'A grader id must start with this workspace’s handle.',
+      'Grader name taken': 'Another workspace owns that grader name.',
+      'Version already published': 'That version already exists. Publish a new version instead.',
+      'Code graders cannot be published yet': 'Code graders cannot be published yet.',
+      'Grader unavailable': 'That grader is not yours to change.',
+    };
+    return {
+      error:
+        (error instanceof Error && messages[error.message]) ||
+        'We could not publish this grader. Please try again.',
+    };
+  }
+}
+
+export async function publishGraderVersion(form: FormData): Promise<Result> {
+  return save(() => publishGrader(value(form, 'manifest')));
+}
+
+export async function withdrawGraderVersion(form: FormData): Promise<Result> {
+  return save(() =>
+    withdrawVersion(value(form, 'graderId'), value(form, 'version'), value(form, 'note')),
+  );
+}
+```
+
+Create `src/app/app/settings/graders/page.tsx` with `export const dynamic = 'force-dynamic'`, `requireWorkspace()`, and two sections: **Published by this workspace** (from `workspaceGraders()`, each row showing id, version, state and a withdraw form for owners) and **Publish a grader** (owners with a handle: a `SettingsForm` around a `<textarea name="manifest">`). A workspace without a handle sees one sentence pointing at workspace settings. Task 9 adds the browse section to the same page.
+
+- [ ] **Step 4: The page test**
+
+Create `src/app/app/settings/graders/page.test.ts` mocking `../../../../workspaces/access` and `../../../../db/queries/grader-publishing`:
+
+```ts
+test('an owner with a handle is offered the publish form', async () => {
+  deps.workspace.mockResolvedValue({ id: 'w', name: 'W', role: 'owner', handle: 'acme' });
+  deps.workspaceGraders.mockResolvedValue([]);
+  const html = renderToStaticMarkup(await Graders());
+  expect(html).toContain('Publish a grader');
+  expect(html).toContain('name="manifest"');
+});
+
+test('an owner with no handle is told to claim one, and gets no form', async () => {
+  deps.workspace.mockResolvedValue({ id: 'w', name: 'W', role: 'owner', handle: null });
+  deps.workspaceGraders.mockResolvedValue([]);
+  const html = renderToStaticMarkup(await Graders());
+  expect(html).toContain('Claim a publishing handle');
+  expect(html).not.toContain('name="manifest"');
+});
+
+test('a member sees what the workspace published and no publish form', async () => {
+  deps.workspace.mockResolvedValue({ id: 'w', name: 'W', role: 'member', handle: 'acme' });
+  deps.workspaceGraders.mockResolvedValue([
+    { graderId: 'acme/test-coverage', version: '0.1.0', title: 'Test Coverage', publishedAt: new Date('2026-09-15'), verifiedAt: null, withdrawnAt: null },
+  ]);
+  const html = renderToStaticMarkup(await Graders());
+  expect(html).toContain('Test Coverage');
+  expect(html).toContain('Not reviewed');
+  expect(html).not.toContain('name="manifest"');
+});
+```
+
+- [ ] **Step 5: Run and commit**
+
+Run: `pnpm vitest run "src/app/app/settings" && pnpm typecheck && pnpm lint`, then the integration file.
 
 ```bash
-git add src/db/queries/grader-publishing.ts src/db/grader-publishing.integration.test.ts "src/app/app/settings/graders" 
+git add src/db/queries/grader-publishing.ts src/db/grader-publishing.integration.test.ts "src/app/app/settings/graders"
 git commit -m "feat(grading): a workspace publishes a grader other teams can install
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
@@ -796,35 +1213,233 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 - Test: `src/db/grader-installs.integration.test.ts` (create), `src/components/grading/consent.test.ts` (create)
 
 **Interfaces:**
-- Consumes: `browsableGraders`, `needsHash`, `consentSentences`.
-- Produces: `installGrader(graderId: string, version: string): Promise<void>` (owner-only, records the consented hash), `consentFor(graderId, version)` for the screen; `<ConsentScreen grader={manifest} action={…} />`.
+- Consumes: `browsableGraders`, `graderVersion`, `latestPublishedVersion` (Task 2); `needsHash`, `consentSentences` (Task 2).
+- Produces:
+  - `installGrader(graderId: string, version: string): Promise<void>`
+  - `<ConsentScreen manifest={…} author={…} version={…} action={…} cancelHref={…} />` in `src/components/grading/consent.tsx`
 
-- [ ] **Step 1: The consent component test**
+- [ ] **Step 1: Write the failing consent-screen test**
+
+Create `src/components/grading/consent.test.ts`:
 
 ```ts
-test('the screen lists one sentence per declared family, generated from needs', () => {
-  const html = renderToStaticMarkup(createElement(ConsentScreen, { manifest: agentReadinessManifest, … }));
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { expect, test, vi } from 'vitest';
+import { ConsentScreen } from './consent';
+import { AGENT_READINESS_MANIFEST } from '../../domain/grading/graders/agent-readiness';
+import { DELIVERY_HEALTH_MANIFEST } from '../../domain/grading/graders/delivery-health';
+
+const render = (manifest: typeof AGENT_READINESS_MANIFEST) =>
+  renderToStaticMarkup(
+    createElement(ConsentScreen, {
+      manifest,
+      author: 'fieldnote',
+      version: manifest.version,
+      action: vi.fn(),
+      cancelHref: '/app/settings/graders',
+    }),
+  );
+
+test('a file grader asks for the files it declared, and nothing about file lists', () => {
+  const html = render(AGENT_READINESS_MANIFEST);
   expect(html).toContain('The contents of files matching README.md');
-  expect(html).not.toContain('file names');       // readiness declares no repo.tree
+  expect(html).not.toContain('list of file names');
 });
-test('it names the grader, its author and its version, and says nothing else is collected', …);
+
+test('a metrics grader asks for the window it declared', () => {
+  expect(render(DELIVERY_HEALTH_MANIFEST)).toContain(
+    'Your merged pull request and CI record over 30 days',
+  );
+});
+
+test('the screen names the grader, its author and the version being installed', () => {
+  const html = render(AGENT_READINESS_MANIFEST);
+  expect(html).toContain(AGENT_READINESS_MANIFEST.card.title);
+  expect(html).toContain('fieldnote');
+  expect(html).toContain(AGENT_READINESS_MANIFEST.version);
+});
+
+test('it says plainly that nothing else is collected', () => {
+  expect(render(AGENT_READINESS_MANIFEST)).toContain('Nothing else is collected.');
+});
 ```
 
-- [ ] **Step 2: The install tests**
+- [ ] **Step 2: Write the failing install tests**
+
+Create `src/db/grader-installs.integration.test.ts` with the same harness as Task 7's file, plus a helper that publishes a fixture version directly into `graders`/`grader_versions` (no session needed):
 
 ```ts
-test('installing pins the version and records the needs the workspace agreed to', …);
-test('installing twice is idempotent and keeps the first consent', …);
-test('a member cannot install', …);
-test('a withdrawn version cannot be newly installed', …);
-test('an unverified version can be installed, and the row records no verification', …);
+async function publishFixture(over: Record<string, unknown> = {}, ownedBy: string | null = null) {
+  const manifest = parseManifest({ /* the acme/test-coverage manifest from Task 8, with `over` applied */ });
+  await db().insert(graders).values({ id: manifest.id, ownedByWorkspaceId: ownedBy }).onConflictDoNothing();
+  await db().insert(graderVersions).values({
+    graderId: manifest.id,
+    version: manifest.version,
+    evaluatorVersion: manifest.evaluatorVersion,
+    manifest,
+  }).onConflictDoNothing();
+  return manifest;
+}
+
+test('installing pins the version and records the needs the workspace agreed to', async () => {
+  const manifest = await publishFixture();
+  await installGrader(manifest.id, manifest.version);
+  const [row] = await db()
+    .select()
+    .from(graderInstalls)
+    .where(and(eq(graderInstalls.workspaceId, workspace), eq(graderInstalls.graderId, manifest.id)));
+  expect(row.version).toBe(manifest.version);
+  expect(row.consentedNeeds).toBe(needsHash(manifest.needs));
+  expect(row.installedBy).toBe(owner);
+});
+
+test('installing twice keeps the first install and its consent', async () => {
+  const manifest = await publishFixture();
+  await installGrader(manifest.id, manifest.version);
+  await installGrader(manifest.id, manifest.version);
+  const rows = await db()
+    .select()
+    .from(graderInstalls)
+    .where(eq(graderInstalls.workspaceId, workspace));
+  expect(rows).toHaveLength(1);
+});
+
+test('a member cannot install', async () => {
+  const manifest = await publishFixture();
+  context.user = member;
+  await expect(installGrader(manifest.id, manifest.version)).rejects.toThrow('not found');
+  expect(await db().select().from(graderInstalls).where(eq(graderInstalls.workspaceId, workspace))).toEqual([]);
+});
+
+test('a withdrawn version cannot be newly installed', async () => {
+  const manifest = await publishFixture();
+  await db()
+    .update(graderVersions)
+    .set({ withdrawnAt: new Date() })
+    .where(eq(graderVersions.graderId, manifest.id));
+  await expect(installGrader(manifest.id, manifest.version)).rejects.toThrow('Version unavailable');
+});
+
+test('an unknown grader or version cannot be installed', async () => {
+  await expect(installGrader('nobody/nothing', '0.1.0')).rejects.toThrow('Version unavailable');
+});
+
+test('an unreviewed version installs, and the install records no verification of its own', async () => {
+  const manifest = await publishFixture();
+  await installGrader(manifest.id, manifest.version);
+  const installed = await installedGrader(workspace, manifest.id);
+  expect(installed?.verifiedAt).toBeNull();
+  expect(installed?.manifest).toEqual(manifest);
+});
 ```
 
 - [ ] **Step 3: Implement**
 
-`installGrader` is owner-only, refuses a withdrawn or unknown version, and inserts `{ workspaceId, graderId, version, installedBy, consentedNeeds: needsHash(manifest.needs) }` with `onConflictDoNothing`. The browse page lists `browsableGraders(workspace.id)`; an entry that is not installed renders an "Install" button that reveals the consent screen (a `?install=<id>@<version>` query on the same page, so there is no client state to lose), and the confirm button runs the action.
+Create `src/db/queries/grader-installs.ts`:
+
+```ts
+import { and, eq, isNull } from 'drizzle-orm';
+import { db } from '../index';
+import { graderInstalls, graderVersions } from '../schema';
+import { requireWorkspace } from '../../workspaces/access';
+import { currentUser } from '../../auth/session';
+import { parseManifest } from '../../domain/grading/registry';
+import { needsHash } from '../../domain/grading/needs-consent';
+
+async function installable(graderId: string, version: string) {
+  const [row] = await db()
+    .select({ manifest: graderVersions.manifest })
+    .from(graderVersions)
+    .where(
+      and(
+        eq(graderVersions.graderId, graderId),
+        eq(graderVersions.version, version),
+        isNull(graderVersions.withdrawnAt),
+      ),
+    );
+  if (!row) throw new Error('Version unavailable');
+  return parseManifest(row.manifest);
+}
+
+/**
+ * Install one version into this workspace, recording what it may read. Owners
+ * only: an install is a permission grant over every repository the workspace
+ * has connected, which is a bigger step than running a grade.
+ */
+export async function installGrader(graderId: string, version: string): Promise<void> {
+  const workspace = await requireWorkspace(undefined, 'owner');
+  const manifest = await installable(graderId, version);
+  const user = await currentUser();
+  await db()
+    .insert(graderInstalls)
+    .values({
+      workspaceId: workspace.id,
+      graderId,
+      version,
+      installedBy: user.id,
+      consentedNeeds: needsHash(manifest.needs),
+    })
+    .onConflictDoNothing();
+}
+```
+
+Create `src/components/grading/consent.tsx` — a server component, no `'use client'`:
+
+```tsx
+import { Button, Surface } from '@fieldnote/design-system';
+import { consentSentences } from '../../domain/grading/needs-consent';
+import type { GraderManifest } from '../../domain/grading/manifest';
+
+/**
+ * What a grader may read, in the grader's own declaration and fieldnote's
+ * words. Every sentence is generated from `needs` — an author never describes
+ * their own permissions — and the collector enforces the same declaration at
+ * grading time, so this screen and the runtime cannot drift.
+ */
+export function ConsentScreen({
+  manifest,
+  author,
+  version,
+  action,
+  cancelHref,
+}: {
+  manifest: GraderManifest;
+  author: string;
+  version: string;
+  action: (form: FormData) => Promise<{ error?: string }>;
+  cancelHref: string;
+}) {
+  return (
+    <Surface className="grader-consent">
+      <h2>Install {manifest.card.title}</h2>
+      <p>
+        {author} · version {version}
+      </p>
+      <p>{manifest.card.tagline}</p>
+      <h3>This grader will be allowed to read</h3>
+      <ul>
+        {consentSentences(manifest.needs).map((sentence) => (
+          <li key={sentence}>{sentence}</li>
+        ))}
+      </ul>
+      <p>Nothing else is collected. It runs against every repository in this workspace.</p>
+      <form action={action}>
+        <input type="hidden" name="graderId" value={manifest.id} />
+        <input type="hidden" name="version" value={version} />
+        <Button type="submit">Install</Button>
+      </form>
+      <a href={cancelHref}>Cancel</a>
+    </Surface>
+  );
+}
+```
+
+Add `installGraderVersion(form)` to the graders actions (same `save()` wrapper, messages `'Version unavailable': 'That version is no longer available to install.'`), and on the page: a **Browse** section from `browsableGraders(workspace.id)` where each uninstalled entry links to `?install=<graderId>@<version>`, and when that query is present the page renders `<ConsentScreen>` instead of the list.
 
 - [ ] **Step 4: Run and commit**
+
+Run: `pnpm vitest run src/components/grading "src/app/app/settings" && pnpm typecheck && pnpm lint`, then the integration file.
 
 ```bash
 git add src/db/queries/grader-installs.ts src/db/grader-installs.integration.test.ts src/components/grading/consent.tsx src/components/grading/consent.test.ts "src/app/app/settings/graders"
@@ -842,30 +1457,123 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 - Test: `src/db/grader-installs.integration.test.ts`
 
 **Interfaces:**
-- Produces: `updateInstall(graderId: string, version: string)` (re-consents when `needs` changed) and `uninstallGrader(graderId: string)`.
+- Produces: `updateInstall(graderId: string, version: string): Promise<void>` and `uninstallGrader(graderId: string): Promise<void>`.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```ts
-test('an update whose needs are unchanged re-pins without a new consent', …);
-test('an update that widens needs requires the new consent, and stores it', …);
-test('uninstalling removes this workspace nightly schedules and sharing for that grader', …);
-test('uninstalling leaves another workspace rows for the same repository alone', …);
-test('uninstalling leaves grade history intact', …);
-test('a member cannot update or uninstall', …);
+test('an update whose needs are unchanged re-pins the version', async () => {
+  const first = await publishFixture();
+  await installGrader(first.id, first.version);
+  const second = await publishFixture({ version: '0.2.0', disclaimer: 'Reworded.' });
+  await updateInstall(second.id, second.version);
+  const installed = await installedGrader(workspace, second.id);
+  expect(installed?.version).toBe('0.2.0');
+  expect(installed?.consentedNeeds).toBe(needsHash(second.needs));
+});
+
+test('an update that widens needs records the new consent', async () => {
+  const first = await publishFixture();
+  await installGrader(first.id, first.version);
+  const wider = await publishFixture({
+    version: '0.3.0',
+    needs: { 'repo.files': ['README.md', 'src/**/*.ts'] },
+  });
+  await updateInstall(wider.id, wider.version);
+  const installed = await installedGrader(workspace, wider.id);
+  expect(installed?.consentedNeeds).toBe(needsHash(wider.needs));
+  expect(installed?.consentedNeeds).not.toBe(needsHash(first.needs));
+});
+
+test('uninstalling clears this workspace nightly schedules and public sharing for that grader', async () => {
+  const manifest = await publishFixture();
+  await installGrader(manifest.id, manifest.version);
+  const repositoryId = await fixtureRepository();
+  await db().insert(gradeSchedules).values({ repositoryId, graderId: manifest.id, enabledBy: owner, workspaceId: workspace });
+  await db().insert(publicGrades).values({ repositoryId, graderId: manifest.id, enabledBy: owner, workspaceId: workspace, consentedNeeds: undefined as never });
+  await uninstallGrader(manifest.id);
+  expect(await db().select().from(graderInstalls).where(eq(graderInstalls.workspaceId, workspace))).toEqual([]);
+  expect(await db().select().from(gradeSchedules).where(eq(gradeSchedules.graderId, manifest.id))).toEqual([]);
+  expect(await db().select().from(publicGrades).where(eq(publicGrades.graderId, manifest.id))).toEqual([]);
+});
+
+test('uninstalling leaves another workspace rows for the same repository alone', async () => {
+  const manifest = await publishFixture();
+  await installGrader(manifest.id, manifest.version);
+  const repositoryId = await fixtureRepository();
+  await db().insert(gradeSchedules).values({ repositoryId, graderId: manifest.id, enabledBy: secondOwner, workspaceId: otherWorkspace });
+  await uninstallGrader(manifest.id);
+  const rows = await db().select().from(gradeSchedules).where(eq(gradeSchedules.graderId, manifest.id));
+  expect(rows.map((row) => row.workspaceId)).toEqual([otherWorkspace]);
+});
+
+test('uninstalling leaves grade history intact', async () => {
+  const manifest = await publishFixture();
+  await installGrader(manifest.id, manifest.version);
+  const repositoryId = await fixtureRepository();
+  const runId = randomUUID();
+  await db().insert(gradeRuns).values({ /* a complete run for manifest.id, as the public-grades fixture does */ });
+  await uninstallGrader(manifest.id);
+  expect(await db().select().from(gradeRuns).where(eq(gradeRuns.id, runId))).toHaveLength(1);
+});
+
+test('a member cannot update or uninstall', async () => {
+  const manifest = await publishFixture();
+  await installGrader(manifest.id, manifest.version);
+  context.user = member;
+  await expect(updateInstall(manifest.id, manifest.version)).rejects.toThrow('not found');
+  await expect(uninstallGrader(manifest.id)).rejects.toThrow('not found');
+});
 ```
 
-The cleanup test needs two workspaces both connected to one repository, each with its own schedule and sharing row — build them from the integration file's fixtures.
+(The `publicGrades` insert takes the columns that table actually has — copy them from `src/db/public-grades.integration.test.ts`; the `consentedNeeds: undefined as never` above is a placeholder for whatever that fixture passes, and must be replaced with the real shape.)
 
 - [ ] **Step 2: Implement**
 
-`updateInstall` refuses a withdrawn version, and when `needsHash(newManifest.needs) !== install.consentedNeeds` requires the caller to have passed through the consent screen (the action re-routes to `?install=…` in that case); it writes the new version and the new hash together.
+```ts
+/** Re-pin an install to another version, recording the consent that version needs. */
+export async function updateInstall(graderId: string, version: string): Promise<void> {
+  const workspace = await requireWorkspace(undefined, 'owner');
+  const manifest = await installable(graderId, version);
+  await db()
+    .update(graderInstalls)
+    .set({ version, consentedNeeds: needsHash(manifest.needs) })
+    .where(
+      and(eq(graderInstalls.workspaceId, workspace.id), eq(graderInstalls.graderId, graderId)),
+    );
+}
 
-`uninstallGrader` deletes, in one transaction: the `grader_installs` row; `grade_schedules` rows for that grader **whose `workspace_id` is this workspace**; `public_grades` rows for that grader whose `workspace_id` is this workspace. It never touches `grade_runs`.
+/**
+ * Remove a grader from this workspace, and with it the things this workspace
+ * turned on through it: nightly schedules and public sharing. Both tables carry
+ * a workspace_id, so another workspace sharing the same repository is untouched.
+ * Grade history is never rewritten.
+ */
+export async function uninstallGrader(graderId: string): Promise<void> {
+  const workspace = await requireWorkspace(undefined, 'owner');
+  await db().transaction(async (tx) => {
+    await tx
+      .delete(graderInstalls)
+      .where(
+        and(eq(graderInstalls.workspaceId, workspace.id), eq(graderInstalls.graderId, graderId)),
+      );
+    await tx
+      .delete(gradeSchedules)
+      .where(and(eq(gradeSchedules.workspaceId, workspace.id), eq(gradeSchedules.graderId, graderId)));
+    await tx
+      .delete(publicGrades)
+      .where(and(eq(publicGrades.workspaceId, workspace.id), eq(publicGrades.graderId, graderId)));
+  });
+}
+```
 
-The page shows "Update available" beside an installed grader with a newer version, and an "Uninstall" form with a confirmation sentence naming what goes with it.
+On the page, an installed entry whose `latestVersion` differs from its `version` shows "Update available — version X"; the update link goes to `?install=<id>@<latest>` so the consent screen is always what confirms it, and the action calls `updateInstall`. The uninstall form sits beside it with the sentence "Uninstalling also turns off this workspace's nightly grading and public sharing for this grader. Grades already produced stay."
+
+Add both actions to `src/app/app/settings/graders/actions.ts` through the same `save()` wrapper.
 
 - [ ] **Step 3: Run and commit**
+
+Run: `pnpm vitest run "src/app/app/settings" && pnpm typecheck && pnpm lint`, then the integration file.
 
 ```bash
 git add src/db/queries/grader-installs.ts src/db/grader-installs.integration.test.ts "src/app/app/settings/graders"
@@ -879,33 +1587,183 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ### Task 11: The review queue
 
 **Files:**
-- Create: `src/app/app/admin/graders/page.tsx`, `src/app/app/admin/graders/actions.ts`, `src/workspaces/staff.ts`
-- Modify: `src/db/queries/grader-publishing.ts`
+- Create: `src/workspaces/staff.ts`, `src/app/app/admin/graders/page.tsx`, `src/app/app/admin/graders/actions.ts`
+- Modify: `src/db/queries/grader-publishing.ts`, `src/app/app/settings/graders/page.tsx`
 - Test: `src/app/app/admin/graders/page.test.ts` (create), `src/db/grader-publishing.integration.test.ts`
 
 **Interfaces:**
-- Produces: `requireStaff(): Promise<{ id: string }>` in `src/workspaces/staff.ts` (404 for everyone else, like `requireWorkspace`); `reviewQueue()`, `verifyVersion(graderId, version)` in `grader-publishing.ts`.
+- Produces: `requireStaff(): Promise<{ id: string }>`; `reviewQueue(): Promise<QueuedVersion[]>` and `verifyVersion(graderId: string, version: string): Promise<void>` in `grader-publishing.ts`; `QueuedVersion = { graderId: string; version: string; manifest: GraderManifest; author: string; publishedAt: Date }`.
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Write the failing integration tests**
 
 ```ts
-test('a signed-in non-staff user gets a 404, not a hint that the page exists', …);
-test('staff see every unreviewed version, newest first, with its manifest', …);
-test('verifying records the reviewer and the date, and the card says read by fieldnote', …);
-test('withdrawing from the queue takes it out of browsing and notes why', …);
-test('a verified version stays verified when a newer version is published unreviewed', …);
+test('the queue holds every unreviewed, unwithdrawn version, newest first', async () => {
+  await claimHandle('acme');
+  await publishGrader(JSON.stringify(manifest()));
+  await publishGrader(JSON.stringify(manifest({ version: '0.2.0' })));
+  await db().update(users).set({ staff: true }).where(eq(users.id, owner));
+  const queue = await reviewQueue();
+  expect(queue.map((entry) => entry.version)).toEqual(['0.2.0', '0.1.0']);
+  expect(queue[0].manifest.card.title).toBe('Test Coverage');
+  expect(queue[0].author).toBe('acme');
+});
+
+test('a non-staff user cannot read the queue or verify', async () => {
+  await claimHandle('acme');
+  await publishGrader(JSON.stringify(manifest()));
+  await db().update(users).set({ staff: false }).where(eq(users.id, owner));
+  await expect(reviewQueue()).rejects.toThrow('not found');
+  await expect(verifyVersion('acme/test-coverage', '0.1.0')).rejects.toThrow('not found');
+  const [row] = await db().select().from(graderVersions);
+  expect(row.verifiedAt).toBeNull();
+});
+
+test('verifying records the reviewer and the date, and takes it out of the queue', async () => {
+  await claimHandle('acme');
+  await publishGrader(JSON.stringify(manifest()));
+  await db().update(users).set({ staff: true }).where(eq(users.id, owner));
+  await verifyVersion('acme/test-coverage', '0.1.0');
+  const [row] = await db().select().from(graderVersions);
+  expect(row.verifiedAt).toBeInstanceOf(Date);
+  expect(row.verifiedBy).toBe(owner);
+  expect(await reviewQueue()).toEqual([]);
+});
+
+test('a new version starts unreviewed however many predecessors were read', async () => {
+  await claimHandle('acme');
+  await publishGrader(JSON.stringify(manifest()));
+  await db().update(users).set({ staff: true }).where(eq(users.id, owner));
+  await verifyVersion('acme/test-coverage', '0.1.0');
+  await publishGrader(JSON.stringify(manifest({ version: '0.2.0' })));
+  expect((await reviewQueue()).map((entry) => entry.version)).toEqual(['0.2.0']);
+});
+
+test('a withdrawn version leaves the queue without being verified', async () => {
+  await claimHandle('acme');
+  await publishGrader(JSON.stringify(manifest()));
+  await withdrawVersion('acme/test-coverage', '0.1.0', 'Not ready.');
+  await db().update(users).set({ staff: true }).where(eq(users.id, owner));
+  expect(await reviewQueue()).toEqual([]);
+});
 ```
 
 - [ ] **Step 2: Implement**
 
-`requireStaff` reads `users.staff` for the current user and calls `notFound()` otherwise. The page renders each queued version's manifest — checks, points, `needs` (through `consentSentences`), card prose — with "Mark verified" and "Withdraw with a note" forms. `verifyVersion` is staff-only and sets `verifiedAt`/`verifiedBy`.
+Create `src/workspaces/staff.ts`:
 
-Render the state wherever a grader is named: the browse list, the install screen, and the grade card's identity strip — "Read by fieldnote on 15 September 2026", "Not reviewed", or "Withdrawn".
+```ts
+import { eq } from 'drizzle-orm';
+import { notFound } from 'next/navigation';
+import { db } from '../db';
+import { users } from '../db/schema';
+import { currentUser } from '../auth/session';
 
-- [ ] **Step 3: Run and commit**
+/**
+ * fieldnote staff. The flag is set directly in the database — there is no
+ * screen for granting it, which the design records as knowingly wrong. A
+ * non-staff caller gets notFound(), not a refusal: the review queue does not
+ * advertise that it exists.
+ */
+export async function requireStaff(): Promise<{ id: string }> {
+  const user = await currentUser();
+  const [row] = await db().select({ staff: users.staff }).from(users).where(eq(users.id, user.id));
+  if (!row?.staff) notFound();
+  return { id: user.id };
+}
+```
+
+Add to `grader-publishing.ts`:
+
+```ts
+/** Versions nobody has read yet, newest first. Staff only. */
+export async function reviewQueue(): Promise<QueuedVersion[]> {
+  await requireStaff();
+  const rows = await db()
+    .select({
+      graderId: graderVersions.graderId,
+      version: graderVersions.version,
+      manifest: graderVersions.manifest,
+      publishedAt: graderVersions.publishedAt,
+      handle: workspaces.handle,
+    })
+    .from(graderVersions)
+    .innerJoin(graders, eq(graders.id, graderVersions.graderId))
+    .leftJoin(workspaces, eq(workspaces.id, graders.ownedByWorkspaceId))
+    .where(and(isNull(graderVersions.verifiedAt), isNull(graderVersions.withdrawnAt)))
+    .orderBy(desc(graderVersions.publishedAt));
+  return rows.map((row) => ({
+    graderId: row.graderId,
+    version: row.version,
+    manifest: parseManifest(row.manifest),
+    author: row.handle ?? 'fieldnote',
+    publishedAt: row.publishedAt,
+  }));
+}
+
+/** A person read this version. Not "it is correct" — the card says which. */
+export async function verifyVersion(graderId: string, version: string): Promise<void> {
+  const staff = await requireStaff();
+  await db()
+    .update(graderVersions)
+    .set({ verifiedAt: new Date(), verifiedBy: staff.id })
+    .where(and(eq(graderVersions.graderId, graderId), eq(graderVersions.version, version)));
+}
+```
+
+`withdrawVersion` currently requires ownership. Staff must be able to withdraw from the queue too: add an early `const staff = await currentUser()` staff check that skips the ownership requirement — read `requireStaff`'s shape and make the ownership branch apply only to non-staff. Say in your report how you expressed it.
+
+Create the page at `src/app/app/admin/graders/page.tsx` (`export const dynamic = 'force-dynamic'`), rendering each queued version: the grader id, author, version, the card's title and tagline, the checks with their points and explanations, `consentSentences(manifest.needs)`, and two forms — verify, and withdraw with a `note` field. Its actions live in `src/app/app/admin/graders/actions.ts` with the same `save()` shape.
+
+- [ ] **Step 3: The page test**
+
+```ts
+test('a non-staff visitor gets a 404 rather than a hint that the page exists', async () => {
+  deps.reviewQueue.mockRejectedValue(new Error('NEXT_HTTP_ERROR_FALLBACK;404'));
+  await expect(AdminGraders()).rejects.toThrow('404');
+});
+
+test('staff see the manifest a reviewer has to judge', async () => {
+  deps.reviewQueue.mockResolvedValue([
+    { graderId: 'acme/test-coverage', version: '0.1.0', manifest: fixtureManifest, author: 'acme', publishedAt: new Date('2026-09-15') },
+  ]);
+  const html = renderToStaticMarkup(await AdminGraders());
+  expect(html).toContain('acme/test-coverage');
+  expect(html).toContain('Project documentation');          // a check title
+  expect(html).toContain('The contents of files matching README.md');
+  expect(html).toContain('Mark verified');
+  expect(html).toContain('name="note"');
+});
+
+test('an empty queue says so and offers nothing to press', async () => {
+  deps.reviewQueue.mockResolvedValue([]);
+  const html = renderToStaticMarkup(await AdminGraders());
+  expect(html).toContain('Nothing waiting for review.');
+  expect(html).not.toContain('Mark verified');
+});
+```
+
+- [ ] **Step 4: Show the state where a grader is named**
+
+On `/app/settings/graders`, every browse entry and every installed entry renders one of:
+
+```tsx
+{entry.verifiedAt ? (
+  <span className="grader-state">Read by fieldnote on {entry.verifiedAt.toISOString().slice(0, 10)}</span>
+) : entry.withdrawnAt ? (
+  <span className="grader-state">Withdrawn</span>
+) : (
+  <span className="grader-state">Not reviewed</span>
+)}
+```
+
+and the consent screen shows the same line beneath the author. The grade card itself is not touched: the design system's card has no slot for this, and inventing one is out of scope.
+
+- [ ] **Step 5: Run and commit**
+
+Run: `pnpm vitest run "src/app/app" && pnpm typecheck && pnpm lint && pnpm build`, then the integration file.
 
 ```bash
-git add src/workspaces/staff.ts "src/app/app/admin" src/db/queries/grader-publishing.ts src/db/grader-publishing.integration.test.ts
+git add src/workspaces/staff.ts "src/app/app/admin" src/db/queries/grader-publishing.ts src/db/grader-publishing.integration.test.ts "src/app/app/settings/graders"
 git commit -m "feat(grading): a person reads a grader before it wears the mark
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
@@ -916,16 +1774,86 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ### Task 12: The whole path, end to end
 
 **Files:**
-- Modify: `scripts/seed.ts`, `src/demo/fixtures.ts` (only if the seed needs the registry rows)
-- Test: `src/db/grader-lifecycle.integration.test.ts` (create)
+- Create: `src/db/grader-lifecycle.integration.test.ts`
+- Modify: `scripts/seed.ts`
 
 - [ ] **Step 1: Write the test**
 
-One integration test that walks the slice: a second workspace claims `acme`, publishes `acme/test-coverage` (declarative, reading `repo.files`), staff verify it, the first workspace installs it after consent, a grade runs and completes against the pinned version, `acme` publishes a version that widens `needs`, the installed workspace's runs keep working on the pinned version, updating requires the new consent, and uninstalling clears the schedule and sharing rows it created while leaving the grade history and the other workspace's rows alone.
+Create `src/db/grader-lifecycle.integration.test.ts` with the same harness (two workspaces, an owner each, a member, `fixtureRepository`, and the `collect-files` mock from `src/db/grade-schedules.integration.test.ts` so a run can be driven through the worker):
+
+```ts
+test('publish, verify, install, grade, widen, update, uninstall', async () => {
+  // acme publishes.
+  context.user = secondOwner;
+  context.workspace = otherWorkspace;
+  await claimHandle('acme');
+  const first = await publishGrader(JSON.stringify(manifest()));
+
+  // fieldnote reads it.
+  await db().update(users).set({ staff: true }).where(eq(users.id, staffUser));
+  context.user = staffUser;
+  await verifyVersion(first.id, first.version);
+
+  // The other workspace installs it and grades with it.
+  context.user = owner;
+  context.workspace = workspace;
+  await installGrader(first.id, first.version);
+  const repositoryId = await fixtureRepository();
+  github.collect.mockResolvedValueOnce({ sha: HEAD_SHA, complete: true, documents: [{ path: 'README.md', blobSha: 'b'.repeat(40), text: 'hi' }] });
+  const run = await requestGrade(repositoryId, first.id);
+  await beginGrade(run.id);
+  await resolveGradeCommit(run.id);
+  await evaluateGradeRun(run.id);
+  const graded = await loadGradeRun(run.id);
+  expect(graded?.state).toBe('complete');
+  expect(graded?.rubricVersion).toBe(first.version);
+
+  // acme publishes a version that reads more. The install does not move.
+  context.user = secondOwner;
+  context.workspace = otherWorkspace;
+  const wider = await publishGrader(
+    JSON.stringify(manifest({ version: '0.2.0', needs: { 'repo.files': ['README.md', 'src/**/*.ts'] } })),
+  );
+  context.user = owner;
+  context.workspace = workspace;
+  expect((await installedGrader(workspace, first.id))?.version).toBe(first.version);
+
+  // A run still grades against the pinned version, and its evidence is the old one.
+  github.collect.mockResolvedValueOnce({ sha: HEAD_SHA, complete: true, documents: [] });
+  const second = await requestGrade(repositoryId, first.id);
+  expect((await loadGradeRun(second.id))?.rubricVersion).toBe(first.version);
+
+  // Updating re-pins and re-consents.
+  await updateInstall(wider.id, wider.version);
+  const updated = await installedGrader(workspace, wider.id);
+  expect(updated?.version).toBe('0.2.0');
+  expect(updated?.consentedNeeds).toBe(needsHash(wider.needs));
+
+  // Uninstalling takes this workspace's schedule and sharing with it, and leaves history.
+  await writeGradeSchedule(repositoryId, first.id, true);
+  await writePublicGrade(repositoryId, first.id, true);
+  await uninstallGrader(first.id);
+  expect(await db().select().from(gradeSchedules).where(eq(gradeSchedules.graderId, first.id))).toEqual([]);
+  expect(await db().select().from(publicGrades).where(eq(publicGrades.graderId, first.id))).toEqual([]);
+  expect((await loadGradeRun(run.id))?.state).toBe('complete');
+
+  // And a run can no longer be requested.
+  await expect(requestGrade(repositoryId, first.id)).rejects.toThrow();
+});
+```
 
 - [ ] **Step 2: Fix the seed**
 
-`scripts/seed.ts` inserts `gradingRubrics` rows for the three built-ins. Replace those with `seedBuiltInGraders()` and `installBuiltIns('demo-workspace')` so the demo renders its three cards.
+`scripts/seed.ts` inserts three `gradingRubrics` rows. Replace them with:
+
+```ts
+import { seedBuiltInGraders, installBuiltIns } from '../src/db/queries/graders';
+…
+  await seedBuiltInGraders();
+  await installBuiltIns('demo-workspace');
+```
+
+and delete the now-unused `gradingRubrics` and `rubricView` imports. The demo's three grade runs stay exactly as they are.
 
 - [ ] **Step 3: Run the whole gate**
 
@@ -933,12 +1861,12 @@ One integration test that walks the slice: a second workspace claims `acme`, pub
 pnpm lint && pnpm typecheck && pnpm test && DEMO_MODE=false pnpm test:integration && pnpm build
 ```
 
-Expected: green apart from the 2 known `dispatch-import` failures. `git diff main -- src/domain/grading/readiness-v01.test.ts` must be empty.
+Expected: green apart from the 2 known `dispatch-import` failures. Also run `DEMO_MODE=true pnpm db:seed` against the local database once and confirm it completes — the demo is the only place the seed path is exercised.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/db/grader-lifecycle.integration.test.ts scripts/seed.ts src/demo/fixtures.ts
+git add src/db/grader-lifecycle.integration.test.ts scripts/seed.ts
 git commit -m "test(grading): publish, verify, install, grade, update, uninstall
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
