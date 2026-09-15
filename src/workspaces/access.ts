@@ -15,7 +15,12 @@ import { cookieOptions } from '../auth/session';
 import { ensureDefaultWorkspace, type Role, type Workspace } from './store';
 
 const workspaceCookie = 'fieldnote-workspace';
-const demoWorkspace = { id: 'demo', name: 'Demo workspace', role: 'member' as const };
+const demoWorkspace = {
+  id: 'demo',
+  name: 'Demo workspace',
+  handle: null,
+  role: 'member' as const,
+};
 
 export async function requireWorkspace(
   workspaceId?: string,
@@ -34,6 +39,7 @@ export async function requireWorkspace(
     .select({
       id: workspaces.id,
       name: workspaces.name,
+      handle: workspaces.handle,
       role: workspaceMemberships.role,
       defaultForUserId: workspaces.defaultForUserId,
     })
@@ -51,7 +57,7 @@ export async function requireWorkspace(
   if (!membership && explicit) notFound();
   const selected = membership ?? fallback;
   if (!selected || (role === 'owner' && selected.role !== 'owner')) notFound();
-  return { id: selected.id, name: selected.name, role: selected.role };
+  return { id: selected.id, name: selected.name, handle: selected.handle, role: selected.role };
 }
 
 export async function setActiveWorkspace(workspaceId: string): Promise<void> {

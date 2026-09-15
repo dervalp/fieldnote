@@ -19,6 +19,7 @@ import {
   updateMember,
   deleteMember,
   disconnectRepository,
+  saveWorkspaceHandle,
 } from '../actions';
 import {
   accountSettingsPath,
@@ -104,6 +105,26 @@ export default async function WorkspaceSettings() {
             )}
             <p className="fine">Your account and workspace are separate identities.</p>
           </Surface>
+          {owner && (
+            <Surface className="settings-panel">
+              <h2>Publishing handle</h2>
+              {workspace.handle ? (
+                <p>
+                  Your graders publish as <code>{workspace.handle}/…</code>. A handle cannot be
+                  changed.
+                </p>
+              ) : (
+                <SettingsForm action={saveWorkspaceHandle} submitLabel="Claim handle">
+                  <p>
+                    Claim the name this workspace publishes graders under. Lowercase letters,
+                    numbers and dashes. It cannot be changed afterwards.
+                  </p>
+                  <label htmlFor="handle">Handle</label>
+                  <input id="handle" name="handle" required />
+                </SettingsForm>
+              )}
+            </Surface>
+          )}
           <Surface className="settings-panel">
             <h2>Connected repositories</h2>
             <p className="fine">

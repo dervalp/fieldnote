@@ -6,7 +6,10 @@ import { workspaceMemberships, workspaces } from '../db/schema';
 import { installBuiltIns } from '../db/queries/graders';
 
 export type Role = 'owner' | 'member';
-export type Workspace = { id: string; name: string };
+// handle is required and nullable, not optional: an optional field would let
+// a query that forgot to ask for the column report "no handle"
+// indistinguishably from a workspace that genuinely has none.
+export type Workspace = { id: string; name: string; handle: string | null };
 
 export const workspaceName = z.string().trim().min(1).max(80);
 
@@ -27,7 +30,7 @@ export async function ensureDefaultWorkspace(userId: string): Promise<Workspace>
     await tx.execute(sql`select id from users where id = ${userId} for update`);
 
     const [existing] = await tx
-      .select({ id: workspaces.id, name: workspaces.name })
+      .select({ id: workspaces.id, name: workspaces.name, handle: workspaces.handle })
       .from(workspaces)
       .where(eq(workspaces.defaultForUserId, userId))
       .limit(1);
@@ -36,6 +39,7 @@ export async function ensureDefaultWorkspace(userId: string): Promise<Workspace>
     const workspace = {
       id: randomUUID(),
       name: 'Personal workspace',
+      handle: null,
     };
     await tx.insert(workspaces).values({ ...workspace, defaultForUserId: userId });
     await tx.insert(workspaceMemberships).values({
@@ -50,7 +54,7 @@ export async function ensureDefaultWorkspace(userId: string): Promise<Workspace>
 }
 
 export async function createWorkspace(userId: string, name: string): Promise<Workspace> {
-  const workspace = { id: randomUUID(), name: workspaceName.parse(name) };
+  const workspace = { id: randomUUID(), name: workspaceName.parse(name), handle: null };
   await db().transaction(async (tx) => {
     await tx.execute(sql`select id from users where id = ${userId} for update`);
     await tx.insert(workspaces).values(workspace);
@@ -68,7 +72,12 @@ export async function createWorkspace(userId: string, name: string): Promise<Wor
 
 export async function listWorkspaces(userId: string): Promise<Array<Workspace & { role: Role }>> {
   return db()
-    .select({ id: workspaces.id, name: workspaces.name, role: workspaceMemberships.role })
+    .select({
+      id: workspaces.id,
+      name: workspaces.name,
+      handle: workspaces.handle,
+      role: workspaceMemberships.role,
+    })
     .from(workspaceMemberships)
     .innerJoin(workspaces, and(eq(workspaceMemberships.workspaceId, workspaces.id)))
     .where(eq(workspaceMemberships.userId, userId))

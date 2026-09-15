@@ -203,6 +203,7 @@ test('a stale preference falls back to the user default without writing during r
   await expect(requireWorkspace()).resolves.toEqual({
     id: workspaceIds[0],
     name: 'Own workspace',
+    handle: null,
     role: 'owner',
   });
   expect(fixture.setCookie).not.toHaveBeenCalled();
