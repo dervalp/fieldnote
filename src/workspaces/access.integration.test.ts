@@ -44,6 +44,7 @@ import {
   workspaceMemberships,
   workspaceRepositories,
   workspaces,
+  graderInstalls,
 } from '../db/schema';
 import {
   accessibleRepositories,
@@ -53,6 +54,9 @@ import {
   setActiveWorkspace,
   unlinkRepository,
 } from './access';
+import { installedGraders, installBuiltIns } from '../db/queries/graders';
+import { builtInManifests } from '../domain/grading/registry';
+import { DEMO_WORKSPACE_ID } from '../demo/workspace';
 
 const userIds = ['workspace-access-user', 'workspace-access-other', 'workspace-access-outsider'];
 const workspaceIds = ['workspace-access-own', 'workspace-access-other'];
@@ -97,6 +101,18 @@ beforeAll(async () => {
     repositoryId,
     connectedBy: userIds[1],
   });
+  // The exact seeding scripts/seed.ts does under DEMO_MODE: a workspaces row
+  // at the id DEMO_MODE resolves every request to, with the built-ins
+  // installed into it. This is what regressed when that script and
+  // workspaces/access.ts each hardcoded a different literal — installing
+  // into 'demo-workspace' while every request resolved 'demo' left
+  // installedGraders(workspace.id) empty and the Grading tab rendering its
+  // "No graders installed" state for every demo visitor.
+  await db()
+    .insert(workspaces)
+    .values({ id: DEMO_WORKSPACE_ID, name: 'Demo workspace' })
+    .onConflictDoNothing();
+  await installBuiltIns(DEMO_WORKSPACE_ID);
 });
 
 beforeEach(() => {
@@ -108,6 +124,13 @@ beforeEach(() => {
 });
 
 afterAll(async () => {
+  // FK-safe: graderInstalls.workspaceId cascades on workspace delete, but
+  // deleting it explicitly first keeps this cleanup honest even if that
+  // cascade ever changes. Never touches graders/grader_versions — the
+  // built-ins installBuiltIns() seeds are owned by nobody and shared with
+  // every other suite.
+  await db().delete(graderInstalls).where(eq(graderInstalls.workspaceId, DEMO_WORKSPACE_ID));
+  await db().delete(workspaces).where(eq(workspaces.id, DEMO_WORKSPACE_ID));
   await db()
     .delete(workspaceRepositories)
     .where(inArray(workspaceRepositories.workspaceId, workspaceIds));
@@ -157,6 +180,27 @@ test('an explicit empty workspace id is rejected instead of falling back', async
 test('the demo workspace rejects an explicit empty workspace id', async () => {
   fixture.demoMode = true;
   await expect(requireWorkspace('')).rejects.toThrow('not found');
+});
+
+// The regression this guards: scripts/seed.ts and workspaces/access.ts each
+// hardcoded their own id for the demo workspace, and the two drifted apart —
+// installs landed on 'demo-workspace' while every DEMO_MODE request resolved
+// 'demo'. installedGraders(workspace.id) then found nothing, and the Grading
+// tab rendered its "No graders installed" empty state for every demo
+// visitor. A test that mocks installedGraders() cannot catch that: it has to
+// seed for real, resolve the workspace the same way a request does, and look
+// the two up against each other.
+test('the workspace DEMO_MODE resolves has the built-ins installed', async () => {
+  fixture.demoMode = true;
+  const workspace = await requireWorkspace();
+  expect(workspace.id).toBe(DEMO_WORKSPACE_ID);
+  const installed = await installedGraders(workspace.id);
+  expect(installed.length).toBe(builtInManifests().length);
+  expect(installed.map((entry) => entry.manifest.id).sort()).toEqual(
+    builtInManifests()
+      .map((manifest) => manifest.id)
+      .sort(),
+  );
 });
 
 test('concurrent first visits provision one default workspace for an existing session user', async () => {

@@ -12,11 +12,12 @@ import {
 } from '../db/schema';
 import { env } from '../lib/env';
 import { cookieOptions } from '../auth/session';
+import { DEMO_WORKSPACE_ID } from '../demo/workspace';
 import { ensureDefaultWorkspace, type Role, type Workspace } from './store';
 
 const workspaceCookie = 'fieldnote-workspace';
 const demoWorkspace = {
-  id: 'demo',
+  id: DEMO_WORKSPACE_ID,
   name: 'Demo workspace',
   handle: null,
   role: 'member' as const,

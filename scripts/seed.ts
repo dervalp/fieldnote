@@ -17,6 +17,7 @@ import {
   demoGradeSha,
   demoPolicy,
 } from '../src/demo/fixtures';
+import { DEMO_WORKSPACE_ID } from '../src/demo/workspace';
 import { agentReadinessManifest } from '../src/domain/grading/graders/agent-readiness';
 import { deliveryHealthManifest } from '../src/domain/grading/graders/delivery-health';
 import { testDisciplineManifest } from '../src/domain/grading/graders/test-discipline';
@@ -65,13 +66,13 @@ try {
     .onConflictDoNothing();
   await db()
     .insert(workspaces)
-    .values({ id: 'demo-workspace', name: 'Demo workspace' })
+    .values({ id: DEMO_WORKSPACE_ID, name: 'Demo workspace' })
     .onConflictDoNothing();
   // Publishes the three built-ins into (graders, grader_versions) and installs
   // them into the demo workspace — the same seeding a real workspace gets from
   // ensureDefaultWorkspace(), done here because this workspace row is inserted
   // directly rather than through that path.
-  await installBuiltIns('demo-workspace');
+  await installBuiltIns(DEMO_WORKSPACE_ID);
   const graded = new Date('2026-09-30T09:12:00Z');
   await db()
     .insert(gradeRuns)
@@ -82,7 +83,7 @@ try {
       rubricVersion: agentReadinessManifest.version,
       evaluatorVersion: agentReadinessManifest.evaluatorVersion,
       requestedBy: 'demo-user',
-      requestedWorkspaceId: 'demo-workspace',
+      requestedWorkspaceId: DEMO_WORKSPACE_ID,
       state: 'complete',
       sha: demoGradeSha,
       result: demoGrade,
@@ -100,7 +101,7 @@ try {
       rubricVersion: deliveryHealthManifest.version,
       evaluatorVersion: deliveryHealthManifest.evaluatorVersion,
       requestedBy: 'demo-user',
-      requestedWorkspaceId: 'demo-workspace',
+      requestedWorkspaceId: DEMO_WORKSPACE_ID,
       state: 'complete',
       sha: demoGradeSha,
       result: demoDeliveryGrade,
@@ -118,7 +119,7 @@ try {
       rubricVersion: testDisciplineManifest.version,
       evaluatorVersion: testDisciplineManifest.evaluatorVersion,
       requestedBy: 'demo-user',
-      requestedWorkspaceId: 'demo-workspace',
+      requestedWorkspaceId: DEMO_WORKSPACE_ID,
       state: 'complete',
       sha: demoGradeSha,
       result: demoTestDisciplineGrade,
