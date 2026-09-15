@@ -1,6 +1,6 @@
 'use server';
 import { revalidatePath } from 'next/cache';
-import { unstable_rethrow } from 'next/navigation';
+import { redirect, unstable_rethrow } from 'next/navigation';
 import { ManifestError } from '../../../../domain/grading/manifest';
 import { publishGrader, withdrawVersion } from '../../../../db/queries/grader-publishing';
 import { installGrader } from '../../../../db/queries/grader-installs';
@@ -57,7 +57,16 @@ export async function withdrawGraderVersion(form: FormData): Promise<Result> {
 
 export async function installGraderVersion(form: FormData): Promise<Result> {
   return save(
-    () => installGrader(value(form, 'graderId'), value(form, 'version')),
+    // redirect() throws its own control-flow error, caught by save()'s catch
+    // below — whose first line, unstable_rethrow(error), recognizes it and
+    // lets Next.js perform the navigation rather than treating it as a
+    // failed install. Without this, the consent screen's own `?install=…`
+    // URL survives a successful install exactly as it survives a failed
+    // one, and the two are indistinguishable to the person looking at them.
+    async () => {
+      await installGrader(value(form, 'graderId'), value(form, 'version'));
+      redirect('/app/settings/graders');
+    },
     'We could not install this grader. Please try again.',
     { 'Version unavailable': 'That version is no longer available to install.' },
   );

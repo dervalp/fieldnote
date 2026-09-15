@@ -145,11 +145,20 @@ test('installing pins the version and records the needs the workspace agreed to'
 });
 
 test('installing twice keeps the first install and its consent', async () => {
-  const manifest = await publishFixture();
-  await installGrader(manifest.id, manifest.version);
-  await installGrader(manifest.id, manifest.version);
+  const first = await publishFixture();
+  // A second, real version — wider needs, so a wrong implementation that
+  // re-pins on conflict would also rewrite consentedNeeds to a different
+  // hash, not just leave the row's version field alone by coincidence.
+  const second = await publishFixture({
+    version: '0.2.0',
+    needs: { 'repo.files': ['README.md', 'AGENTS.md'] },
+  });
+  await installGrader(first.id, first.version);
+  await installGrader(second.id, second.version);
   const rows = await db().select().from(graderInstalls).where(eq(graderInstalls.workspaceId, workspace));
   expect(rows).toHaveLength(1);
+  expect(rows[0].version).toBe(first.version);
+  expect(rows[0].consentedNeeds).toBe(needsHash(first.needs));
 });
 
 test('a member cannot install', async () => {

@@ -44,7 +44,10 @@ export default async function Graders({
   const published = await workspaceGraders();
   const browsable = await browsableGraders(workspace.id);
   const search = (await searchParams) ?? {};
-  const installing = search.install ? findInstallable(browsable, search.install) : null;
+  // Owner-gated like the link that produces this query: a member who types
+  // the URL by hand must land on the browse list, not on a permission-grant
+  // screen whose own Install button would 404 for them.
+  const installing = owner && search.install ? findInstallable(browsable, search.install) : null;
 
   return (
     <>

@@ -1,5 +1,6 @@
-import { Button, Surface } from '@fieldnote/design-system';
+import { Surface } from '@fieldnote/design-system';
 import { consentSentences } from '../../domain/grading/needs-consent';
+import { SettingsForm } from '../settings-form';
 import type { GraderManifest } from '../../domain/grading/manifest';
 
 /**
@@ -35,17 +36,16 @@ export function ConsentScreen({
         ))}
       </ul>
       <p>Nothing else is collected. It runs against every repository in this workspace.</p>
-      {/* installGraderVersion returns a Result, like every action behind
-          save() — a client component reads that to show an inline error, as
-          SettingsForm does. This screen has none: with no JS this is a plain
-          full-page form post and the result is never read, and React's own
-          typing for a bare <form action> only accepts void | Promise<void>,
-          so the cast is the honest way to say that. */}
-      <form action={action as unknown as (formData: FormData) => Promise<void>}>
+      {/* SettingsForm runs the action through useActionState and renders a
+          failure — "That version is no longer available to install.", say —
+          as a role="alert" paragraph. A bare <form action={action}> would
+          discard the Result and leave a failed install looking identical to
+          a successful one; installGraderVersion redirects on success, so
+          this screen never re-renders itself either way. */}
+      <SettingsForm action={action} submitLabel="Install">
         <input type="hidden" name="graderId" value={manifest.id} />
         <input type="hidden" name="version" value={version} />
-        <Button type="submit">Install</Button>
-      </form>
+      </SettingsForm>
       <a href={cancelHref}>Cancel</a>
     </Surface>
   );

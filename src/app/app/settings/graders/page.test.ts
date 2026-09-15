@@ -105,6 +105,68 @@ test('an already-installed grader offers no install link', async () => {
   expect(html).not.toContain('install=');
 });
 
+test('a member sees no install link, even for a grader it has not installed', async () => {
+  deps.workspace.mockResolvedValue({ id: 'w', name: 'W', role: 'member', handle: 'acme' });
+  deps.workspaceGraders.mockResolvedValue([]);
+  deps.browsableGraders.mockResolvedValue([
+    {
+      id: agentReadinessManifest.id,
+      manifest: agentReadinessManifest,
+      version: agentReadinessManifest.version,
+      verifiedAt: new Date('2026-09-01'),
+      author: 'fieldnote',
+      installed: null,
+    },
+  ]);
+  const html = renderToStaticMarkup(await Graders());
+  expect(html).toContain('Agent Readiness');
+  expect(html).not.toContain('install=');
+});
+
+test('a member who visits the install query lands on the browse list, not the consent screen', async () => {
+  deps.workspace.mockResolvedValue({ id: 'w', name: 'W', role: 'member', handle: 'acme' });
+  deps.workspaceGraders.mockResolvedValue([]);
+  deps.browsableGraders.mockResolvedValue([
+    {
+      id: agentReadinessManifest.id,
+      manifest: agentReadinessManifest,
+      version: agentReadinessManifest.version,
+      verifiedAt: new Date('2026-09-01'),
+      author: 'fieldnote',
+      installed: null,
+    },
+  ]);
+  const html = renderToStaticMarkup(
+    await Graders({
+      searchParams: Promise.resolve({
+        install: `${agentReadinessManifest.id}@${agentReadinessManifest.version}`,
+      }),
+    }),
+  );
+  expect(html).toContain('Browse graders');
+  expect(html).not.toContain(`Install ${agentReadinessManifest.card.title}`);
+});
+
+test('a bogus ?install= value falls back to the browse list', async () => {
+  deps.workspace.mockResolvedValue({ id: 'w', name: 'W', role: 'owner', handle: 'acme' });
+  deps.workspaceGraders.mockResolvedValue([]);
+  deps.browsableGraders.mockResolvedValue([
+    {
+      id: agentReadinessManifest.id,
+      manifest: agentReadinessManifest,
+      version: agentReadinessManifest.version,
+      verifiedAt: new Date('2026-09-01'),
+      author: 'fieldnote',
+      installed: null,
+    },
+  ]);
+  const html = renderToStaticMarkup(
+    await Graders({ searchParams: Promise.resolve({ install: 'nobody/nothing@9.9.9' }) }),
+  );
+  expect(html).toContain('Browse graders');
+  expect(html).not.toContain(`Install ${agentReadinessManifest.card.title}`);
+});
+
 test('an install query renders the consent screen instead of the browse list', async () => {
   deps.workspace.mockResolvedValue({ id: 'w', name: 'W', role: 'owner', handle: 'acme' });
   deps.workspaceGraders.mockResolvedValue([]);
