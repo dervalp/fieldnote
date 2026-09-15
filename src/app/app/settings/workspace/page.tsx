@@ -80,6 +80,7 @@ export default async function WorkspaceSettings() {
         <Link aria-current="page" href={workspaceSettingsPath()}>
           Workspace
         </Link>
+        <Link href="/app/settings/graders">Graders</Link>
         <span className={owner ? 'owner-badge' : 'member-badge'}>{owner ? 'Owner' : 'Member'}</span>
       </div>
       <div className="settings-grid" key={workspace.id}>

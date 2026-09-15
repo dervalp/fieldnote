@@ -19,6 +19,7 @@ export default async function AccountSettings() {
           Account
         </Link>
         <Link href={workspaceSettingsPath()}>Workspace</Link>
+        <Link href="/app/settings/graders">Graders</Link>
       </div>
       <Surface className="settings-panel">
         <h2>Your profile</h2>

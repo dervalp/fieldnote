@@ -85,25 +85,31 @@ export async function publishGrader(manifestJson: string): Promise<GraderManifes
   // code is published. fieldnote's own code grader is seeded, not published.
   if (manifest.kind === 'code') throw new Error('Code graders cannot be published yet');
   if (manifest.id.split('/')[0] !== row.handle) throw new Error('Wrong namespace');
-  await db()
-    .insert(graders)
-    .values({ id: manifest.id, ownedByWorkspaceId: workspace.id })
-    .onConflictDoNothing();
-  const [grader] = await db().select().from(graders).where(eq(graders.id, manifest.id));
-  if (grader.ownedByWorkspaceId !== workspace.id) throw new Error('Grader name taken');
-  const inserted = await db()
-    .insert(graderVersions)
-    .values({
-      graderId: manifest.id,
-      version: manifest.version,
-      evaluatorVersion: manifest.evaluatorVersion,
-      manifest,
-      publishedBy: user.id,
-    })
-    .onConflictDoNothing()
-    .returning({ version: graderVersions.version });
-  if (inserted.length === 0) throw new Error('Version already published');
-  return manifest;
+  // The graders row (claiming the name) and the grader_versions row (the
+  // manifest itself) must land together: a crash between the two statements
+  // would otherwise leave a grader name claimed with nothing published under
+  // it, which browsing and installing cannot tell apart from a bug.
+  return db().transaction(async (tx) => {
+    await tx
+      .insert(graders)
+      .values({ id: manifest.id, ownedByWorkspaceId: workspace.id })
+      .onConflictDoNothing();
+    const [grader] = await tx.select().from(graders).where(eq(graders.id, manifest.id));
+    if (grader.ownedByWorkspaceId !== workspace.id) throw new Error('Grader name taken');
+    const inserted = await tx
+      .insert(graderVersions)
+      .values({
+        graderId: manifest.id,
+        version: manifest.version,
+        evaluatorVersion: manifest.evaluatorVersion,
+        manifest,
+        publishedBy: user.id,
+      })
+      .onConflictDoNothing()
+      .returning({ version: graderVersions.version });
+    if (inserted.length === 0) throw new Error('Version already published');
+    return manifest;
+  });
 }
 
 /** Take a version out of browsing. Whoever already installed it keeps running it. */
@@ -115,10 +121,14 @@ export async function withdrawVersion(
   const workspace = await requireWorkspace(undefined, 'owner');
   const [grader] = await db().select().from(graders).where(eq(graders.id, graderId));
   if (!grader || grader.ownedByWorkspaceId !== workspace.id) throw new Error('Grader unavailable');
-  await db()
+  const updated = await db()
     .update(graderVersions)
     .set({ withdrawnAt: new Date(), withdrawnNote: note })
-    .where(and(eq(graderVersions.graderId, graderId), eq(graderVersions.version, version)));
+    .where(and(eq(graderVersions.graderId, graderId), eq(graderVersions.version, version)))
+    .returning({ version: graderVersions.version });
+  // A grader you own but a version that never existed updates zero rows;
+  // reporting success there tells the caller a no-op worked.
+  if (updated.length === 0) throw new Error('Version unavailable');
 }
 
 export type PublishedVersion = {

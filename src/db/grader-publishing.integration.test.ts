@@ -212,8 +212,12 @@ test('a manifest whose id is not under this handle is refused', async () => {
   expect(await publishedCount()).toBe(before);
 });
 
-test('a workspace with no handle cannot publish', async () => {
+test('a workspace with no handle cannot publish, and nothing is written', async () => {
+  const before = await publishedCount();
   await expect(publishGrader(JSON.stringify(manifest()))).rejects.toThrow('Claim a handle first');
+  expect(await publishedCount()).toBe(before);
+  const [grader] = await db().select().from(graders).where(eq(graders.id, 'acme/test-coverage'));
+  expect(grader).toBeUndefined();
 });
 
 test('a member cannot publish', async () => {
@@ -222,8 +226,9 @@ test('a member cannot publish', async () => {
   await expect(publishGrader(JSON.stringify(manifest()))).rejects.toThrow('not found');
 });
 
-test('a code grader is refused while the licence question is open', async () => {
+test('a code grader is refused while the licence question is open, and nothing is written', async () => {
   await claimHandle('acme');
+  const before = await publishedCount();
   const code = manifest({
     kind: 'code',
     code: { source: 'export default () => ({ checks: [] });' },
@@ -233,6 +238,9 @@ test('a code grader is refused while the licence question is open', async () => 
   await expect(publishGrader(JSON.stringify(code))).rejects.toThrow(
     'Code graders cannot be published yet',
   );
+  expect(await publishedCount()).toBe(before);
+  const [grader] = await db().select().from(graders).where(eq(graders.id, 'acme/test-coverage'));
+  expect(grader).toBeUndefined();
 });
 
 test('a version that already exists is refused, and the stored one is untouched', async () => {
@@ -278,4 +286,12 @@ test('withdrawing hides a version from browsing and keeps it resolvable', async 
   expect(row.withdrawnNote).toBe('Superseded.');
   expect(await graderVersion('acme/test-coverage', '0.1.0')).not.toBeNull();
   expect(await latestPublishedVersion('acme/test-coverage')).toBeNull();
+});
+
+test('withdrawing a version that was never published is refused, not silently accepted', async () => {
+  await claimHandle('acme');
+  await publishGrader(JSON.stringify(manifest()));
+  await expect(withdrawVersion('acme/test-coverage', '9.9.9', 'Nope.')).rejects.toThrow(
+    'Version unavailable',
+  );
 });

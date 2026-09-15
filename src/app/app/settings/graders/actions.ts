@@ -7,7 +7,7 @@ import { publishGrader, withdrawVersion } from '../../../../db/queries/grader-pu
 type Result = { error?: string };
 const value = (form: FormData, key: string) => String(form.get(key) ?? '');
 
-async function save(operation: () => Promise<unknown>): Promise<Result> {
+async function save(operation: () => Promise<unknown>, fallback: string): Promise<Result> {
   try {
     await operation();
     revalidatePath('/', 'layout');
@@ -23,21 +23,24 @@ async function save(operation: () => Promise<unknown>): Promise<Result> {
       'Version already published': 'That version already exists. Publish a new version instead.',
       'Code graders cannot be published yet': 'Code graders cannot be published yet.',
       'Grader unavailable': 'That grader is not yours to change.',
+      'Version unavailable': 'That version is no longer available.',
     };
     return {
-      error:
-        (error instanceof Error && messages[error.message]) ||
-        'We could not publish this grader. Please try again.',
+      error: (error instanceof Error && messages[error.message]) || fallback,
     };
   }
 }
 
 export async function publishGraderVersion(form: FormData): Promise<Result> {
-  return save(() => publishGrader(value(form, 'manifest')));
+  return save(
+    () => publishGrader(value(form, 'manifest')),
+    'We could not publish this grader. Please try again.',
+  );
 }
 
 export async function withdrawGraderVersion(form: FormData): Promise<Result> {
-  return save(() =>
-    withdrawVersion(value(form, 'graderId'), value(form, 'version'), value(form, 'note')),
+  return save(
+    () => withdrawVersion(value(form, 'graderId'), value(form, 'version'), value(form, 'note')),
+    'We could not withdraw this version. Please try again.',
   );
 }
