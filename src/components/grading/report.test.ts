@@ -374,6 +374,21 @@ test('a run whose program failed reads as the grader not finishing', () => {
   expect(html).toContain(COULD_NOT_FINISH);
 });
 
+const CONSENT_REQUIRED =
+  'This grader now asks to read more than this workspace agreed to. A workspace owner can review it in settings.';
+test('a run that failed for want of consent tells the team to review it in settings, not that the grader broke', () => {
+  const html = renderToStaticMarkup(
+    createElement(GradeControls, {
+      repositoryId: 'repo',
+      graderId: AGENT_READINESS,
+      initial: { id: 'run', state: 'failed', errorCode: 'consent_required' },
+      canRun: true,
+    }),
+  );
+  expect(html).toContain(CONSENT_REQUIRED);
+  expect(html).not.toContain(COULD_NOT_FINISH);
+});
+
 test('an unscored report prints measurements and no points', () => {
   const html = renderToStaticMarkup(
     createElement(GradeReport, {

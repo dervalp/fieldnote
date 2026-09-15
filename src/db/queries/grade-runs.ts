@@ -450,6 +450,7 @@ export async function failGrade(runId: string, code = 'collection_failed') {
     'insufficient_evidence',
     'grader_failed',
     'sandbox_unavailable',
+    'consent_required',
   ].includes(code)
     ? code
     : 'collection_failed';

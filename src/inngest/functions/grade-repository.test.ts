@@ -10,9 +10,14 @@ const queries = vi.hoisted(() => ({
   pinGradeSha: vi.fn(),
   pinnedManifest: vi.fn(),
 }));
-const broker = vi.hoisted(() => ({ collectEvidence: vi.fn() }));
+const broker = vi.hoisted(() => {
+  class ConsentError extends Error {}
+  return { collectEvidence: vi.fn(), ConsentError };
+});
+const graders = vi.hoisted(() => ({ installedGrader: vi.fn() }));
 vi.mock('../../db/queries/grade-runs', () => queries);
 vi.mock('../../grading/evidence', () => broker);
+vi.mock('../../db/queries/graders', () => graders);
 vi.mock('../../github/collect-files', () => ({
   resolveHeadSha: vi.fn(),
   FileCollectionError: class extends Error {},
@@ -35,6 +40,7 @@ const { parseManifest } = await import('../../domain/grading/registry');
 const { GraderFailedError } = await import('../../domain/grading/code');
 const { SandboxUnavailableError } = await import('../../grading/sandbox/errors');
 const { NonRetriableError } = await import('inngest');
+const { needsHash } = await import('../../domain/grading/needs-consent');
 
 const run = {
   id: 'run-1',
@@ -45,6 +51,7 @@ const run = {
   createdAt: new Date('2026-09-13T23:58:00.000Z'),
   rubricVersion: agentReadinessManifest.version,
   evaluatorVersion: agentReadinessManifest.evaluatorVersion,
+  requestedWorkspaceId: 'workspace-1',
 };
 
 const codeGrader = parseManifest({
@@ -80,6 +87,9 @@ beforeEach(() => {
   queries.pinnedManifest.mockImplementation(async (graderId: string) =>
     graderId === codeGrader.id ? codeGrader : agentReadinessManifest,
   );
+  graders.installedGrader.mockImplementation(async (_workspaceId: string, graderId: string) => ({
+    consentedNeeds: needsHash((graderId === codeGrader.id ? codeGrader : agentReadinessManifest).needs),
+  }));
   sandbox.selectSandbox.mockReturnValue({});
 });
 
@@ -123,6 +133,7 @@ test('the broker is handed the run request time', async () => {
     'repo-1',
     run.sha,
     run.createdAt,
+    needsHash(agentReadinessManifest.needs),
   );
   expect(queries.completeGrade).toHaveBeenCalled();
 });
@@ -244,4 +255,33 @@ test('a run whose pinned version is gone fails rather than grading against anoth
   queries.pinnedManifest.mockRejectedValue(new Error('Unsupported rubric version'));
   await expect(evaluateGradeRun('run-1')).rejects.toThrow();
   expect(queries.completeGrade).not.toHaveBeenCalled();
+});
+
+test('a run whose workspace never consented to these needs fails as consent_required', async () => {
+  queries.loadGradeRun.mockResolvedValue(run);
+  graders.installedGrader.mockResolvedValue(null);
+  await expect(evaluateGradeRun('run-1')).rejects.toBeInstanceOf(NonRetriableError);
+  expect(queries.failGrade).toHaveBeenCalledWith('run-1', 'consent_required');
+  expect(broker.collectEvidence).not.toHaveBeenCalled();
+});
+
+// The grader's needs changed after the workspace installed it: the install
+// row still carries the hash of what the workspace agreed to back then, and
+// that hash no longer matches the manifest's current needs. This has to
+// reach collectEvidence and come back as consent_required, not as a missing
+// install — an existing install with a stale hash is a different situation
+// from never having installed at all.
+test("an install whose consent is stale reaches collectEvidence and fails as consent_required", async () => {
+  queries.loadGradeRun.mockResolvedValue(run);
+  graders.installedGrader.mockResolvedValue({ consentedNeeds: 'a-hash-of-something-else' });
+  broker.collectEvidence.mockRejectedValue(new broker.ConsentError());
+  await expect(evaluateGradeRun('run-1')).rejects.toBeInstanceOf(NonRetriableError);
+  expect(broker.collectEvidence).toHaveBeenCalledWith(
+    expect.objectContaining({ id: agentReadinessManifest.id }),
+    'repo-1',
+    run.sha,
+    run.createdAt,
+    'a-hash-of-something-else',
+  );
+  expect(queries.failGrade).toHaveBeenCalledWith('run-1', 'consent_required');
 });

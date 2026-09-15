@@ -12,7 +12,8 @@ import {
   insufficientGrade,
 } from '../../db/queries/grade-runs';
 import { resolveHeadSha, FileCollectionError } from '../../github/collect-files';
-import { collectEvidence } from '../../grading/evidence';
+import { collectEvidence, ConsentError } from '../../grading/evidence';
+import { installedGrader } from '../../db/queries/graders';
 import { GraderFailedError } from '../../domain/grading/code';
 import { evaluate, sandboxFor } from '../../grading/evaluate';
 import { SandboxUnavailableError } from '../../grading/sandbox/errors';
@@ -37,6 +38,10 @@ async function collectionFailure(runId: string, error: unknown): Promise<never> 
   if (error instanceof GraderFailedError) {
     await failGrade(runId, 'grader_failed');
     throw new NonRetriableError('Grader failed');
+  }
+  if (error instanceof ConsentError) {
+    await failGrade(runId, 'consent_required');
+    throw new NonRetriableError('Grader is not installed');
   }
   if (error instanceof SandboxUnavailableError) {
     if (!error.retryable) {
@@ -73,11 +78,25 @@ export async function evaluateGradeRun(runId: string) {
   const run = await validated(runId);
   if (!run) return;
   if (!run.sha) throw new NonRetriableError('Grade commit is missing');
+  // Resolved before the try below: a run whose workspace never installed the
+  // grader is not a collection failure, and must not be re-wrapped by
+  // collectionFailure's generic fallback.
+  const installed = await installedGrader(run.requestedWorkspaceId, run.graderId);
+  if (!installed) {
+    await failGrade(runId, 'consent_required');
+    throw new NonRetriableError('Grader is not installed');
+  }
   try {
     const manifest = await pinnedManifest(run.graderId, run.rubricVersion);
     // Before collecting: no sandbox should cost no GitHub calls.
     const sandbox = sandboxFor(manifest);
-    const collected = await collectEvidence(manifest, run.repositoryId, run.sha, run.createdAt);
+    const collected = await collectEvidence(
+      manifest,
+      run.repositoryId,
+      run.sha,
+      run.createdAt,
+      installed.consentedNeeds,
+    );
     const { result, verdict } = await evaluate(manifest, collected, sandbox);
     // A failure stores nothing: its check results failed for want of evidence,
     // not for want of the thing they measure.

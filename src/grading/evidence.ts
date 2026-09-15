@@ -1,8 +1,17 @@
 import { collectFiles, collectTree } from '../github/collect-files';
 import { collectMetrics } from '../db/queries/grade-metrics';
 import { INCOMPLETE } from '../domain/grading/declarative';
+import { needsHash } from '../domain/grading/needs-consent';
 import type { GraderManifest } from '../domain/grading/manifest';
 import type { RepositorySnapshot } from '../domain/grading/types';
+
+/** The workspace agreed to one set of needs; this manifest declares another. */
+export class ConsentError extends Error {
+  constructor() {
+    super('The grader asks for evidence this workspace has not agreed to.');
+    this.name = 'ConsentError';
+  }
+}
 
 export type CollectedEvidence = {
   snapshot: RepositorySnapshot;
@@ -36,11 +45,15 @@ export async function collectEvidence(
   repositoryId: string,
   sha: string,
   requestedAt: Date,
+  consentedNeeds: string,
 ): Promise<CollectedEvidence> {
   const unhandled = Object.keys(manifest.needs).find(
     (family) => !(HANDLED_FAMILIES as readonly string[]).includes(family),
   );
   if (unhandled) throw new Error(`collectEvidence does not handle evidence family '${unhandled}'`);
+  // The one place that knows both the manifest's needs and the repository it is
+  // about to read, which is why slice 3 put the check here and nowhere else.
+  if (needsHash(manifest.needs) !== consentedNeeds) throw new ConsentError();
   const filesNeed = manifest.needs['repo.files'];
   const treeNeed = manifest.needs['repo.tree'];
   const metricsNeed = manifest.needs['fieldnote.metrics'];

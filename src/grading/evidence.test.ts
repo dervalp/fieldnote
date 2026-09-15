@@ -6,11 +6,12 @@ const collectMetrics = vi.fn();
 vi.mock('../github/collect-files', () => ({ collectFiles, collectTree }));
 vi.mock('../db/queries/grade-metrics', () => ({ collectMetrics }));
 
-const { collectEvidence } = await import('./evidence');
+const { collectEvidence, ConsentError } = await import('./evidence');
 const { agentReadinessManifest } = await import('../domain/grading/graders/agent-readiness');
 const { deliveryHealthManifest } = await import('../domain/grading/graders/delivery-health');
 const { INCOMPLETE } = await import('../domain/grading/declarative');
 const { parseManifest } = await import('../domain/grading/manifest');
+const { needsHash } = await import('../domain/grading/needs-consent');
 
 const metrics = {
   days: 30,
@@ -30,7 +31,7 @@ beforeEach(() => {
 
 test('a file grader calls only the file collector', async () => {
   collectFiles.mockResolvedValue({ sha: 'abc', complete: true, documents: [] });
-  const collected = await collectEvidence(agentReadinessManifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'));
+  const collected = await collectEvidence(agentReadinessManifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'), needsHash(agentReadinessManifest.needs));
   expect(collectFiles).toHaveBeenCalledWith(
     'repo',
     'abc',
@@ -45,7 +46,7 @@ test('a file grader calls only the file collector', async () => {
 test('a metrics grader calls only the metrics collector', async () => {
   collectMetrics.mockResolvedValue({ metrics, complete: true });
   const requestedAt = new Date('2026-09-14T12:00:00.000Z');
-  const collected = await collectEvidence(deliveryHealthManifest, 'repo', 'abc', requestedAt);
+  const collected = await collectEvidence(deliveryHealthManifest, 'repo', 'abc', requestedAt, needsHash(deliveryHealthManifest.needs));
   const { snapshot } = collected;
   expect(collectFiles).not.toHaveBeenCalled();
   expect(collectMetrics).toHaveBeenCalledWith(
@@ -65,7 +66,7 @@ test("the grader's floor is reported as insufficient evidence, not a collection 
     incompleteReason: 'Not enough merged work to judge.',
     incompleteCode: 'insufficient_evidence',
   });
-  const collected = await collectEvidence(deliveryHealthManifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'));
+  const collected = await collectEvidence(deliveryHealthManifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'), needsHash(deliveryHealthManifest.needs));
   expect(collected.snapshot.complete).toBe(false);
   expect(collected.snapshot.incompleteReason).toBe('Not enough merged work to judge.');
   expect(collected.incompleteCode).toBe('insufficient_evidence');
@@ -82,7 +83,7 @@ test("a metrics collection fieldnote itself failed is reported as a collection f
     incompleteReason: INCOMPLETE,
     incompleteCode: 'incomplete_collection',
   });
-  const collected = await collectEvidence(deliveryHealthManifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'));
+  const collected = await collectEvidence(deliveryHealthManifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'), needsHash(deliveryHealthManifest.needs));
   expect(collected.snapshot.complete).toBe(false);
   expect(collected.snapshot.incompleteReason).toBe(INCOMPLETE);
   expect(collected.incompleteCode).toBe('incomplete_collection');
@@ -90,7 +91,7 @@ test("a metrics collection fieldnote itself failed is reported as a collection f
 
 test('a failed file collection is reported as a collection failure', async () => {
   collectFiles.mockResolvedValue({ sha: 'abc', complete: false, documents: [] });
-  const collected = await collectEvidence(agentReadinessManifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'));
+  const collected = await collectEvidence(agentReadinessManifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'), needsHash(agentReadinessManifest.needs));
   expect(collected.snapshot.incompleteReason).toBe(INCOMPLETE);
   expect(collected.incompleteCode).toBe('incomplete_collection');
 });
@@ -115,7 +116,7 @@ test('a manifest needing both families calls both collectors and merges their ev
   });
   collectMetrics.mockResolvedValue({ metrics, complete: true });
   const requestedAt = new Date('2026-09-14T12:00:00.000Z');
-  const collected = await collectEvidence(bothFamiliesManifest, 'repo', 'abc', requestedAt);
+  const collected = await collectEvidence(bothFamiliesManifest, 'repo', 'abc', requestedAt, needsHash(bothFamiliesManifest.needs));
   expect(collectFiles).toHaveBeenCalledWith(
     'repo',
     'abc',
@@ -140,7 +141,7 @@ test('a failed file collection outranks an unmet metrics floor', async () => {
     incompleteReason: 'Not enough merged work to judge.',
     incompleteCode: 'insufficient_evidence',
   });
-  const collected = await collectEvidence(bothFamiliesManifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'));
+  const collected = await collectEvidence(bothFamiliesManifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'), needsHash(bothFamiliesManifest.needs));
   expect(collected.snapshot.complete).toBe(false);
   // fieldnote's own collection failing is reported, not the grader's floor,
   // even though the metrics collector also had something to say.
@@ -160,7 +161,7 @@ test('a family the dispatcher does not handle is refused by name', async () => {
     ...agentReadinessManifest,
     needs: { ...agentReadinessManifest.needs, 'some.other.family': ['x'] },
   } as unknown as typeof agentReadinessManifest;
-  await expect(collectEvidence(manifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'))).rejects.toThrow(/some\.other\.family/);
+  await expect(collectEvidence(manifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'), needsHash(agentReadinessManifest.needs))).rejects.toThrow(/some\.other\.family/);
   expect(collectFiles).not.toHaveBeenCalled();
   expect(collectMetrics).not.toHaveBeenCalled();
 });
@@ -168,7 +169,7 @@ test('a family the dispatcher does not handle is refused by name', async () => {
 test('the metrics window is pinned to the request time, not the wall clock', async () => {
   collectMetrics.mockResolvedValue({ metrics, complete: true });
   const requestedAt = new Date('2026-09-13T23:58:00.000Z');
-  await collectEvidence(deliveryHealthManifest, 'repo', 'abc', requestedAt);
+  await collectEvidence(deliveryHealthManifest, 'repo', 'abc', requestedAt, needsHash(deliveryHealthManifest.needs));
   expect(collectMetrics).toHaveBeenCalledWith(
     'repo',
     deliveryHealthManifest.needs['fieldnote.metrics'],
@@ -193,7 +194,7 @@ const treeManifest = parseManifest({
 
 test('a tree grader calls only the tree collector and carries the tree', async () => {
   collectTree.mockResolvedValue({ sha: 'abc', complete: true, tree: [{ path: 'a.ts', size: 1 }] });
-  const collected = await collectEvidence(treeManifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'));
+  const collected = await collectEvidence(treeManifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'), needsHash(treeManifest.needs));
   expect(collectTree).toHaveBeenCalledWith('repo', 'abc', ['**/*']);
   expect(collectFiles).not.toHaveBeenCalled();
   expect(collectMetrics).not.toHaveBeenCalled();
@@ -205,7 +206,7 @@ test('a tree grader calls only the tree collector and carries the tree', async (
 
 test("an incomplete tree is fieldnote's failure, in fieldnote's words", async () => {
   collectTree.mockResolvedValue({ sha: 'abc', complete: false, tree: [] });
-  const collected = await collectEvidence(treeManifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'));
+  const collected = await collectEvidence(treeManifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'), needsHash(treeManifest.needs));
   expect(collected.snapshot.complete).toBe(false);
   expect(collected.snapshot.incompleteReason).toBe(INCOMPLETE);
   expect(collected.incompleteCode).toBe('incomplete_collection');
@@ -213,7 +214,23 @@ test("an incomplete tree is fieldnote's failure, in fieldnote's words", async ()
 
 test('a grader that does not declare repo.tree carries no tree key at all', async () => {
   collectFiles.mockResolvedValue({ sha: 'abc', complete: true, documents: [] });
-  const collected = await collectEvidence(agentReadinessManifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'));
+  const collected = await collectEvidence(agentReadinessManifest, 'repo', 'abc', new Date('2026-09-14T12:00:00.000Z'), needsHash(agentReadinessManifest.needs));
   expect(collectTree).not.toHaveBeenCalled();
   expect('tree' in collected.snapshot).toBe(false);
+});
+
+test('a grader asking for more than the workspace agreed collects nothing', async () => {
+  await expect(
+    collectEvidence(agentReadinessManifest, 'repo', 'abc', new Date(), 'a-hash-of-something-else'),
+  ).rejects.toBeInstanceOf(ConsentError);
+  expect(collectFiles).not.toHaveBeenCalled();
+  expect(collectTree).not.toHaveBeenCalled();
+  expect(collectMetrics).not.toHaveBeenCalled();
+});
+
+test('the consent it was given is the hash of the needs it declares', async () => {
+  collectFiles.mockResolvedValue({ sha: 'abc', complete: true, documents: [] });
+  await expect(
+    collectEvidence(agentReadinessManifest, 'repo', 'abc', new Date(), needsHash(agentReadinessManifest.needs)),
+  ).resolves.toBeTruthy();
 });

@@ -121,7 +121,9 @@ export function GradeControls({
                     ? 'There is not enough record in this window to score. Try again once more work has merged.'
                     : run.errorCode === 'sandbox_unavailable'
                       ? 'Grading is temporarily unavailable. Try again later.'
-                      : 'The grader could not finish. Your last completed report is unchanged. Try again.'
+                      : run.errorCode === 'consent_required'
+                        ? 'This grader now asks to read more than this workspace agreed to. A workspace owner can review it in settings.'
+                        : 'The grader could not finish. Your last completed report is unchanged. Try again.'
                   : '')}
       </p>
     </div>
