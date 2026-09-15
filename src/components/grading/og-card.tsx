@@ -1,5 +1,6 @@
 import { gradePresentation } from '../../domain/grading/presentation';
 import type { PublicGradeView } from '../../domain/grading/public-grade';
+import { graderStateText } from './grader-state';
 
 /**
  * The image a pasted link shows in Slack or X. The card and nothing else: no
@@ -46,6 +47,9 @@ export function OgCard({ view }: { view: PublicGradeView }) {
           {view.repository.owner}/{view.repository.name}
         </div>
         <div style={{ display: 'flex', fontSize: '64px' }}>{view.grader.title}</div>
+        <div style={{ display: 'flex', fontSize: '28px', color: '#6b7280' }}>
+          {graderStateText(view.grader.verifiedAt, null)}
+        </div>
         <div style={{ display: 'flex', fontSize: '32px', color: '#6b7280' }}>fieldnote</div>
       </div>
       <div style={{ display: 'flex', fontSize: '96px', color: colour }}>{headline}</div>

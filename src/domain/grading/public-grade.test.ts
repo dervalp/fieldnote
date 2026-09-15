@@ -30,7 +30,7 @@ const result: GradeResult = {
 };
 const run = { sha: 'a'.repeat(40), completedAt: new Date('2026-09-01T00:00:00.000Z') };
 
-test('a public grader is the manifest identity a visitor may read', () => {
+test('a public grader is the manifest identity a visitor may read, plus whether fieldnote read it', () => {
   expect(publicGrader(agentReadinessManifest)).toEqual({
     id: 'fieldnote/agent-readiness',
     title: agentReadinessManifest.card.title,
@@ -44,7 +44,17 @@ test('a public grader is the manifest identity a visitor may read', () => {
     checkTitles: Object.fromEntries(
       agentReadinessManifest.checks.map((check) => [check.id, check.title]),
     ),
+    verifiedAt: null,
   });
+});
+
+// Decision 4: a public grade page never names a grader with no review state.
+// verifiedAt is a fact about the grader, not the repository being graded, so
+// it crosses the narrow-copy boundary the same way every other field here
+// does — never the whole manifest, never `needs`, just this one more fact.
+test('publicGrader carries the verification date it is given, not derived from the manifest', () => {
+  const verifiedAt = new Date('2026-09-01T00:00:00.000Z');
+  expect(publicGrader(agentReadinessManifest, verifiedAt).verifiedAt).toEqual(verifiedAt);
 });
 
 // The 'graded' branch of PublicGradeView is where slice 5's narrow-copy
@@ -55,9 +65,11 @@ test('a public grader is the manifest identity a visitor may read', () => {
 // this list does not name, and fails here rather than only showing up as an
 // unused field nobody notices.
 test('a graded view carries exactly the fields a visitor may read, plus whether it is outdated', () => {
+  const verifiedAt = new Date('2026-09-01T00:00:00.000Z');
   const view = publicGradedView({
     repository: { owner: 'acme', name: 'widgets', isPrivate: false },
     manifest: agentReadinessManifest,
+    verifiedAt,
     latestManifest: agentReadinessManifest,
     grade: publicGradeFrom(result, run, false),
     stale: false,
@@ -70,6 +82,7 @@ test('a graded view carries exactly the fields a visitor may read, plus whether 
     'stale',
     'state',
   ]);
+  expect(view.grader.verifiedAt).toEqual(verifiedAt);
 });
 
 test('publicGradedView marks a grade outdated once a newer version is published', () => {
@@ -77,6 +90,7 @@ test('publicGradedView marks a grade outdated once a newer version is published'
   const view = publicGradedView({
     repository: { owner: 'acme', name: 'widgets', isPrivate: false },
     manifest: agentReadinessManifest,
+    verifiedAt: null,
     latestManifest: newer,
     grade: publicGradeFrom(result, run, false),
     stale: false,
@@ -88,6 +102,7 @@ test('publicGradedView is not outdated when nothing newer has published', () => 
   const view = publicGradedView({
     repository: { owner: 'acme', name: 'widgets', isPrivate: false },
     manifest: agentReadinessManifest,
+    verifiedAt: null,
     latestManifest: agentReadinessManifest,
     grade: publicGradeFrom(result, run, false),
     stale: false,

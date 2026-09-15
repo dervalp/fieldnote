@@ -282,6 +282,10 @@ test('a shared, graded, public repository is readable by anyone', async () => {
   if (view.state !== 'graded') throw new Error('expected a graded view');
   expect(view.repository).toEqual({ owner: 'Acme', name: 'Widgets', isPrivate: false });
   expect(view.grader.title).toBe(agentReadinessManifest.card.title);
+  // The built-in is seeded pre-verified: a visitor reading a public grade for
+  // it sees that fieldnote read this grader, not just a stranger's score in
+  // fieldnote's chrome.
+  expect(view.grader.verifiedAt).toBeInstanceOf(Date);
   expect(view.stale).toBe(false);
   expect(view.grade.checks.some((check) => check.paths.includes('README.md'))).toBe(true);
 });

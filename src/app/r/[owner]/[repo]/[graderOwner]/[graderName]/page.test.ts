@@ -92,6 +92,27 @@ test('an ungraded pair invites nothing and claims nothing', async () => {
   const html = renderToStaticMarkup(await PublicGrade({ params: params() }));
   expect(html).toContain('Not graded yet.');
   expect(html).not.toContain('out of 100');
+  expect(html).toContain('Not reviewed');
+});
+
+// Decision 4: a stranger's unreviewed grader must never look indistinguishable
+// from one fieldnote has read, whichever branch of the page renders it.
+test('a graded page names whether fieldnote read this grader, with the date', async () => {
+  const verified = { ...grader, verifiedAt: new Date('2026-09-01T00:00:00.000Z') };
+  deps.publicGrade.mockResolvedValue({
+    state: 'graded',
+    repository,
+    grader: verified,
+    grade,
+    stale: false,
+    outdated: false,
+  });
+  const html = renderToStaticMarkup(await PublicGrade({ params: params() }));
+  expect(html).toContain('Read by fieldnote on 2026-09-01');
+
+  deps.publicGrade.mockResolvedValue({ state: 'graded', repository, grader, grade, stale: false, outdated: false });
+  const unreviewedHtml = renderToStaticMarkup(await PublicGrade({ params: params() }));
+  expect(unreviewedHtml).toContain('Not reviewed');
 });
 
 test('every private address renders the same page, whatever was asked for', async () => {

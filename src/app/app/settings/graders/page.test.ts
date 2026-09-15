@@ -120,6 +120,36 @@ test('an already-installed grader offers no install link', async () => {
   expect(html).not.toContain('install=');
 });
 
+test('the installed line names the installed version as withdrawn, not the newest one', async () => {
+  deps.workspace.mockResolvedValue({ id: 'w', name: 'W', role: 'owner', handle: 'acme' });
+  deps.workspaceGraders.mockResolvedValue([]);
+  deps.browsableGraders.mockResolvedValue([
+    {
+      id: agentReadinessManifest.id,
+      manifest: agentReadinessManifest,
+      version: '0.2.0',
+      // The newest version is unreviewed and not withdrawn — the browse
+      // row's own state line describes exactly that. The bug this guards
+      // hard-coded withdrawnAt={null} for the *installed* entry too, which
+      // made a withdrawn install look identical to this newest version.
+      verifiedAt: null,
+      author: 'acme',
+      installed: {
+        manifest: agentReadinessManifest,
+        version: '0.1.0',
+        consentedNeeds: 'hash',
+        verifiedAt: new Date('2026-09-01'),
+        withdrawnAt: new Date('2026-09-10'),
+        latestVersion: '0.2.0',
+      },
+    },
+  ]);
+  const html = renderToStaticMarkup(await Graders());
+  expect(html).toContain('Installed · v0.1.0');
+  expect(html).toContain('Read by fieldnote on 2026-09-01');
+  expect(html).toContain('Withdrawn');
+});
+
 test('an owner sees the update line, the update link and the uninstall sentence when a newer version exists', async () => {
   deps.workspace.mockResolvedValue({ id: 'w', name: 'W', role: 'owner', handle: 'acme' });
   deps.workspaceGraders.mockResolvedValue([]);

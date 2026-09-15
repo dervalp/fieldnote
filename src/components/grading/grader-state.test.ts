@@ -27,11 +27,12 @@ test('neither verified nor withdrawn says not reviewed', () => {
   expect(html).not.toContain('Withdrawn');
 });
 
-// Verified takes priority: a person having read it stays true even after a
-// later withdrawal, so this is not "whichever date is set" or "withdrawn
-// wins" — the mark is about being read, not about being currently offered.
-test('a version that is both verified and withdrawn still reads as read, not withdrawn', () => {
+// The two facts are not mutually exclusive: a person having read it stays
+// true even after a later withdrawal, and a workspace still running that
+// version needs both — that it was reviewed, and that it is withdrawn now.
+test('a version that is both verified and withdrawn says both', () => {
   const html = render(new Date('2026-09-01'), new Date('2026-09-10'));
   expect(html).toContain('Read by fieldnote on 2026-09-01');
-  expect(html).not.toContain('Withdrawn');
+  expect(html).toContain('Withdrawn');
+  expect(html).not.toContain('Not reviewed');
 });

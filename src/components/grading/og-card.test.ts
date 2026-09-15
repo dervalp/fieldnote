@@ -54,3 +54,19 @@ test('a private image says only fieldnote', () => {
   expect(html).not.toContain('acme');
   expect(html).not.toContain('Agent Readiness');
 });
+
+test('the same state line as the page names whether fieldnote read this grader', () => {
+  const unreviewedHtml = render({ state: 'graded', repository, grader, grade, stale: false, outdated: false });
+  expect(unreviewedHtml).toContain('Not reviewed');
+
+  const verified = { ...grader, verifiedAt: new Date('2026-09-01T00:00:00.000Z') };
+  const verifiedHtml = render({
+    state: 'graded',
+    repository,
+    grader: verified,
+    grade,
+    stale: false,
+    outdated: false,
+  });
+  expect(verifiedHtml).toContain('Read by fieldnote on 2026-09-01');
+});

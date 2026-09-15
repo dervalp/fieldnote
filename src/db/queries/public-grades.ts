@@ -7,7 +7,7 @@ import {
   repositories,
   workspaceRepositories,
 } from '../schema';
-import { graderVersion, latestPublishedVersion } from './graders';
+import { graderVersion, latestPublishedVersion, verifiedAtFor } from './graders';
 import {
   freshAt,
   isStale,
@@ -100,10 +100,13 @@ export async function publicGrade(
   if (!run?.result || !run.sha || !run.completedAt) {
     // Nothing scored: fall back to the newest published version for identity.
     const manifest = await latestPublishedVersion(graderId);
-    return manifest ? { state: 'ungraded', repository, grader: publicGrader(manifest) } : PRIVATE;
+    if (!manifest) return PRIVATE;
+    const verifiedAt = await verifiedAtFor(graderId, manifest.version);
+    return { state: 'ungraded', repository, grader: publicGrader(manifest, verifiedAt) };
   }
   const manifest = await graderVersion(graderId, run.result.rubricVersion);
   if (!manifest) return PRIVATE;
+  const verifiedAt = await verifiedAtFor(graderId, manifest.version);
   // Never the same lookup as `manifest`: this asks what is published *now*,
   // to say whether the shown grade is on an earlier rubric — comparing the
   // pinned manifest to itself would make that vacuously false.
@@ -111,6 +114,7 @@ export async function publicGrade(
   return publicGradedView({
     repository,
     manifest,
+    verifiedAt,
     latestManifest,
     grade: publicGradeFrom(
       run.result,

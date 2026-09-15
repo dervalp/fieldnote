@@ -25,6 +25,11 @@ export type PublicGrader = {
   version: string;
   evaluatorVersion: string;
   checkTitles: Record<string, string>;
+  // A fact about the grader, not about the repository being graded — safe to
+  // carry across the narrow-copy boundary the same way the rest of this type
+  // is. Decision 4: a public grade page never presents a stranger's
+  // unreviewed grader with nothing to tell it apart from one fieldnote read.
+  verifiedAt: Date | null;
 };
 
 export type PublicGrade = {
@@ -52,7 +57,7 @@ export type PublicGradeView =
       outdated: boolean;
     };
 
-export function publicGrader(manifest: GraderManifest): PublicGrader {
+export function publicGrader(manifest: GraderManifest, verifiedAt: Date | null = null): PublicGrader {
   return {
     id: manifest.id,
     title: manifest.card.title,
@@ -65,6 +70,7 @@ export function publicGrader(manifest: GraderManifest): PublicGrader {
     version: manifest.version,
     evaluatorVersion: manifest.evaluatorVersion,
     checkTitles: Object.fromEntries(manifest.checks.map((check) => [check.id, check.title])),
+    verifiedAt,
   };
 }
 
@@ -82,6 +88,7 @@ export function publicGrader(manifest: GraderManifest): PublicGrader {
 export function publicGradedView(input: {
   repository: PublicRepository;
   manifest: GraderManifest;
+  verifiedAt: Date | null;
   latestManifest: GraderManifest | null;
   grade: PublicGrade;
   stale: boolean;
@@ -94,7 +101,7 @@ export function publicGradedView(input: {
   return {
     state: 'graded',
     repository: input.repository,
-    grader: publicGrader(manifest),
+    grader: publicGrader(manifest, input.verifiedAt),
     grade: input.grade,
     stale: input.stale,
     outdated,

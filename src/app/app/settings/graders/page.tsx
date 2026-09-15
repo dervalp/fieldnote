@@ -121,7 +121,13 @@ export default async function Graders({
                 </div>
                 {entry.installed ? (
                   <div>
-                    <p className="fine">Installed · v{entry.installed.version}</p>
+                    <p className="fine">
+                      Installed · v{entry.installed.version} ·{' '}
+                      <GraderStateLine
+                        verifiedAt={entry.installed.verifiedAt}
+                        withdrawnAt={entry.installed.withdrawnAt}
+                      />
+                    </p>
                     {entry.installed.latestVersion !== entry.installed.version && (
                       <>
                         <p className="fine">

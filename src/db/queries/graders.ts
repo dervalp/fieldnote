@@ -19,6 +19,19 @@ export async function graderVersion(
   return row ? parseManifest(row.manifest) : null;
 }
 
+/** Whether fieldnote staff have read this exact (grader_id, version) — the
+ *  fact the public grade page carries alongside the manifest it names, since
+ *  a visitor presented with a stranger's grader deserves to know whether
+ *  anyone has looked at it. Null for a version that does not exist, same as
+ *  graderVersion(). */
+export async function verifiedAtFor(graderId: string, version: string): Promise<Date | null> {
+  const [row] = await db()
+    .select({ verifiedAt: graderVersions.verifiedAt })
+    .from(graderVersions)
+    .where(and(eq(graderVersions.graderId, graderId), eq(graderVersions.version, version)));
+  return row?.verifiedAt ?? null;
+}
+
 /** The newest version of a grader that has not been withdrawn, or null when
  *  every version is withdrawn or the grader does not exist. */
 export async function latestPublishedVersion(graderId: string): Promise<GraderManifest | null> {

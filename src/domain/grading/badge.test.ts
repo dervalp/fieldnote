@@ -13,6 +13,7 @@ const grader = {
   version: '0.1.0',
   evaluatorVersion: '1.0.0',
   checkTitles: { 'root-readme': 'Project documentation' },
+  verifiedAt: null,
 };
 const repository = { owner: 'acme', name: 'widgets', isPrivate: false };
 const grade = {

@@ -6,6 +6,7 @@ import { publicGrade } from '../../../../../../db/queries/public-grades';
 import type { PublicGradeView } from '../../../../../../domain/grading/public-grade';
 import { gradeCardProps } from '../../../../../../components/grading/grade-presentation';
 import { GradeReport } from '../../../../../../components/grading/report-view';
+import { GraderStateLine } from '../../../../../../components/grading/grader-state';
 import './public-grade.css';
 
 export const dynamic = 'force-dynamic';
@@ -48,6 +49,9 @@ export default async function PublicGrade({ params }: { params: Params }) {
       ) : resolved.state === 'ungraded' ? (
         <Surface>
           <h1>{resolved.grader.title}</h1>
+          <p>
+            <GraderStateLine verifiedAt={resolved.grader.verifiedAt} withdrawnAt={null} />
+          </p>
           <p>Not graded yet.</p>
         </Surface>
       ) : (
@@ -55,6 +59,9 @@ export default async function PublicGrade({ params }: { params: Params }) {
           <h1>
             {resolved.grader.title} · {resolved.repository.owner}/{resolved.repository.name}
           </h1>
+          <p>
+            <GraderStateLine verifiedAt={resolved.grader.verifiedAt} withdrawnAt={null} />
+          </p>
           <GradeCard
             {...gradeCardProps({
               score: resolved.grade.score,
