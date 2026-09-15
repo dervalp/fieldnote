@@ -3,8 +3,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, test } from 'vitest';
 import { gradePresentation } from '../../domain/grading/presentation';
 import { GradeBanner } from '@fieldnote/design-system';
-import { gradeBannerProps, gradeCardProps } from './grade-presentation';
-import { AGENT_READINESS } from '../../domain/grading/graders/agent-readiness';
+import { gradeBannerProps, gradeCardProps, graderCardIdentity } from './grade-presentation';
+import { agentReadinessManifest } from '../../domain/grading/graders/agent-readiness';
 
 const bannerProps = (score: number) =>
   gradeBannerProps(
@@ -14,7 +14,7 @@ const bannerProps = (score: number) =>
       sha: 'a'.repeat(40),
       rubricVersion: '0.1.0',
       checks: [],
-      graderId: AGENT_READINESS,
+      grader: graderCardIdentity(agentReadinessManifest),
     }),
   );
 

@@ -1,19 +1,23 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { ManifestError } from '../../../../domain/grading/manifest';
 import { DEMO_READ_ONLY, REPOSITORY_UNAVAILABLE } from '../../../../db/queries/grade-runs';
 
-const { withCliPrincipal, accessibleRepositories, requestGrade, dispatchGrade, getGrader } =
-  vi.hoisted(() => ({
-    withCliPrincipal: vi.fn(
-      async (_r: Request, _s: string, h: () => Promise<Response>) => await h(),
-    ),
-    accessibleRepositories: vi.fn(),
-    requestGrade: vi.fn(),
-    dispatchGrade: vi.fn(),
-    getGrader: vi.fn(),
-  }));
+const {
+  withCliPrincipal,
+  accessibleRepositories,
+  requireWorkspace,
+  requestGrade,
+  dispatchGrade,
+  installedGrader,
+} = vi.hoisted(() => ({
+  withCliPrincipal: vi.fn(async (_r: Request, _s: string, h: () => Promise<Response>) => await h()),
+  accessibleRepositories: vi.fn(),
+  requireWorkspace: vi.fn(),
+  requestGrade: vi.fn(),
+  dispatchGrade: vi.fn(),
+  installedGrader: vi.fn(),
+}));
 vi.mock('../principal', () => ({ withCliPrincipal }));
-vi.mock('../../../../workspaces/access', () => ({ accessibleRepositories }));
+vi.mock('../../../../workspaces/access', () => ({ accessibleRepositories, requireWorkspace }));
 // Re-exports the real DEMO_READ_ONLY / REPOSITORY_UNAVAILABLE constants
 // alongside the mocked requestGrade, so these tests throw the actual strings
 // grade-runs.ts exports rather than a copy — a reword there cannot leave
@@ -23,12 +27,9 @@ vi.mock('../../../../db/queries/grade-runs', async (importOriginal) => ({
   requestGrade,
 }));
 vi.mock('../../../../inngest/dispatch-grade', () => ({ dispatchGrade }));
-// The registry module is mocked wholesale, but agent-readiness.ts calls
-// registerGrader(...) at import time to register the built-in grader — the
-// route imports that module for AGENT_READINESS. Without a registerGrader
-// stub here, importing the route throws "registerGrader is not a function"
-// before any test body runs.
-vi.mock('../../../../domain/grading/registry', () => ({ getGrader, registerGrader: vi.fn() }));
+// A grader is a row since slice 6, so "which graders exist here" is a query
+// against this workspace's installs, not a module-scope registration.
+vi.mock('../../../../db/queries/graders', () => ({ installedGrader }));
 
 import { POST } from './route';
 
@@ -43,8 +44,12 @@ beforeEach(() => {
   vi.resetAllMocks();
   withCliPrincipal.mockImplementation(async (_r, _s, h) => await h());
   accessibleRepositories.mockResolvedValue([{ id: 'r_1', owner: 'dervalp', name: 'fieldnote' }]);
+  requireWorkspace.mockResolvedValue({ id: 'w_1', name: 'Acme', role: 'owner' });
   requestGrade.mockResolvedValue({ id: 'gr_1', state: 'queued' });
-  getGrader.mockReturnValue({ id: 'fieldnote/agent-readiness', mode: 'deterministic' });
+  installedGrader.mockResolvedValue({
+    manifest: { id: 'fieldnote/agent-readiness', mode: 'deterministic' },
+    version: '0.1.0',
+  });
   dispatchGrade.mockResolvedValue(undefined);
 });
 
@@ -90,16 +95,25 @@ describe('POST /api/cli/grades', () => {
     expect(response.status).toBe(400);
   });
 
-  it('404s an unknown grader by name, instead of falling through to a 503', async () => {
-    getGrader.mockImplementation(() => {
-      throw new ManifestError('unknown_grader', "No grader 'bogus/grader' is registered.");
-    });
+  it('404s a grader this workspace has not installed, instead of falling through to a 503', async () => {
+    installedGrader.mockResolvedValue(null);
     const response = await POST(
       post({ repository: 'dervalp/fieldnote', sha: 'a'.repeat(40), grader: 'bogus/grader' }),
     );
     expect(response.status).toBe(404);
-    expect((await response.json()).error).toMatch(/bogus\/grader/);
+    const { error } = await response.json();
+    expect(error).toMatch(/bogus\/grader/);
+    // A refusal with no next step is homework: the sentence names where to
+    // install it, built from the request's own origin.
+    expect(error).toContain('http://localhost/app/settings/graders');
     expect(requestGrade).not.toHaveBeenCalled();
+  });
+
+  it('asks about the grader in the workspace the token is pinned to', async () => {
+    await POST(
+      post({ repository: 'dervalp/fieldnote', sha: 'a'.repeat(40), grader: 'fieldnote/other' }),
+    );
+    expect(installedGrader).toHaveBeenCalledWith('w_1', 'fieldnote/other');
   });
 
   it('409s a demo workspace — a refusal no re-login can lift, so never a 403', async () => {

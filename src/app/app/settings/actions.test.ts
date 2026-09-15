@@ -18,10 +18,14 @@ vi.mock('../../../workspaces/invitations', () => ({
   resendInvitation: vi.fn(),
   revokeInvitation: vi.fn(),
 }));
+vi.mock('../../../db/queries/grader-publishing', () => ({
+  claimHandle: vi.fn(),
+}));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 import { requireWorkspace } from '../../../workspaces/access';
 import { mutationUser, changeMemberRole } from '../../../workspaces/members';
 import { createInvitation } from '../../../workspaces/invitations';
+import { claimHandle } from '../../../db/queries/grader-publishing';
 import { EmailDeliveryError } from '../../../email/resend';
 import {
   saveWorkspaceName,
@@ -29,6 +33,7 @@ import {
   updateMember,
   switchWorkspace,
   inviteMember,
+  saveWorkspaceHandle,
 } from './actions';
 beforeEach(() => {
   vi.resetAllMocks();
@@ -56,7 +61,12 @@ test('account names reject blank and overlong input', async () => {
   }
 });
 test('last owner policy is returned as a safe inline error', async () => {
-  vi.mocked(requireWorkspace).mockResolvedValue({ id: 'w', name: 'Workspace', role: 'owner' });
+  vi.mocked(requireWorkspace).mockResolvedValue({
+    id: 'w',
+    name: 'Workspace',
+    handle: null,
+    role: 'owner',
+  });
   vi.mocked(changeMemberRole).mockRejectedValue(new Error('Workspace must retain an owner'));
   const form = new FormData();
   form.set('userId', 'u');
@@ -64,7 +74,12 @@ test('last owner policy is returned as a safe inline error', async () => {
   expect(await updateMember(form)).toEqual({ error: 'Keep at least one owner in this workspace.' });
 });
 test('unknown failures never reveal provider or database details', async () => {
-  vi.mocked(requireWorkspace).mockResolvedValue({ id: 'w', name: 'Workspace', role: 'owner' });
+  vi.mocked(requireWorkspace).mockResolvedValue({
+    id: 'w',
+    name: 'Workspace',
+    handle: null,
+    role: 'owner',
+  });
   vi.mocked(changeMemberRole).mockRejectedValue(new Error('secret postgres credential'));
   const form = new FormData();
   form.set('userId', 'u');
@@ -87,14 +102,36 @@ test('demo guard rejects account mutation before storage', async () => {
   await expect(saveAccountName(form)).rejects.toThrow('Workspace unavailable');
 });
 test('missing delivery setup is actionable and never reported as sent', async () => {
-  vi.mocked(requireWorkspace).mockResolvedValue({ id: 'w', name: 'Workspace', role: 'owner' });
+  vi.mocked(requireWorkspace).mockResolvedValue({
+    id: 'w',
+    name: 'Workspace',
+    handle: null,
+    role: 'owner',
+  });
   vi.mocked(createInvitation).mockRejectedValue(new EmailDeliveryError('email_unavailable'));
   const form = new FormData();
   form.set('email', 'teammate@example.com');
   expect((await inviteMember(form)).error).toMatch('RESEND_API_KEY and RESEND_FROM_EMAIL');
 });
+test('claiming a handle passes the submitted value and reports a taken one in words', async () => {
+  const form = new FormData();
+  form.set('handle', 'acme');
+  vi.mocked(claimHandle).mockResolvedValue(undefined);
+  expect(await saveWorkspaceHandle(form)).toEqual({});
+  expect(claimHandle).toHaveBeenCalledWith('acme');
+
+  vi.mocked(claimHandle).mockRejectedValue(new Error('Handle unavailable'));
+  expect(await saveWorkspaceHandle(form)).toEqual({
+    error: 'That handle is taken or reserved. Try another.',
+  });
+});
 test('Next navigation errors remain framework control flow', async () => {
-  vi.mocked(requireWorkspace).mockResolvedValue({ id: 'w', name: 'Workspace', role: 'owner' });
+  vi.mocked(requireWorkspace).mockResolvedValue({
+    id: 'w',
+    name: 'Workspace',
+    handle: null,
+    role: 'owner',
+  });
   const navigation = Object.assign(new Error('redirect'), {
     digest: 'NEXT_REDIRECT;replace;/signed-out;307;',
   });

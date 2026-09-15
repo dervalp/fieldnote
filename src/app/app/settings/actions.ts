@@ -14,7 +14,12 @@ import {
   changeMemberRole,
   removeMember,
 } from '../../../workspaces/members';
-import { createInvitation, resendInvitation, revokeInvitation } from '../../../workspaces/invitations';
+import {
+  createInvitation,
+  resendInvitation,
+  revokeInvitation,
+} from '../../../workspaces/invitations';
+import { claimHandle } from '../../../db/queries/grader-publishing';
 import { EmailDeliveryError } from '../../../email/resend';
 type Result = { error?: string };
 const value = (form: FormData, key: string) => String(form.get(key) ?? '');
@@ -38,6 +43,9 @@ async function save(operation: () => Promise<unknown>): Promise<Result> {
       'Invalid email': 'Enter a valid email address.',
       'Workspace unavailable': 'This workspace is unavailable.',
       'Member unavailable': 'This member is no longer available.',
+      'Invalid handle': 'A handle is 2–39 characters: lowercase letters, numbers and dashes.',
+      'Handle unavailable': 'That handle is taken or reserved. Try another.',
+      'Handle already claimed': 'This workspace already has a handle, and it cannot be changed.',
     };
     return {
       error:
@@ -111,4 +119,7 @@ export async function deleteMember(form: FormData): Promise<Result> {
 export async function disconnectRepository(form: FormData): Promise<Result> {
   const workspace = await requireWorkspace(undefined, 'owner');
   return save(() => unlinkRepository(workspace.id, value(form, 'repositoryId')));
+}
+export async function saveWorkspaceHandle(form: FormData): Promise<Result> {
+  return save(() => claimHandle(value(form, 'handle')));
 }

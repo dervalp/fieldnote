@@ -1,14 +1,13 @@
 import { z } from 'zod';
 import { withCliPrincipal } from '../principal';
-import { accessibleRepositories } from '../../../../workspaces/access';
+import { accessibleRepositories, requireWorkspace } from '../../../../workspaces/access';
 import {
   requestGrade,
   DEMO_READ_ONLY,
   REPOSITORY_UNAVAILABLE,
 } from '../../../../db/queries/grade-runs';
 import { dispatchGrade } from '../../../../inngest/dispatch-grade';
-import { getGrader } from '../../../../domain/grading/registry';
-import { ManifestError } from '../../../../domain/grading/manifest';
+import { installedGrader } from '../../../../db/queries/graders';
 import { AGENT_READINESS } from '../../../../domain/grading/graders/agent-readiness';
 import { workspaceSettingsPath } from '../../../../lib/app-routes';
 
@@ -64,18 +63,25 @@ export async function POST(request: Request) {
     );
     if (!repository) return notConnected(request, body.data.repository);
 
+    // A grader is a row, and a workspace runs the version it installed — so
+    // "does this grader exist" and "may this workspace run it" are one
+    // question, asked of grader_installs. Asked here rather than left to
+    // requestGrade so an unknown or uninstalled grader is a 404 naming the
+    // grader, not a 503 the CLI would retry.
     const graderId = body.data.grader ?? AGENT_READINESS;
-    let manifest;
-    try {
-      manifest = getGrader(graderId);
-    } catch (error) {
-      if (error instanceof ManifestError && error.code === 'unknown_grader')
-        return Response.json(
-          { error: `fieldnote has no grader named '${graderId}'. Check the --grader flag.` },
-          { status: 404, headers },
-        );
-      throw error;
-    }
+    const workspace = await requireWorkspace();
+    const installed = await installedGrader(workspace.id, graderId);
+    if (!installed)
+      return Response.json(
+        {
+          error: `${workspace.name} has not installed a grader named '${graderId}'. Install it at ${new URL(
+            '/app/settings/graders',
+            request.url,
+          ).toString()}, or check the --grader flag.`,
+        },
+        { status: 404, headers },
+      );
+    const manifest = installed.manifest;
 
     // requestGrade checks workspace membership, repository connection and demo
     // mode, and holds the one-live-run-per-repository-and-grader constraint.

@@ -5,17 +5,18 @@ import {
   beginGrade,
   loadGradeRun,
   pinGradeSha,
+  pinnedManifest,
   validateGradeRun,
   completeGrade,
   failGrade,
+  insufficientGrade,
 } from '../../db/queries/grade-runs';
-import {
-  resolveReadinessSha,
-  collectReadiness,
-  ReadinessCollectionError,
-} from '../../github/collect-readiness';
-import { getGrader } from '../../domain/grading/registry';
-import { runDeclarative } from '../../domain/grading/declarative';
+import { resolveHeadSha, FileCollectionError } from '../../github/collect-files';
+import { collectEvidence, ConsentError } from '../../grading/evidence';
+import { installedGrader } from '../../db/queries/graders';
+import { GraderFailedError } from '../../domain/grading/code';
+import { evaluate, sandboxFor } from '../../grading/evaluate';
+import { SandboxUnavailableError } from '../../grading/sandbox/errors';
 
 async function validated(runId: string) {
   const run = await loadGradeRun(runId);
@@ -29,19 +30,46 @@ async function validated(runId: string) {
   return run;
 }
 async function collectionFailure(runId: string, error: unknown): Promise<never> {
-  if (error instanceof ReadinessCollectionError && !error.retryable) {
+  if (error instanceof FileCollectionError && !error.retryable) {
     await failGrade(runId);
     throw new NonRetriableError('Repository evidence unavailable');
   }
+  // Same input, same result: a program that failed once fails again.
+  if (error instanceof GraderFailedError) {
+    await failGrade(runId, 'grader_failed');
+    throw new NonRetriableError('Grader failed');
+  }
+  if (error instanceof ConsentError) {
+    await failGrade(runId, 'consent_required');
+    throw new NonRetriableError('Grader needs exceed consent');
+  }
+  if (error instanceof SandboxUnavailableError) {
+    if (!error.retryable) {
+      await failGrade(runId, 'sandbox_unavailable');
+      throw new NonRetriableError('Grading sandbox unavailable');
+    }
+    // Rethrown fresh and under its own name, so no vendor message rides along
+    // and onFailure can still tell an outage from fieldnote failing to read.
+    throw new SandboxUnavailableError(true);
+  }
   // Never let provider exceptions (request headers or source) enter Inngest logs.
   throw new Error('Repository evidence collection failed');
+}
+
+/**
+ * The code a run records when Inngest's retries are spent. Inngest's StepError
+ * keeps the original error's name, so an outage that outlasted every retry is
+ * stored as an outage rather than as fieldnote failing to read the repository.
+ */
+export function finalFailureCode(error: { name?: string } | undefined) {
+  return error?.name === 'SandboxUnavailableError' ? ('sandbox_unavailable' as const) : undefined;
 }
 export async function resolveGradeCommit(runId: string) {
   const run = await validated(runId);
   if (!run) return null;
   if (run.sha) return run.sha;
   try {
-    return await pinGradeSha(runId, await resolveReadinessSha(run.repositoryId));
+    return await pinGradeSha(runId, await resolveHeadSha(run.repositoryId));
   } catch (error) {
     return collectionFailure(runId, error);
   }
@@ -50,23 +78,36 @@ export async function evaluateGradeRun(runId: string) {
   const run = await validated(runId);
   if (!run) return;
   if (!run.sha) throw new NonRetriableError('Grade commit is missing');
+  // Resolved before the try below: a run whose workspace never installed the
+  // grader is not a collection failure, and must not be re-wrapped by
+  // collectionFailure's generic fallback.
+  const installed = await installedGrader(run.requestedWorkspaceId, run.graderId);
+  if (!installed) {
+    await failGrade(runId, 'consent_required');
+    throw new NonRetriableError('Grader is not installed');
+  }
   try {
-    const manifest = getGrader(run.graderId);
-    // Slice 1 has no evidence broker: collectReadiness supplies repo.files and
-    // nothing else, so a manifest that needs anything more must not silently
-    // be graded against the files collector. Slice 3 replaces this assertion
-    // with the broker.
-    if (Object.keys(manifest.needs).join() !== 'repo.files')
-      throw new NonRetriableError('Grader needs evidence fieldnote cannot yet collect');
-    const snapshot = await collectReadiness(run.repositoryId, run.sha);
-    const result = runDeclarative(manifest, snapshot);
-    if (result.score === null) {
-      await failGrade(runId, 'incomplete_collection');
+    const manifest = await pinnedManifest(run.graderId, run.rubricVersion);
+    // Before collecting: no sandbox should cost no GitHub calls.
+    const sandbox = sandboxFor(manifest);
+    const collected = await collectEvidence(
+      manifest,
+      run.repositoryId,
+      run.sha,
+      run.createdAt,
+      installed.consentedNeeds,
+    );
+    const { result, verdict } = await evaluate(manifest, collected, sandbox);
+    // A failure stores nothing: its check results failed for want of evidence,
+    // not for want of the thing they measure.
+    if (verdict === 'incomplete') {
+      await failGrade(runId, collected.incompleteCode ?? undefined);
       return;
     }
-    // Recheck authorization after collection too; result contains metadata only.
+    // Recheck authorization after collection, before storing anything.
     if (!(await validated(runId))) return;
-    await completeGrade(runId, result);
+    if (verdict === 'insufficient') await insufficientGrade(runId, result);
+    else await completeGrade(runId, result);
   } catch (error) {
     return collectionFailure(runId, error);
   }
@@ -77,8 +118,8 @@ export const gradeRepositoryFunction = inngest.createFunction(
     triggers: [{ event: 'repository/grade.requested' }],
     retries: 3,
     singleton: { key: 'event.data.runId', mode: 'skip' },
-    onFailure: async ({ event }) => {
-      await failGrade(gradeRequestedData.parse(event.data.event.data).runId);
+    onFailure: async ({ event, error }) => {
+      await failGrade(gradeRequestedData.parse(event.data.event.data).runId, finalFailureCode(error));
     },
   },
   async ({ event, step }) => {

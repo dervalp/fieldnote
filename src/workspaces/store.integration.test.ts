@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, expect, test } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { closeDb, db } from '../db';
-import { users, workspaceMemberships, workspaces } from '../db/schema';
+import { graderInstalls, users, workspaceMemberships, workspaces } from '../db/schema';
 import { createWorkspace, ensureDefaultWorkspace, listWorkspaces } from './store';
+import { AGENT_READINESS } from '../domain/grading/graders/agent-readiness';
 
 beforeAll(async () => {
   await migrate(db(), { migrationsFolder: 'drizzle' });
@@ -29,6 +30,30 @@ test('concurrent sign-ins create one default', async () => {
   ]);
   expect(a.id).toBe(b.id);
   expect(await listWorkspaces('fixture-user')).toHaveLength(1);
+});
+
+test('an install deleted between sign-ins is not resurrected by a later one', async () => {
+  // ensureDefaultWorkspace() runs on every authenticated request. If the
+  // early-return path (the workspace already exists) ran installBuiltIns()
+  // too, an uninstall would only last until the user's next page load — this
+  // is the regression guard for that.
+  const workspace = await ensureDefaultWorkspace('fixture-user');
+  const before = await db()
+    .select()
+    .from(graderInstalls)
+    .where(and(eq(graderInstalls.workspaceId, workspace.id), eq(graderInstalls.graderId, AGENT_READINESS)));
+  expect(before).toHaveLength(1);
+
+  await db()
+    .delete(graderInstalls)
+    .where(and(eq(graderInstalls.workspaceId, workspace.id), eq(graderInstalls.graderId, AGENT_READINESS)));
+
+  await ensureDefaultWorkspace('fixture-user');
+  const after = await db()
+    .select()
+    .from(graderInstalls)
+    .where(and(eq(graderInstalls.workspaceId, workspace.id), eq(graderInstalls.graderId, AGENT_READINESS)));
+  expect(after).toHaveLength(0);
 });
 
 test('a user can create a second named workspace as owner', async () => {

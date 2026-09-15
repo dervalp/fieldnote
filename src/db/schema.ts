@@ -244,6 +244,9 @@ export const users = pgTable('users', {
   credentials: text('credentials').notNull(),
   displayName: text('display_name'),
   avatarUrl: text('avatar_url'),
+  // fieldnote staff. Set directly in the database — there is no screen for it,
+  // and the design records that as knowingly wrong.
+  staff: boolean('staff').notNull().default(false),
   createdAt: created(),
   updatedAt: updated(),
 });
@@ -559,6 +562,9 @@ export const workspaces = pgTable('workspaces', {
   defaultForUserId: text('default_for_user_id')
     .unique()
     .references(() => users.id),
+  // Claimed once by an owner and never changed: published grader ids contain
+  // it, and other workspaces' installs point at those ids.
+  handle: text('handle').unique(),
   createdAt: created(),
   updatedAt: updated(),
 });
@@ -660,20 +666,63 @@ export const invitationDeliveries = pgTable(
   ],
 );
 
-export const gradingRubrics = pgTable(
-  'grading_rubrics',
+// One row per grader name, and which workspace owns that name. A null owner is
+// fieldnote's own, seeded from the manifests in src/domain/grading/graders.
+export const graders = pgTable('graders', {
+  id: text('id').primaryKey(),
+  ownedByWorkspaceId: text('owned_by_workspace_id').references(() => workspaces.id),
+  createdAt: created(),
+});
+
+// The registry entry and the rubric a run is pinned to, in one row: both are
+// the same immutable manifest for the same (grader_id, version), and storing
+// it twice would mean two writers and a drift check between them. Only the
+// four lifecycle columns below may change after publication.
+export const graderVersions = pgTable(
+  'grader_versions',
   {
-    graderId: text('grader_id').notNull(),
+    graderId: text('grader_id')
+      .notNull()
+      .references(() => graders.id),
     version: text('version').notNull(),
     evaluatorVersion: text('evaluator_version').notNull(),
-    definition: jsonb('definition').$type<Record<string, unknown>>().notNull(),
-    // The full validated manifest. `definition` remains the rubric a run is
-    // pinned to — checks and points, nothing operational — and is derived from
-    // this, so the two can never disagree.
     manifest: jsonb('manifest').$type<Record<string, unknown>>().notNull(),
-    createdAt: created(),
+    publishedBy: text('published_by').references(() => users.id),
+    publishedAt: created(),
+    verifiedAt: timestamp('verified_at', { withTimezone: true }),
+    verifiedBy: text('verified_by').references(() => users.id),
+    withdrawnAt: timestamp('withdrawn_at', { withTimezone: true }),
+    withdrawnNote: text('withdrawn_note'),
   },
   (t) => [primaryKey({ columns: [t.graderId, t.version] })],
+);
+
+// What a workspace installed, and what it agreed that grader may read.
+// Installing pins one version; an update re-pins it, and re-consents when the
+// declared needs changed.
+export const graderInstalls = pgTable(
+  'grader_installs',
+  {
+    // Cascades: an install belongs to its workspace, not the other way
+    // around, and removing the workspace should remove what it installed
+    // rather than block the delete forever. graders.owned_by_workspace_id is
+    // deliberately not this — a workspace that published a grader should not
+    // become silently deletable.
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    graderId: text('grader_id')
+      .notNull()
+      .references(() => graders.id),
+    version: text('version').notNull(),
+    // Nullable: a seeded install of a built-in has no user behind it.
+    installedBy: text('installed_by').references(() => users.id),
+    installedAt: created(),
+    // The canonical hash of the manifest's `needs`. collectEvidence refuses to
+    // collect anything when the running manifest's needs do not hash to this.
+    consentedNeeds: text('consented_needs').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.workspaceId, t.graderId] })],
 );
 export const gradeRuns = pgTable(
   'grade_runs',
@@ -692,7 +741,12 @@ export const gradeRuns = pgTable(
       .notNull()
       .references(() => workspaces.id),
     retryOf: text('retry_of').references((): AnyPgColumn => gradeRuns.id),
-    state: text('state').$type<'queued' | 'running' | 'complete' | 'failed'>().notNull(),
+    // Provenance. Without it a nightly run is indistinguishable from one the
+    // enabler clicked, and "nobody asked for this run" stops being answerable.
+    trigger: text('trigger').$type<'manual' | 'schedule'>().notNull().default('manual'),
+    state: text('state')
+      .$type<'queued' | 'running' | 'complete' | 'failed' | 'insufficient'>()
+      .notNull(),
     sha: text('sha'),
     result: jsonb('result').$type<import('../domain/grading/types').GradeResult>(),
     errorCode: text('error_code'),
@@ -700,19 +754,82 @@ export const gradeRuns = pgTable(
     createdAt: created(),
     startedAt: timestamp('started_at', { withTimezone: true }),
     completedAt: timestamp('completed_at', { withTimezone: true }),
+    // The last time fieldnote confirmed this run still describes its
+    // repository: its own completion, or a nightly skip that matched it —
+    // same head commit, same grader version. Outside `result`, so a completed
+    // grade's content never changes. The public badge's staleness rule is its
+    // only reader.
+    confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
   },
   (t) => [
-    check('grade_runs_state', sql`${t.state} IN ('queued','running','complete','failed')`),
+    check(
+      'grade_runs_state',
+      sql`${t.state} IN ('queued','running','complete','failed','insufficient')`,
+    ),
+    check('grade_runs_trigger', sql`${t.trigger} IN ('manual','schedule')`),
+    // Unchanged: a SQL check passes on NULL, so this already tolerates the
+    // null score an insufficient run stores.
     check('grade_runs_score', sql`(${t.result}->>'score')::integer BETWEEN 0 AND 100`),
     check(
       'grade_runs_result',
-      sql`(${t.state} = 'complete' AND ${t.sha} IS NOT NULL AND ${t.completedAt} IS NOT NULL AND ${t.result} IS NOT NULL AND ${t.result}->>'score' IS NOT NULL) OR (${t.state} <> 'complete' AND ${t.result} IS NULL)`,
+      sql`(${t.state} = 'complete' AND ${t.sha} IS NOT NULL AND ${t.completedAt} IS NOT NULL AND ${t.result} IS NOT NULL AND ${t.result}->>'score' IS NOT NULL) OR (${t.state} = 'insufficient' AND ${t.sha} IS NOT NULL AND ${t.completedAt} IS NOT NULL AND ${t.result} IS NOT NULL AND ${t.result}->>'score' IS NULL) OR (${t.state} NOT IN ('complete','insufficient') AND ${t.result} IS NULL)`,
     ),
     uniqueIndex('grade_runs_one_active')
       .on(t.repositoryId, t.graderId)
       .where(sql`${t.state} IN ('queued','running')`),
     index('grade_runs_latest').on(t.repositoryId, t.createdAt.desc()),
   ],
+);
+
+// One row per (repository, grader) that grades nightly. Presence means on;
+// turning it off deletes the row. Per grader rather than per repository
+// because the graders answer different questions and move at different
+// speeds — and because a repository-wide switch would silently start grading
+// with a grader installed later that nobody chose.
+export const gradeSchedules = pgTable(
+  'grade_schedules',
+  {
+    repositoryId: text('repository_id')
+      .notNull()
+      .references(() => repositories.id),
+    graderId: text('grader_id').notNull(),
+    // Not decoration: grade_runs.requested_by and requested_workspace_id are
+    // both NOT NULL, and a scheduled run has to be somebody's. This is the
+    // provenance it copies.
+    enabledBy: text('enabled_by')
+      .notNull()
+      .references(() => users.id),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    createdAt: created(),
+  },
+  (t) => [primaryKey({ columns: [t.repositoryId, t.graderId] })],
+);
+
+// One row per (repository, grader) a workspace owner has made public. A row
+// with revoked_at NULL is shared. Turning sharing off sets revoked_at and keeps
+// the row, so a README's badge renders `private` rather than breaking, and
+// turning it back on revives the same link. Keyed by repository, not by
+// workspace, exactly as grade_schedules is: one repository connected to two
+// workspaces has one sharing state per grader.
+export const publicGrades = pgTable(
+  'public_grades',
+  {
+    repositoryId: text('repository_id')
+      .notNull()
+      .references(() => repositories.id),
+    graderId: text('grader_id').notNull(),
+    enabledBy: text('enabled_by')
+      .notNull()
+      .references(() => users.id),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    enabledAt: timestamp('enabled_at', { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  (t) => [primaryKey({ columns: [t.repositoryId, t.graderId] })],
 );
 
 export const authoringRuns = pgTable(

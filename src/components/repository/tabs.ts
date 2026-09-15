@@ -13,7 +13,9 @@ export interface RepositoryTab {
 
 export const tabs: RepositoryTab[] = [
   { segment: null, label: 'Agents' },
-  { segment: 'grading', label: 'Readiness' },
+  // The route segment stays `grading`: renaming it would mean a second
+  // redirect table entry on top of the /app move, for no gain.
+  { segment: 'grading', label: 'Grades' },
   { segment: 'ai-involvement', label: 'Involvement' },
   { segment: 'delivery', label: 'Delivery' },
   { segment: 'settings', label: 'Settings' },

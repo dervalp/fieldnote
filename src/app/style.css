@@ -395,6 +395,21 @@
   box-shadow: none;
   backdrop-filter: none;
 }
+.grade-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 1.5rem;
+}
+.grade-row-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+.grade-row-item[aria-current='true'] .grade-row-link {
+  outline: 2px solid var(--grade, currentColor);
+  outline-offset: 4px;
+  border-radius: var(--radius, 0.75rem);
+}
 .metrics-page a {
   color: var(--ink);
 }

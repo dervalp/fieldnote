@@ -11,7 +11,7 @@ import {
 } from '../../db/queries/authoring-runs';
 import { latestCompletedGrade } from '../../db/queries/grade-runs';
 import { AGENT_READINESS } from '../../domain/grading/graders/agent-readiness';
-import { resolveReadinessSha } from '../../github/collect-readiness';
+import { resolveHeadSha } from '../../github/collect-files';
 import { proposeRemedies } from '../../domain/act/remedies';
 
 async function validated(runId: string) {
@@ -31,7 +31,7 @@ export async function resolvePlanCommit(runId: string) {
   if (!run) return null;
   if (run.sha) return run.sha;
   try {
-    return await pinAuthoringSha(runId, await resolveReadinessSha(run.repositoryId));
+    return await pinAuthoringSha(runId, await resolveHeadSha(run.repositoryId));
   } catch {
     // Never let provider exceptions (request headers or source) enter Inngest logs.
     throw new Error('Plan commit resolution failed');

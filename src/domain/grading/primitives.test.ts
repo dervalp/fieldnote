@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 import { runCheck } from './primitives';
 import type { GraderCheck } from './manifest';
-import type { SourceDocument } from './types';
+import type { MetricsWindow, SourceDocument } from './types';
 
 const doc = (path: string, text: string): SourceDocument => ({
   path,
@@ -23,7 +23,7 @@ test('file-exists finds a root file, case-sensitively by default', () => {
     caseInsensitive: false,
   };
   const documents = [doc('AGENTS.md', '\nUse pnpm.'), doc('docs/AGENTS.md', 'nope')];
-  const result = runCheck(fileExists(args), documents, DISCLAIMER);
+  const result = runCheck(fileExists(args), { documents }, DISCLAIMER);
   expect(result).toMatchObject({ status: 'pass', points: 100, paths: ['AGENTS.md'] });
   expect(result.lineRanges).toEqual([
     { path: 'AGENTS.md', blobSha: 'AGENTS.md-sha', start: 2, end: 2 },
@@ -33,16 +33,16 @@ test('file-exists finds a root file, case-sensitively by default', () => {
 
 test('file-exists with nonempty rejects a blank file and explains the failure', () => {
   const args = { root: true, nonempty: true, anyOf: ['AGENTS.md'], caseInsensitive: false };
-  const result = runCheck(fileExists(args), [doc('AGENTS.md', ' \n\t')], DISCLAIMER);
+  const result = runCheck(fileExists(args), { documents: [doc('AGENTS.md', ' \n\t')] }, DISCLAIMER);
   expect(result).toMatchObject({ status: 'fail', points: 0, paths: [], lineRanges: [] });
   expect(result.explanation).toBe(`Missing. ${DISCLAIMER}`);
 });
 
 test('file-exists honours caseInsensitive', () => {
   const args = { root: true, nonempty: true, anyOf: ['README.md'], caseInsensitive: true };
-  expect(runCheck(fileExists(args), [doc('readME.MD', '# Project')], DISCLAIMER).paths).toEqual([
-    'readME.MD',
-  ]);
+  expect(
+    runCheck(fileExists(args), { documents: [doc('readME.MD', '# Project')] }, DISCLAIMER).paths,
+  ).toEqual(['readME.MD']);
 });
 
 test('glob-count counts matching nonempty documents against min', () => {
@@ -51,8 +51,8 @@ test('glob-count counts matching nonempty documents against min', () => {
     args: { pattern: 'docs/**/*.{md,markdown}', caseInsensitive: true, nonempty: true, min: 2 },
   });
   const one = [doc('DOCS/a.MARKDOWN', 'A'), doc('docs/empty.md', '  '), doc('docs/n.txt', 'no')];
-  expect(runCheck(counted, one, DISCLAIMER).status).toBe('fail');
-  const result = runCheck(counted, [...one, doc('docs/b.md', 'B')], DISCLAIMER);
+  expect(runCheck(counted, { documents: one }, DISCLAIMER).status).toBe('fail');
+  const result = runCheck(counted, { documents: [...one, doc('docs/b.md', 'B')] }, DISCLAIMER);
   expect(result.status).toBe('pass');
   expect(result.paths).toEqual(['DOCS/a.MARKDOWN', 'docs/b.md']);
 });
@@ -69,7 +69,11 @@ test('heading-has-fence scans its scope in the order the scope names it', () => 
     },
   });
   const body = ['## Setup', '```sh', 'pnpm install', '```'].join('\n');
-  const result = runCheck(scoped, [doc('AGENTS.md', body), doc('README.md', body)], DISCLAIMER);
+  const result = runCheck(
+    scoped,
+    { documents: [doc('AGENTS.md', body), doc('README.md', body)] },
+    DISCLAIMER,
+  );
   expect(result.paths).toEqual(['README.md', 'AGENTS.md']);
   expect(result.status).toBe('pass');
 });
@@ -87,7 +91,7 @@ test('a document matched by two scope entries is scanned once', () => {
   });
   const result = runCheck(
     scoped,
-    [doc('README.md', ['## Setup', '```', 'x', '```'].join('\n'))],
+    { documents: [doc('README.md', ['## Setup', '```', 'x', '```'].join('\n'))] },
     DISCLAIMER,
   );
   expect(result.lineRanges).toHaveLength(1);
@@ -128,7 +132,7 @@ test.each([
 ])(
   '$primitive points only at line ranges that resolve inside the document they name',
   (subject) => {
-    const result = runCheck(subject, generated, DISCLAIMER);
+    const result = runCheck(subject, { documents: generated }, DISCLAIMER);
     expect(result.paths).toEqual(result.lineRanges.map((range) => range.path));
     expect(result.lineRanges.length).toBeGreaterThan(0);
     for (const range of result.lineRanges) {
@@ -141,3 +145,81 @@ test.each([
     }
   },
 );
+
+const reading = (numerator: number, denominator: number) => ({
+  numerator,
+  denominator,
+  value: denominator ? (100 * numerator) / denominator : null,
+});
+
+const metricsWindow = (over: Partial<MetricsWindow> = {}): MetricsWindow => ({
+  days: 30,
+  start: '2026-08-15T00:00:00.000Z',
+  endExclusive: '2026-09-14T00:00:00.000Z',
+  mergedPullRequests: 53,
+  'first-pass-rate': reading(36, 53),
+  'ci-success-rate': reading(95, 100),
+  'ci-recovery-rate': reading(1, 4),
+  ...over,
+});
+
+const metric = (args: Record<string, unknown>) => check({ primitive: 'metric-threshold', args });
+
+test('metric-threshold passes at the bar and prints the measurement', () => {
+  const result = runCheck(
+    metric({ metric: 'first-pass-rate', atLeastPercent: 60 }),
+    { documents: [], metrics: metricsWindow() },
+    DISCLAIMER,
+  );
+  expect(result).toMatchObject({ status: 'pass', points: 100, paths: [], lineRanges: [] });
+  expect(result.explanation).toBe(
+    `Found it. Measured 68% (36 of 53) over the 30 days ending 2026-09-13, against a 60% bar. ${DISCLAIMER}`,
+  );
+});
+
+test('metric-threshold compares the rounded value, so the printed number decided it', () => {
+  // 59.6% rounds to 60 and must pass, because 60% is what a reader sees.
+  const metrics = metricsWindow({ 'first-pass-rate': reading(149, 250) });
+  const result = runCheck(
+    metric({ metric: 'first-pass-rate', atLeastPercent: 60 }),
+    { documents: [], metrics },
+    DISCLAIMER,
+  );
+  expect(result.status).toBe('pass');
+  expect(result.explanation).toContain('Measured 60% (149 of 250)');
+});
+
+test('metric-threshold fails below the bar and still prints the measurement', () => {
+  const result = runCheck(
+    metric({ metric: 'ci-recovery-rate', atLeastPercent: 50 }),
+    { documents: [], metrics: metricsWindow() },
+    DISCLAIMER,
+  );
+  expect(result).toMatchObject({ status: 'fail', points: 0 });
+  expect(result.explanation).toBe(
+    `Missing. Measured 25% (1 of 4) over the 30 days ending 2026-09-13, against a 50% bar. ${DISCLAIMER}`,
+  );
+});
+
+test('a metric with no denominator fails rather than passing by vacuum', () => {
+  const metrics = metricsWindow({ 'ci-success-rate': reading(0, 0) });
+  const result = runCheck(
+    metric({ metric: 'ci-success-rate', atLeastPercent: 90 }),
+    { documents: [], metrics },
+    DISCLAIMER,
+  );
+  expect(result.status).toBe('fail');
+  expect(result.explanation).toBe(
+    `Missing. Nothing measurable in the 30 days ending 2026-09-13. ${DISCLAIMER}`,
+  );
+});
+
+test('a metric check with no window at all is a bug, not a repository state', () => {
+  expect(() =>
+    runCheck(
+      metric({ metric: 'first-pass-rate', atLeastPercent: 60 }),
+      { documents: [] },
+      DISCLAIMER,
+    ),
+  ).toThrow(/metric evidence/i);
+});

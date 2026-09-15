@@ -2,10 +2,11 @@ import { expect, test } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { PlanView } from './plan-view';
-import { AGENT_READINESS } from '../../domain/grading/graders/agent-readiness';
-import { graderCheckTitles } from '../../domain/grading/registry';
+import { agentReadinessManifest } from '../../domain/grading/graders/agent-readiness';
 
-const checkTitles = graderCheckTitles(AGENT_READINESS);
+const checkTitles = Object.fromEntries(
+  agentReadinessManifest.checks.map((check) => [check.id, check.title]),
+);
 
 const run = {
   id: 'run-1',

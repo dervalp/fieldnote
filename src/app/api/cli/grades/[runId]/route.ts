@@ -1,22 +1,11 @@
 import { withCliPrincipal } from '../../principal';
 import { loadGradeRun } from '../../../../../db/queries/grade-runs';
 import { accessibleRepositories } from '../../../../../workspaces/access';
-import { graderCheckTitles, getGrader } from '../../../../../domain/grading/registry';
-import { ManifestError } from '../../../../../domain/grading/manifest';
+import { graderVersion } from '../../../../../db/queries/graders';
 import { gradePresentation } from '../../../../../domain/grading/presentation';
 import { finishNames } from '../../../../../domain/grading/finish-names';
 import { nextTier } from '../../../../../domain/grading/next-tier';
 import { repoSectionPath } from '../../../../../lib/app-routes';
-// Registers fieldnote's own built-in grader as a module-scope side effect.
-// Nothing else boots that registration — there is no barrel file and no
-// startup hook — and none of this route's other imports reach it. Without
-// this import, any module instance whose first CLI request is a poll (a
-// per-route serverless function, or a cold instance) throws unknown_grader
-// below and 404s with "no longer registered": false about a grader that is
-// registered, and classified as transient by the CLI, which then retries it
-// for fifteen seconds before reporting.
-import '../../../../../domain/grading/graders/agent-readiness';
-
 const headers = { 'Cache-Control': 'private, no-store' };
 const notFound = (error = 'Grade unavailable.') =>
   Response.json({ error }, { status: 404, headers });
@@ -48,22 +37,20 @@ export async function GET(request: Request, context: { params: Promise<{ runId: 
     if (run.state !== 'complete' || !run.result)
       return Response.json({ state: run.state }, { headers });
 
-    // A stored grade whose grader is no longer registered cannot be rendered
-    // honestly: no grader check titles, and no `mode`, which means no way to
-    // honour the grader's own disclosure obligation for a non-deterministic
-    // grade.
-    let manifest;
-    try {
-      manifest = getGrader(run.graderId);
-    } catch (error) {
-      if (error instanceof ManifestError && error.code === 'unknown_grader')
-        return notFound(
-          `This grade was produced by '${run.graderId}', which is no longer registered.`,
-        );
-      throw error;
-    }
+    // A finished grade resolves the version it was computed with, never the
+    // version this workspace happens to run today: grader_versions is
+    // immutable, so a withdrawn or superseded version still renders its own
+    // titles, mode and disclaimer. Only a grade whose (grader, version) row
+    // is gone entirely cannot be rendered honestly — no check titles, and no
+    // `mode`, which means no way to honour the grader's own disclosure
+    // obligation for a non-deterministic grade.
+    const manifest = await graderVersion(run.graderId, run.rubricVersion);
+    if (!manifest)
+      return notFound(
+        `This grade was produced by '${run.graderId}' ${run.rubricVersion}, which is no longer published.`,
+      );
 
-    const titles = graderCheckTitles(run.graderId);
+    const titles = Object.fromEntries(manifest.checks.map((check) => [check.id, check.title]));
     const { score, checks, rubricVersion, evaluatorVersion, incompleteReason } = run.result;
 
     // A null score means evidence collection was incomplete, not that the

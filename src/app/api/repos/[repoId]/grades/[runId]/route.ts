@@ -15,7 +15,7 @@ export async function GET(
     const run = await loadGradeRun(runId);
     if (!run || run.repositoryId !== repoId)
       return Response.json({ error: 'Grade unavailable.' }, { status: 404, headers });
-    return Response.json({ id: run.id, state: run.state }, { headers });
+    return Response.json({ id: run.id, state: run.state, errorCode: run.errorCode }, { headers });
   } catch (error) {
     unstable_rethrow(error);
     return Response.json(

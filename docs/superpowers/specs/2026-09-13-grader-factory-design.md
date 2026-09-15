@@ -357,7 +357,9 @@ Beyond that:
 
 Sketched, not specified. Each gets its own design document before it is built.
 
-**Slice 2 — the identity strip and a second grader.** The card gains one region:
+**Slice 2 — the identity strip and a second grader.** *Built. Designed in
+[the slice 2 design](2026-09-13-grader-factory-slice-2-design.md), which answers
+open question 5: a row of cards.* The card gains one region:
 author, version, mode, category under the title. The flavour line and the moves
 block become the manifest's `card.tagline` and `card.groups`. A second built-in
 ships — a `delivery-health`
@@ -365,17 +367,36 @@ grader, because it consumes `fieldnote.metrics` and so proves the scope family
 that nobody else can offer. Two visibly different cards in one grid is the first
 moment this design is legible to anyone who has not read this document.
 
-**Slice 3 — the evidence broker, consent and the schedule.** Four collectors,
+**Slice 3 — the evidence broker, consent and the schedule.** *Smaller than
+sketched here: slice 2 already built the metrics collector and a dispatcher over
+two families, so this slice builds the remaining collectors and replaces
+`src/grading/evidence.ts` rather than writing it. It also inherits open question
+6 — pinning a grade's window at request time — because deciding what evidence a
+run is pinned to is what a broker is for.* Four collectors,
 the install consent prompt generated from `needs` rather than hand-written by
 the author, the history collector and its per-sha cache, and nightly cron per
 installation. The largest slice, and deliberately after the contract is settled.
 
-**Slice 4 — code graders.** Sandboxed execution reusing the Act leg's sandbox
-port, `judge()`, budget enforcement before the call, BYOK key handling,
-metering. The highest-risk slice, last, once three slices of contract have said
-what it must support.
+**Slice 4 — code graders.** *Rescoped 2026-09-14, before design, on two
+findings. First, there is no Act sandbox port to reuse: `sandbox` appears three
+times in `src/` — two comments and `authoring_runs.sandbox_id`, a reserved
+column nothing writes. Plan 2b, which would have built it, has not happened.
+Second, `kind` and `mode` are orthogonal: a `kind: code` grader that is
+`mode: deterministic` needs an execution sandbox and nothing else — no model,
+no key, no budget, no meter. The sketch below is therefore two slices.* Slice 4
+is the first pair: a sandbox, and the `kind: code` contract — what a grader
+ships, how it is loaded, what it returns, how a bad one fails. That pair is
+what makes the extraction rule's promise in Risks true. The model broker,
+budget enforcement before the call, BYOK key handling and metering are a later
+slice; they are what make `mode: llm` real, and they add nothing to the
+extraction rule. *Also decided: slice 4 admits `kind: code` for fieldnote's own
+graders only, which parks open question 3 rather than answering it.* The
+grading sandbox is the read-only case — evidence in, `CheckResult` out, no
+repository writes — so it is the cheaper of the two sandboxes to build first,
+and Act's plan 2b can adopt it rather than the reverse.
 
-**Slice 5 — registry, publishing, the public card and the pill.** Marketplace
+**Slice 5 — registry, publishing, the public card and the pill.** *Now blocked
+on open questions 1, 2, 4 and 6.* Marketplace
 listing and browse, the publish flow, opt-in public URLs, `badge.svg` and its
 staleness rules, OG images, revocation. The public card and the pill ship
 together: a card nobody can link to is not a growth loop, and a pill with
@@ -405,18 +426,44 @@ rather than discovered later.
 3. **AGPL and code graders.** fieldnote is AGPL-3.0-only. Does a `kind: code`
    grader executing inside fieldnote's sandbox constitute a derived work? This
    will be the first question in the first GitHub issue an author opens. It
-   needs a written answer before the first code grader runs, not after.
-   *Blocks slice 4.*
+   needs a written answer before the first *third-party* code grader runs.
+   *Deferred 2026-09-14: slice 4 admits `kind: code` for fieldnote's own
+   graders only, so nothing loads foreign code and the question no longer
+   blocks it. It blocks whichever slice opens `kind: code` to authors, and that
+   slice cannot begin design until this is answered.*
 
 4. **The bottom two rungs.** `gradePresentation()` labels 0–49 "Bad" and 50–69
    "Mediocre". Those are verdicts on a team, about to become printable on a
    public page and embeddable in a README. The evidence is the judgment; the
    label need not pile on. *Blocks slice 5, and is cheap to change before then.*
 
-5. **What the dashboard shows when a repository has four grades.** Slice 1 keeps
-   the current behaviour by naming the built-in explicitly at each call site.
-   Slice 2 must decide: a primary grader per repository, an average, or a row of
-   cards. *Blocks slice 2.*
+5. **What the dashboard shows when a repository has four grades.** ~~Blocks
+   slice 2.~~ **Answered in the slice 2 design: a row of cards.** The Grades tab
+   renders one card per registered grader, `?grader=` selects whose report is
+   shown, and the repository's own Agents tab keeps the single readiness card —
+   it asks one question and that card is its answer. An average was rejected
+   because a mean of *can an agent work here* and *does work reach green
+   cleanly* is a number about nothing; a primary grader, because it is a
+   preference to build, explain and migrate in service of keeping pages looking
+   as they did.
+
+6. **What a grader grades, when it grades a period.** `subject: repository`
+   means a repository at a pinned commit, and `fieldnote/delivery-health` grades
+   thirty days that keep moving — so the same commit scores differently next
+   month and no saved report reproduces. A `repository_window` subject, with the
+   range pinned at request time the way the sha is, would fix it. *Blocks
+   nothing built so far. Must be answered before a delivery grade is published —
+   slice 5.*
+
+7. **Where a grader's own sentence reaches a reader.** A manifest must supply an
+   `insufficientReason` for the case where its evidence floor is not met, and
+   slice 2 threads it all the way to `GradeResult.incompleteReason` — where it
+   is then dropped, because a run that ends without a score is `failed` and
+   `grade_runs_result` forbids a failed run from storing a result. What a reader
+   actually sees is fieldnote's generic copy, keyed off the error code. Either a
+   floor miss should be its own run state rather than a failure, or the reason
+   needs somewhere to live. *Blocks nothing. Should be settled in slice 3, which
+   owns the collectors that produce the reason.*
 
 ## Risks
 

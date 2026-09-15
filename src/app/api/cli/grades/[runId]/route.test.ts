@@ -1,35 +1,20 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { ManifestError } from '../../../../../domain/grading/manifest';
 import type { CheckResult } from '../../../../../domain/grading/types';
 
-const {
-  withCliPrincipal,
-  loadGradeRun,
-  accessibleRepositories,
-  graderCheckTitles,
-  getGrader,
-  registerGrader,
-} = vi.hoisted(() => ({
-  withCliPrincipal: vi.fn(async (_r: Request, _s: string, h: () => Promise<Response>) => await h()),
-  loadGradeRun: vi.fn(),
-  accessibleRepositories: vi.fn(),
-  graderCheckTitles: vi.fn(),
-  getGrader: vi.fn(),
-  // The route imports agent-readiness.ts for its registration side effect,
-  // and that module calls registerGrader() at module scope — so a registry
-  // mock that omits it fails at import time. Stubbed rather than real: this
-  // file's subject is the response shape, and registry.test.ts alongside it
-  // is the one that exercises the real registration.
-  registerGrader: vi.fn(),
-}));
+const { withCliPrincipal, loadGradeRun, accessibleRepositories, graderVersion } = vi.hoisted(
+  () => ({
+    withCliPrincipal: vi.fn(
+      async (_r: Request, _s: string, h: () => Promise<Response>) => await h(),
+    ),
+    loadGradeRun: vi.fn(),
+    accessibleRepositories: vi.fn(),
+    graderVersion: vi.fn(),
+  }),
+);
 vi.mock('../../principal', () => ({ withCliPrincipal }));
 vi.mock('../../../../../db/queries/grade-runs', () => ({ loadGradeRun }));
 vi.mock('../../../../../workspaces/access', () => ({ accessibleRepositories }));
-vi.mock('../../../../../domain/grading/registry', () => ({
-  graderCheckTitles,
-  getGrader,
-  registerGrader,
-}));
+vi.mock('../../../../../db/queries/graders', () => ({ graderVersion }));
 
 import { GET } from './route';
 
@@ -38,6 +23,9 @@ const get = (runId: string) =>
     params: Promise.resolve({ runId }),
   });
 
+// Carries its own checks: the route derives the check titles it sends from
+// the manifest of the version the run was pinned to, not from a separate
+// lookup that could answer for a different version.
 const manifest = {
   id: 'fieldnote/agent-readiness',
   version: '1.2.0',
@@ -46,6 +34,10 @@ const manifest = {
   category: 'agent-readiness' as const,
   disclaimer: 'Deterministic checks only; no model was involved.',
   card: { tagline: 'Can an agent work here?', groups: [] },
+  checks: [
+    { id: 'root-readme', title: 'Project documentation' },
+    { id: 'ci-config', title: 'CI configuration' },
+  ],
 };
 
 const titles = { 'root-readme': 'Project documentation', 'ci-config': 'CI configuration' };
@@ -54,8 +46,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   withCliPrincipal.mockImplementation(async (_r, _s, h) => await h());
   accessibleRepositories.mockResolvedValue([{ id: 'r_1' }]);
-  graderCheckTitles.mockReturnValue(titles);
-  getGrader.mockReturnValue(manifest);
+  graderVersion.mockResolvedValue(manifest);
 });
 
 describe('GET /api/cli/grades/[runId]', () => {
@@ -244,10 +235,8 @@ describe('GET /api/cli/grades/[runId]', () => {
     expect((await get('gr_2')).headers.get('Cache-Control')).toBe('private, no-store');
   });
 
-  it('404s with a naming message when the run belongs to a grader that is no longer registered', async () => {
-    getGrader.mockImplementation(() => {
-      throw new ManifestError('unknown_grader', "No grader 'ghost/grader' is registered.");
-    });
+  it('404s with a naming message when the version the run was pinned to is gone', async () => {
+    graderVersion.mockResolvedValue(null);
     loadGradeRun.mockResolvedValue({
       id: 'gr_1',
       repositoryId: 'r_1',
@@ -262,6 +251,27 @@ describe('GET /api/cli/grades/[runId]', () => {
 
     expect(response.status).toBe(404);
     expect(body.error).toMatch(/ghost\/grader/);
-    expect(body.error).toMatch(/no longer registered/);
+    expect(body.error).toMatch(/no longer published/);
+  });
+
+  // A finished grade is rendered with the version it was computed with, not
+  // whatever this workspace runs today: a grader that has since published
+  // 2.0.0 must still send 0.1.0's titles, mode and disclaimer for an old run.
+  it('resolves the grader version the run was pinned to, not the newest one', async () => {
+    loadGradeRun.mockResolvedValue({
+      id: 'gr_1',
+      repositoryId: 'r_1',
+      graderId: 'fieldnote/agent-readiness',
+      state: 'complete',
+      sha: 'a'.repeat(40),
+      // The run's own column, not result.rubricVersion: the column is what
+      // insertGradeRun pinned at request time, and it is what must be asked for.
+      rubricVersion: '0.1.0',
+      result: { score: 100, checks: [], rubricVersion: '0.1.0', evaluatorVersion: 'eval-1' },
+    });
+
+    await get('gr_1');
+
+    expect(graderVersion).toHaveBeenCalledWith('fieldnote/agent-readiness', '0.1.0');
   });
 });

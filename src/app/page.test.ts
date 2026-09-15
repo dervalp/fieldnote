@@ -78,6 +78,6 @@ test('names all three beats at rest, not just the one the climb starts on', asyn
 test('rests the hero card on a grade the rubric can actually issue', async () => {
   const html = renderToStaticMarkup(await Landing());
   expect(html).toContain('data-finish="shimmer"');
-  expect(html).toContain('Mediocre');
+  expect(html).toContain('Improving');
   expect(html).toContain('Shimmer · Light holo');
 });

@@ -1,17 +1,24 @@
 'use client';
 import { useActionState, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button, Surface } from '@fieldnote/design-system';
-import type { CompletedGrade } from '../../db/queries/grade-runs';
+import { Button } from '@fieldnote/design-system';
 import { runGrade } from '../../app/app/repos/[repoId]/grading/actions';
+// The evidence list moved to report-view.tsx, a server component; this
+// stylesheet still dresses the controls below, so it stays imported here too.
 import './report.css';
-type Status = { id: string; state: 'queued' | 'running' | 'complete' | 'failed' };
+type Status = {
+  id: string;
+  state: 'queued' | 'running' | 'complete' | 'failed' | 'insufficient';
+  errorCode?: string | null;
+};
 export function GradeControls({
   repositoryId,
+  graderId,
   initial,
   canRun,
 }: {
   repositoryId: string;
+  graderId: string;
   initial: Status | null;
   canRun: boolean;
 }) {
@@ -20,7 +27,7 @@ export function GradeControls({
   const [connection, setConnection] = useState('');
   const [result, action, pending] = useActionState(async () => {
     try {
-      const next = await runGrade(repositoryId);
+      const next = await runGrade(repositoryId, graderId);
       setConnection('');
       setRun({ id: next.runId, state: 'queued' });
       return '';
@@ -55,11 +62,11 @@ export function GradeControls({
         const next: Status = await response.json();
         if (
           next.id !== run!.id ||
-          !['queued', 'running', 'complete', 'failed'].includes(next.state)
+          !['queued', 'running', 'complete', 'failed', 'insufficient'].includes(next.state)
         )
           throw new Error('Invalid status');
         setConnection('');
-        if (next.state === 'complete' || next.state === 'failed') {
+        if (next.state === 'complete' || next.state === 'failed' || next.state === 'insufficient') {
           setRun(next);
           router.refresh();
           return;
@@ -90,8 +97,8 @@ export function GradeControls({
               ? 'Requesting…'
               : active
                 ? 'Grader in progress…'
-                : run?.state === 'failed'
-                  ? 'Retry grader'
+                : run?.state === 'failed' || run?.state === 'insufficient'
+                  ? 'Run grader again'
                   : 'Run grader'}
           </Button>
         </form>
@@ -107,98 +114,18 @@ export function GradeControls({
             ? 'Queued. Waiting to collect repository evidence.'
             : run?.state === 'running'
               ? 'Collecting and checking evidence at a pinned commit.'
-              : run?.state === 'failed'
-                ? 'The grader could not finish. Your last completed report is unchanged. Try again.'
-                : '')}
+              : run?.state === 'insufficient'
+                ? 'There was not enough evidence to score this run. The measurements below are still worth reading.'
+                : run?.state === 'failed'
+                  ? run.errorCode === 'insufficient_evidence'
+                    ? 'There is not enough record in this window to score. Try again once more work has merged.'
+                    : run.errorCode === 'sandbox_unavailable'
+                      ? 'Grading is temporarily unavailable. Try again later.'
+                      : run.errorCode === 'consent_required'
+                        ? 'This grader now asks to read more than this workspace agreed to. A workspace owner can review it in settings.'
+                        : 'The grader could not finish. Your last completed report is unchanged. Try again.'
+                  : '')}
       </p>
     </div>
-  );
-}
-export function GradeReport({
-  grade,
-  owner,
-  name,
-  outdated,
-  checkTitles,
-}: {
-  grade: CompletedGrade;
-  owner: string;
-  name: string;
-  outdated: boolean;
-  checkTitles: Record<string, string>;
-}) {
-  const base = `https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/blob/${encodeURIComponent(grade.sha)}/`;
-  return (
-    <Surface className="grading-report" aria-label="Readiness evidence">
-      <div className="eyebrow">Foundations / Evidence</div>
-      <h2>A record you can inspect.</h2>
-      {outdated && (
-        <p>
-          Historical rubric — this report uses an earlier rubric or evaluator. Run the grader for a
-          current assessment.
-        </p>
-      )}
-      {grade.checks.map((check) => (
-        <article className="grading-check" key={check.id}>
-          <h3>
-            <span>{checkTitles[check.id] ?? check.id}</span>
-            <span>
-              {check.status === 'pass' ? 'Pass' : 'Missing'} · {check.points} / {check.maxPoints}
-            </span>
-          </h3>
-          <p>{check.explanation}</p>
-          {check.paths.length > 0 && (
-            <details>
-              <summary>
-                Show pinned evidence ({check.paths.length}{' '}
-                {check.paths.length === 1 ? 'file' : 'files'})
-              </summary>
-              <ul>
-                {check.paths.map((path) => {
-                  const ranges = check.lineRanges.filter((range) => range.path === path);
-                  const href = base + path.split('/').map(encodeURIComponent).join('/');
-                  return (
-                    <li key={path}>
-                      <a href={href} target="_blank" rel="noreferrer">
-                        {path}
-                      </a>
-                      {ranges.map((range, i) => (
-                        <span key={i}>
-                          {' '}
-                          ·{' '}
-                          <a
-                            href={`${href}#L${range.start}-L${range.end}`}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            Lines {range.start}–{range.end}
-                          </a>
-                        </span>
-                      ))}
-                    </li>
-                  );
-                })}
-              </ul>
-            </details>
-          )}
-        </article>
-      ))}
-      <div className="grading-report-meta">
-        <p>
-          Readiness v{grade.rubricVersion} · Evaluator {grade.evaluatorVersion}
-          <br />
-          Completed{' '}
-          <time dateTime={new Date(grade.computedAt).toISOString()}>
-            {new Date(grade.computedAt).toISOString().replace('T', ' ').replace('.000Z', ' UTC')}
-          </time>
-          <br />
-          Commit <code>{grade.sha}</code>
-        </p>
-        <p>
-          This assessment checks files and documented commands. It does not execute repository code
-          or certify semantic quality.
-        </p>
-      </div>
-    </Surface>
   );
 }

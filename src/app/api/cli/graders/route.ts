@@ -1,19 +1,22 @@
 import { withCliPrincipal } from '../principal';
-import { listGraders } from '../../../../domain/grading/registry';
-// Registers fieldnote's own built-in grader as a module-scope side effect.
-// Nothing else boots this registration — there is no barrel file and no
-// startup hook — so without this import listGraders() returns an empty
-// list in production: a valid-looking 200 with no graders in it, and no
-// error anywhere to say why.
-import '../../../../domain/grading/graders/agent-readiness';
+import { requireWorkspace } from '../../../../workspaces/access';
+import { installedGraders } from '../../../../db/queries/graders';
 
 const headers = { 'Cache-Control': 'private, no-store' };
 
+// What this workspace can actually run, not what fieldnote knows how to run.
+// A grader is a row from slice 6 on, and a workspace runs the version it
+// installed — so this reads grader_installs, the same query the Grading tab
+// renders its cards from. `fieldnote graders` therefore lists exactly what
+// `fieldnote run --grader` will accept, and a grader nobody installed is
+// absent rather than offered and then refused.
 export async function GET(request: Request) {
-  return withCliPrincipal(request, 'grade', async () =>
-    Response.json(
+  return withCliPrincipal(request, 'grade', async () => {
+    const workspace = await requireWorkspace();
+    const installed = await installedGraders(workspace.id);
+    return Response.json(
       {
-        graders: listGraders().map((manifest) => ({
+        graders: installed.map(({ manifest }) => ({
           id: manifest.id,
           version: manifest.version,
           mode: manifest.mode,
@@ -22,6 +25,6 @@ export async function GET(request: Request) {
         })),
       },
       { headers },
-    ),
-  );
+    );
+  });
 }

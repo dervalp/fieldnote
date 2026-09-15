@@ -25,6 +25,7 @@ export default async function TokensPage() {
       <div className="settings-tabs">
         <Link href={accountSettingsPath()}>Account</Link>
         <Link href={workspaceSettingsPath()}>Workspace</Link>
+        <Link href="/app/settings/graders">Graders</Link>
         <Link aria-current="page" href={tokensSettingsPath()}>
           Tokens
         </Link>

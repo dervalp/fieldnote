@@ -19,7 +19,7 @@ vi.mock('../../db/queries/authoring-runs', () => ({
   completeAuthoringRun: deps.complete,
 }));
 vi.mock('../../db/queries/grade-runs', () => ({ latestCompletedGrade: deps.grade }));
-vi.mock('../../github/collect-readiness', () => ({ resolveReadinessSha: deps.sha }));
+vi.mock('../../github/collect-files', () => ({ resolveHeadSha: deps.sha }));
 
 import { explorePlan, resolvePlanCommit } from './plan-repository';
 

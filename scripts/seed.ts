@@ -6,13 +6,22 @@ import {
   gatePolicies,
   users,
   workspaces,
-  gradingRubrics,
   gradeRuns,
 } from '../src/db/schema';
 import { persistPr } from '../src/db/queries/persist-pr';
-import { demoFacts, demoGrade, demoGradeSha, demoPolicy } from '../src/demo/fixtures';
+import {
+  demoFacts,
+  demoGrade,
+  demoDeliveryGrade,
+  demoTestDisciplineGrade,
+  demoGradeSha,
+  demoPolicy,
+} from '../src/demo/fixtures';
+import { DEMO_WORKSPACE_ID } from '../src/demo/workspace';
 import { agentReadinessManifest } from '../src/domain/grading/graders/agent-readiness';
-import { rubricView } from '../src/domain/grading/rubric-view';
+import { deliveryHealthManifest } from '../src/domain/grading/graders/delivery-health';
+import { testDisciplineManifest } from '../src/domain/grading/graders/test-discipline';
+import { installBuiltIns } from '../src/db/queries/graders';
 import { recomputeExecutedDetections } from '../src/db/queries/ai-involvement';
 import type { AgentMarker } from '../src/domain/ai-involvement/types';
 if (process.env.NODE_ENV === 'production' || process.env.DEMO_MODE !== 'true')
@@ -57,18 +66,13 @@ try {
     .onConflictDoNothing();
   await db()
     .insert(workspaces)
-    .values({ id: 'demo-workspace', name: 'Demo workspace' })
+    .values({ id: DEMO_WORKSPACE_ID, name: 'Demo workspace' })
     .onConflictDoNothing();
-  await db()
-    .insert(gradingRubrics)
-    .values({
-      graderId: agentReadinessManifest.id,
-      version: agentReadinessManifest.version,
-      evaluatorVersion: agentReadinessManifest.evaluatorVersion,
-      definition: rubricView(agentReadinessManifest),
-      manifest: agentReadinessManifest,
-    })
-    .onConflictDoNothing();
+  // Publishes the three built-ins into (graders, grader_versions) and installs
+  // them into the demo workspace — the same seeding a real workspace gets from
+  // ensureDefaultWorkspace(), done here because this workspace row is inserted
+  // directly rather than through that path.
+  await installBuiltIns(DEMO_WORKSPACE_ID);
   const graded = new Date('2026-09-30T09:12:00Z');
   await db()
     .insert(gradeRuns)
@@ -79,10 +83,46 @@ try {
       rubricVersion: agentReadinessManifest.version,
       evaluatorVersion: agentReadinessManifest.evaluatorVersion,
       requestedBy: 'demo-user',
-      requestedWorkspaceId: 'demo-workspace',
+      requestedWorkspaceId: DEMO_WORKSPACE_ID,
       state: 'complete',
       sha: demoGradeSha,
       result: demoGrade,
+      dispatchedAt: graded,
+      startedAt: graded,
+      completedAt: graded,
+    })
+    .onConflictDoNothing();
+  await db()
+    .insert(gradeRuns)
+    .values({
+      id: 'demo-delivery-grade-run',
+      repositoryId: 'demo-repository',
+      graderId: deliveryHealthManifest.id,
+      rubricVersion: deliveryHealthManifest.version,
+      evaluatorVersion: deliveryHealthManifest.evaluatorVersion,
+      requestedBy: 'demo-user',
+      requestedWorkspaceId: DEMO_WORKSPACE_ID,
+      state: 'complete',
+      sha: demoGradeSha,
+      result: demoDeliveryGrade,
+      dispatchedAt: graded,
+      startedAt: graded,
+      completedAt: graded,
+    })
+    .onConflictDoNothing();
+  await db()
+    .insert(gradeRuns)
+    .values({
+      id: 'demo-test-discipline-grade-run',
+      repositoryId: 'demo-repository',
+      graderId: testDisciplineManifest.id,
+      rubricVersion: testDisciplineManifest.version,
+      evaluatorVersion: testDisciplineManifest.evaluatorVersion,
+      requestedBy: 'demo-user',
+      requestedWorkspaceId: DEMO_WORKSPACE_ID,
+      state: 'complete',
+      sha: demoGradeSha,
+      result: demoTestDisciplineGrade,
       dispatchedAt: graded,
       startedAt: graded,
       completedAt: graded,
@@ -140,6 +180,12 @@ try {
   console.log('Seeded 21 PRs. Demo signal: /app/prs/demo-pr-4');
   console.log('AI involvement: /app/repos/demo-repository/ai-involvement');
   console.log(`Readiness ${demoGrade.score}/100: /app/repos/demo-repository`);
+  console.log(
+    `Delivery ${demoDeliveryGrade.score}/100: /app/repos/demo-repository/grading?grader=fieldnote%2Fdelivery-health`,
+  );
+  console.log(
+    `Test discipline ${demoTestDisciplineGrade.score}/100: /app/repos/demo-repository/grading?grader=fieldnote%2Ftest-discipline`,
+  );
 } finally {
   await closeDb();
 }

@@ -26,6 +26,7 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
     "github:sync": "tsx scripts/sync-repository.ts",
+    "graders:embed": "tsx scripts/embed-graders.ts",
     "inngest:dev": "inngest dev -u http://localhost:3000/api/inngest",
     "smoke:webhook": "tsx scripts/smoke-webhook.ts"
   },
@@ -33,6 +34,7 @@
     "@fieldnote/design-system": "workspace:*",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
+    "e2b": "2.49.1",
     "inngest": "^4.20.0",
     "next": "^16.3.4",
     "octokit": "^5.0.5",

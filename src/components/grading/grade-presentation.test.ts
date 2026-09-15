@@ -1,11 +1,12 @@
 import type { GradeCardProps, GradeFinish } from '@fieldnote/design-system';
-import { describe, expect, it } from 'vitest';
-import { gradeBannerProps, gradeCardProps } from './grade-presentation';
+import { describe, expect, it, test } from 'vitest';
+import { gradeBannerProps, gradeCardProps, graderCardIdentity } from './grade-presentation';
 import type { GradePresentation } from '../../domain/grading/presentation';
 import { gradePresentation } from '../../domain/grading/presentation';
 import { finishNames } from '../../domain/grading/finish-names';
 import type { CheckResult } from '../../domain/grading/types';
-import { AGENT_READINESS } from '../../domain/grading/graders/agent-readiness';
+import { agentReadinessManifest } from '../../domain/grading/graders/agent-readiness';
+import { deliveryHealthManifest } from '../../domain/grading/graders/delivery-health';
 
 // The package declares its own GradeFinish because it cannot import the
 // domain's. This assignment is the pin: if either union gains, loses or
@@ -33,7 +34,7 @@ const props = (score: number, checks: CheckResult[] = []): GradeCardProps =>
     sha: '6b1f0a4abcdef',
     rubricVersion: '0.1.0',
     checks,
-    graderId: AGENT_READINESS,
+    grader: graderCardIdentity(agentReadinessManifest),
   });
 
 describe('gradeCardProps', () => {
@@ -41,8 +42,8 @@ describe('gradeCardProps', () => {
   // this test, which is the point of driving it from real scores rather than
   // asserting a hand-written table.
   it.each([
-    [32, 'common', 'Bad', 'circle', 1],
-    [61, 'shimmer', 'Mediocre', 'circle', 1],
+    [32, 'common', 'Early', 'circle', 1],
+    [61, 'shimmer', 'Improving', 'circle', 1],
     [74, 'bronze', 'Good', 'star', 1],
     [84, 'silver', 'Very good', 'star', 2],
     [95, 'gold', 'Excellent', 'star', 3],
@@ -91,6 +92,24 @@ describe('gradeCardProps', () => {
     expect(resolved.repositoryName).toBe('demo/checkout-service');
     expect(resolved.rubricVersion).toBe('0.1.0');
     expect(resolved.sha).toBe('6b1f0a4abcdef');
+  });
+});
+
+test('a card carries its grader identity, not fieldnote assumptions', () => {
+  const props = gradeCardProps({
+    score: 70,
+    repositoryName: 'acme / checkout',
+    sha: 'a'.repeat(40),
+    rubricVersion: deliveryHealthManifest.version,
+    checks: [],
+    grader: graderCardIdentity(deliveryHealthManifest),
+  });
+  expect(props).toMatchObject({
+    title: 'Delivery Health',
+    author: 'fieldnote',
+    mode: 'Deterministic',
+    category: 'Delivery health',
+    flavour: 'Does work here reach green cleanly, or by attrition?',
   });
 });
 

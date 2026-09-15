@@ -13,6 +13,8 @@ import {
   onboardingPath,
   accountSettingsPath,
   workspaceSettingsPath,
+  publicGradePath,
+  publicBadgePath,
 } from './app-routes';
 
 // Paths are spelled out here rather than composed from appPrefix. Building an
@@ -37,11 +39,16 @@ test('every section sits under the prefix', () => {
 // resolved from this file, not from process.cwd(), so it does not depend on
 // where vitest was invoked; the comparison is order-insensitive because
 // readdirSync order is not a guarantee worth being flaky over.
-test('appSections names exactly the five directories under src/app/app', () => {
+test('appSections names exactly the five non-admin directories under src/app/app', () => {
   const directories = readdirSync(join(import.meta.dirname, '..', 'app', 'app'), {
     withFileTypes: true,
   })
     .filter((entry) => entry.isDirectory())
+    // `admin` is staff-only and never had a bare pre-/app URL, so it carries
+    // no legacy redirect and is deliberately absent from appSections — the
+    // review queue does not advertise that it exists, and neither does this
+    // check.
+    .filter((entry) => entry.name !== 'admin')
     .map((entry) => entry.name);
 
   expect([...directories].sort()).toEqual([...appSections].sort());
@@ -81,5 +88,17 @@ test('an empty query leaves no trailing question mark', () => {
 test('workspace settings can carry the new-workspace hash', () => {
   expect(workspaceSettingsPath('#new-workspace')).toBe(
     '/app/settings/workspace#new-workspace',
+  );
+});
+
+test('a public grade has one readable address, and its badge sits beneath it', () => {
+  expect(publicGradePath('acme', 'widgets', 'fieldnote/agent-readiness')).toBe(
+    '/r/acme/widgets/fieldnote/agent-readiness',
+  );
+  expect(publicBadgePath('acme', 'widgets', 'fieldnote/agent-readiness')).toBe(
+    '/r/acme/widgets/fieldnote/agent-readiness/badge.svg',
+  );
+  expect(publicGradePath('a c', 'w/d', 'fieldnote/agent-readiness')).toBe(
+    '/r/a%20c/w%2Fd/fieldnote/agent-readiness',
   );
 });

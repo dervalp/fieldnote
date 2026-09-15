@@ -1,6 +1,10 @@
 import { runDeclarative } from '../domain/grading/declarative';
+import { assembleCodeResult } from '../domain/grading/code';
 import { agentReadinessManifest } from '../domain/grading/graders/agent-readiness';
-import type { SourceDocument } from '../domain/grading/types';
+import { deliveryHealthManifest } from '../domain/grading/graders/delivery-health';
+import { testDisciplineManifest } from '../domain/grading/graders/test-discipline';
+import type { CodeManifest } from '../domain/grading/manifest';
+import type { MetricsWindow, SourceDocument, TreeEntry } from '../domain/grading/types';
 import type { CiCheck, Conclusion, PullRequestFacts } from '../domain/pull-request/types';
 export const demoPolicy = {
   version: 1,
@@ -142,3 +146,94 @@ export const demoGrade = runDeclarative(agentReadinessManifest, {
   complete: true,
   documents: demoDocuments,
 });
+
+// The window the demo delivery grade is scored over. It is written out rather
+// than aggregated from the seeded pull requests: the seed's dates move with
+// whatever the demo fixture says, and the card should show a stable number.
+export const demoDeliveryWindow: MetricsWindow = {
+  days: 30,
+  start: '2026-08-31T00:00:00.000Z',
+  endExclusive: '2026-09-30T00:00:00.000Z',
+  mergedPullRequests: 24,
+  // 17 of 24 merged clean — a repository that ships, with room to improve.
+  'first-pass-rate': { numerator: 17, denominator: 24, value: (100 * 17) / 24 },
+  'ci-success-rate': { numerator: 38, denominator: 40, value: 95 },
+  // Two runs went red and neither came back. This is the failing check, and
+  // the one that makes the delivery card read differently from the readiness
+  // card beside it.
+  'ci-recovery-rate': { numerator: 0, denominator: 2, value: 0 },
+};
+
+// Graded by the real evaluator, for the same reason demoGrade is: a seeded
+// card must not claim a score, a check id or an explanation the rubric would
+// not produce.
+export const demoDeliveryGrade = runDeclarative(deliveryHealthManifest, {
+  sha: demoGradeSha,
+  complete: true,
+  documents: [],
+  metrics: demoDeliveryWindow,
+});
+
+// The demo checkout service's file list. Seven source files in three folders;
+// four have tests, and the gateway folder has none — the failing check, and
+// what makes this card read differently from the other two.
+export const demoTestDisciplineTree: TreeEntry[] = [
+  'package.json',
+  'README.md',
+  'src/checkout/cart.test.ts',
+  'src/checkout/cart.ts',
+  'src/checkout/payment.test.ts',
+  'src/checkout/payment.ts',
+  'src/checkout/shipping.ts',
+  'src/gateway/routes.ts',
+  'src/gateway/session.ts',
+  'src/inventory/reservation.ts',
+  'src/inventory/stock.test.ts',
+  'src/inventory/stock.ts',
+  'tests/inventory/reservation.spec.ts',
+].map((path) => ({ path, size: 512 }));
+
+// A hand-written answer, not the program's output: the product only ever runs
+// a grader's program in a sandbox, and a fixture must not become the one place
+// it runs anywhere else. src/demo/fixtures.test.ts proves the program says
+// exactly this about the tree above.
+export const demoTestDisciplineAnswer = {
+  checks: [
+    {
+      id: 'tests-exist',
+      status: 'pass',
+      paths: [
+        'src/checkout/cart.test.ts',
+        'src/checkout/payment.test.ts',
+        'src/inventory/stock.test.ts',
+        'tests/inventory/reservation.spec.ts',
+      ],
+    },
+    {
+      id: 'tests-beside-source',
+      status: 'pass',
+      paths: [
+        'src/checkout/cart.test.ts',
+        'src/checkout/payment.test.ts',
+        'src/inventory/stock.test.ts',
+        'tests/inventory/reservation.spec.ts',
+      ],
+      count: { matched: 4, of: 7 },
+    },
+    {
+      id: 'tests-in-every-folder',
+      status: 'fail',
+      paths: ['src/checkout/cart.test.ts', 'src/inventory/stock.test.ts'],
+      count: { matched: 2, of: 3 },
+    },
+  ],
+};
+
+// Assembled by the real answer assembly, for the reason demoGrade is graded by
+// the real evaluator: a seeded card must not claim a score, a check id or an
+// explanation the contract would not produce.
+export const demoTestDisciplineGrade = assembleCodeResult(
+  testDisciplineManifest as CodeManifest,
+  { evidence: { tree: demoTestDisciplineTree } },
+  demoTestDisciplineAnswer,
+).result;

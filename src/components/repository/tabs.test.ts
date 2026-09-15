@@ -61,4 +61,12 @@ describe('repository tabs', () => {
     // anchor at tabIndex -1.
     expect(focusIndex('some-future-route')).toBe(0);
   });
+
+  it('the grades tab keeps its route, so old links still land', () => {
+    const grades = tabs.find((tab) => tab.segment === 'grading');
+    expect(grades).toMatchObject({ segment: 'grading', label: 'Grades' });
+    // Spelled out, not built from app-routes: a test that calls the helper it
+    // is checking asserts nothing.
+    expect(tabHref('repository:1', grades!, '')).toBe('/app/repos/repository%3A1/grading');
+  });
 });

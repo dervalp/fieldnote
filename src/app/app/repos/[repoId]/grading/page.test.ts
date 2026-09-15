@@ -9,8 +9,18 @@ const deps = vi.hoisted(() => ({
   actEnabled: vi.fn(),
   fetchGrantedPermissions: vi.fn(),
   latestPlan: vi.fn(),
+  schedules: vi.fn(),
+  workspace: vi.fn(),
+  publicSettings: vi.fn(),
+  installedGraders: vi.fn(),
 }));
-vi.mock('../../../../../workspaces/access', () => ({ requireRepository: deps.authorize }));
+vi.mock('../../../../../workspaces/access', () => ({
+  requireRepository: deps.authorize,
+  requireWorkspace: deps.workspace,
+}));
+vi.mock('../../../../../db/queries/graders', () => ({
+  installedGraders: deps.installedGraders,
+}));
 vi.mock('../../../../../db/queries/grade-runs', () => ({
   gradeSummaries: deps.summaries,
   gradeHistory: deps.history,
@@ -21,17 +31,48 @@ vi.mock('../../../../../github/installation-permissions', () => ({
   fetchGrantedPermissions: deps.fetchGrantedPermissions,
 }));
 vi.mock('../../../../../db/queries/authoring-runs', () => ({ latestPlan: deps.latestPlan }));
+vi.mock('../../../../../db/queries/grade-schedules', () => ({ gradeSchedules: deps.schedules }));
 vi.mock('../../../../../components/act/act-entry', () => ({
   ActEntry: ({ availability }: { availability: { available: boolean } }) =>
     createElement('p', null, availability.available ? 'act-available' : 'act-unavailable'),
 }));
 vi.mock('../../../../../components/grading/report', () => ({
-  GradeControls: ({ initial }: { initial: { state: string } | null }) =>
-    createElement('p', null, initial?.state),
-  GradeReport: ({ grade }: { grade: { rubricVersion: string } }) =>
-    createElement('p', null, grade.rubricVersion),
+  GradeControls: ({ graderId, initial }: { graderId: string; initial: { state: string } | null }) =>
+    createElement('p', null, `controls:${graderId}:${initial?.state ?? 'none'}`),
+}));
+vi.mock('../../../../../components/grading/report-view', () => ({
+  GradeReport: ({
+    grade,
+    graderTitle,
+  }: {
+    grade: { rubricVersion: string };
+    graderTitle: string;
+  }) => createElement('p', null, `${graderTitle}:${grade.rubricVersion}`),
+}));
+vi.mock('../../../../../components/grading/schedule-toggle', () => ({
+  ScheduleToggle: ({ graderId, schedule }: { graderId: string; schedule: unknown }) =>
+    createElement('p', null, `schedule:${graderId}:${schedule ? 'on' : 'off'}`),
+}));
+vi.mock('../../../../../db/queries/public-grade-settings', () => ({
+  publicGradeSettings: deps.publicSettings,
+}));
+vi.mock('../../../../../components/grading/share-toggle', () => ({
+  ShareToggle: ({
+    graderId,
+    shared,
+    canShare,
+  }: {
+    graderId: string;
+    shared: boolean;
+    canShare: boolean;
+  }) => createElement('p', null, `share:${graderId}:${shared ? 'on' : 'off'}:${canShare ? 'owner' : 'member'}`),
 }));
 import Grading from './page';
+import { agentReadinessManifest } from '../../../../../domain/grading/graders/agent-readiness';
+import {
+  DELIVERY_HEALTH,
+  deliveryHealthManifest,
+} from '../../../../../domain/grading/graders/delivery-health';
 const completed = {
   id: 'old',
   score: 60,
@@ -41,8 +82,22 @@ const completed = {
   computedAt: new Date('2026-09-08'),
   checks: [],
 };
-const call = (run?: string) =>
-  Grading({ params: Promise.resolve({ repoId: 'repo' }), searchParams: Promise.resolve({ run }) });
+// installedGraders() rows, in the order the workspace is presumed to have
+// installed them — Agent Readiness first, the way the built-ins install.
+const installedEntry = (manifest: typeof agentReadinessManifest) => ({
+  manifest,
+  version: manifest.version,
+  consentedNeeds: 'hash',
+  verifiedAt: new Date('2026-01-01'),
+  withdrawnAt: null,
+  latestVersion: manifest.version,
+});
+const bothInstalled = [installedEntry(agentReadinessManifest), installedEntry(deliveryHealthManifest)];
+const call = (run?: string, grader?: string) =>
+  Grading({
+    params: Promise.resolve({ repoId: 'repo' }),
+    searchParams: Promise.resolve({ run, grader }),
+  });
 beforeEach(() => {
   vi.resetAllMocks();
   deps.authorize.mockResolvedValue({
@@ -50,13 +105,32 @@ beforeEach(() => {
     owner: 'owner',
     name: 'repo',
     isDemo: false,
+    isPrivate: false,
   });
-  deps.summaries.mockResolvedValue([{ latest: completed, status: { id: 'new', state: 'failed' } }]);
+  deps.installedGraders.mockResolvedValue(bothInstalled);
+  deps.summaries.mockResolvedValue([
+    {
+      graderId: 'fieldnote/agent-readiness',
+      latest: completed,
+      status: { id: 'new', state: 'failed' },
+    },
+    { graderId: DELIVERY_HEALTH, latest: null, status: null },
+  ]);
   deps.history.mockResolvedValue([completed]);
   deps.get.mockResolvedValue(null);
   deps.actEnabled.mockResolvedValue(false);
   deps.fetchGrantedPermissions.mockResolvedValue({ contents: null, pullRequests: null });
   deps.latestPlan.mockResolvedValue(null);
+  deps.schedules.mockResolvedValue({});
+  deps.workspace.mockResolvedValue({ id: 'workspace', name: 'W', role: 'owner' });
+  deps.publicSettings.mockResolvedValue({});
+});
+test('a workspace with nothing installed sees one empty-state surface, not a crash', async () => {
+  deps.installedGraders.mockResolvedValue([]);
+  const html = renderToStaticMarkup(await call());
+  expect(html).toContain('No graders installed.');
+  expect(html).toContain('href="/app/settings/graders"');
+  expect(deps.summaries).not.toHaveBeenCalled();
 });
 test('latest completed score remains visible alongside failed current attempt', async () => {
   const html = renderToStaticMarkup(await call());
@@ -81,11 +155,83 @@ test('outsider fails before any grade read', async () => {
   expect(deps.history).not.toHaveBeenCalled();
 });
 test('incomplete evidence has an ungraded state with no numeric card', async () => {
-  deps.summaries.mockResolvedValue([{ latest: null, status: { id: 'new', state: 'running' } }]);
+  deps.summaries.mockResolvedValue([
+    {
+      graderId: 'fieldnote/agent-readiness',
+      latest: null,
+      status: { id: 'new', state: 'running' },
+    },
+    { graderId: DELIVERY_HEALTH, latest: null, status: null },
+  ]);
   deps.history.mockResolvedValue([]);
   const html = renderToStaticMarkup(await call());
   expect(html).toContain('Not graded yet');
   expect(html).not.toContain('out of 100');
+});
+
+test('both graders render a card region', async () => {
+  const html = renderToStaticMarkup(await call());
+  // Agent Readiness has a completed grade and renders the real GradeCard;
+  // Delivery Health has never run and renders its own ungraded tile — both
+  // rows come from installedGraders(), not from a hardcoded pair.
+  expect(html).toContain('Agent Readiness');
+  expect(html).toContain('Delivery Health');
+  expect(html).toContain('Not graded yet');
+});
+
+test('?grader= selects which report is shown', async () => {
+  deps.summaries.mockResolvedValue([
+    { graderId: 'fieldnote/agent-readiness', latest: completed, status: null },
+    {
+      graderId: DELIVERY_HEALTH,
+      latest: { ...completed, id: 'delivery-run', rubricVersion: '9.9.9' },
+      status: null,
+    },
+  ]);
+  const html = renderToStaticMarkup(await call(undefined, DELIVERY_HEALTH));
+  expect(deps.history).toHaveBeenCalledWith('repo', DELIVERY_HEALTH);
+  expect(html).toContain(`controls:${DELIVERY_HEALTH}:`);
+  expect(html).toContain('Delivery Health:9.9.9');
+});
+
+test('the Act entry appears under the readiness card and disappears under a different one', async () => {
+  // Presence alone would still pass if the isReadiness gate were removed
+  // (grade truthy is enough on its own); asserting absence under a different
+  // card is what actually exercises the gate. Both graders carry a completed
+  // grade here so that "no Act marker" cannot be explained by "no grade".
+  deps.summaries.mockResolvedValue([
+    { graderId: 'fieldnote/agent-readiness', latest: completed, status: null },
+    { graderId: DELIVERY_HEALTH, latest: completed, status: null },
+  ]);
+  const readinessSelected = renderToStaticMarkup(await call());
+  expect(readinessSelected).toMatch(/act-(un)?available/);
+  const deliverySelected = renderToStaticMarkup(await call(undefined, DELIVERY_HEALTH));
+  expect(deliverySelected).not.toMatch(/act-(un)?available/);
+});
+
+test('Agent Readiness renders before Delivery Health, in installedGraders() order', async () => {
+  const html = renderToStaticMarkup(await call());
+  const readinessIndex = html.indexOf('Agent Readiness');
+  const deliveryIndex = html.indexOf('Delivery Health');
+  expect(readinessIndex).toBeGreaterThanOrEqual(0);
+  expect(deliveryIndex).toBeGreaterThanOrEqual(0);
+  expect(readinessIndex).toBeLessThan(deliveryIndex);
+});
+
+test('an unregistered ?grader= is a 404', async () => {
+  await expect(call(undefined, 'fieldnote/does-not-exist')).rejects.toThrow(
+    'NEXT_HTTP_ERROR_FALLBACK;404',
+  );
+  expect(deps.summaries).not.toHaveBeenCalled();
+});
+
+test('a grader that has never run renders its tile and its Run button', async () => {
+  const html = renderToStaticMarkup(await call(undefined, DELIVERY_HEALTH));
+  expect(html).toContain('Not graded yet');
+  // The mocked GradeControls stands in for the real Run button; asserting it
+  // is parameterised with the selected grader's id is what proves the button
+  // targets that grader rather than whichever one was on screen before.
+  expect(html).toContain(`controls:${DELIVERY_HEALTH}:none`);
 });
 
 test('escaped route id is decoded before authorization', async () => {
@@ -130,4 +276,16 @@ test('a failed permissions fetch is logged before falling back to nothing grante
   expect(errorSpy).toHaveBeenCalled();
   expect(html).toContain('fieldnote needs write access');
   errorSpy.mockRestore();
+});
+
+test('an owner gets the sharing switch for the selected grader', async () => {
+  deps.publicSettings.mockResolvedValue({ 'fieldnote/agent-readiness': { shared: true } });
+  const html = renderToStaticMarkup(await call());
+  expect(html).toContain('share:fieldnote/agent-readiness:on:owner');
+});
+
+test('a member gets the state without the control', async () => {
+  deps.workspace.mockResolvedValue({ id: 'workspace', name: 'W', role: 'member' });
+  const html = renderToStaticMarkup(await call());
+  expect(html).toContain('share:fieldnote/agent-readiness:off:member');
 });
