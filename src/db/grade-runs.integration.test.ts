@@ -50,6 +50,14 @@ afterAll(async () => {
     await db().delete(repositories).where(inArray(repositories.id, fixtureRepositories));
     await db().delete(installations).where(inArray(installations.id, fixtureRepositories));
   }
+  // A version fixtured under a real built-in id (publishWithdrawnVersion)
+  // must not outlive this file: the built-in id itself is permanent, so an
+  // untracked row here would leak into every other suite's count of it.
+  for (const { graderId, version } of fixtureExtraVersions) {
+    await db()
+      .delete(graderVersions)
+      .where(and(eq(graderVersions.graderId, graderId), eq(graderVersions.version, version)));
+  }
   await db()
     .delete(workspaceMemberships)
     .where(eq(workspaceMemberships.workspaceId, context.workspace));
@@ -86,7 +94,7 @@ test('concurrent clicks share one active run', async () => {
   expect(a.id).toBe(b.id);
 });
 
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { gradeRuns, graderInstalls, graders, graderVersions } from './schema';
 import {
   beginGrade,
@@ -147,7 +155,14 @@ async function publishAndInstall(manifest: GraderManifest) {
 // this file that requests AGENT_READINESS, and pinnedManifest resolves a
 // withdrawn version exactly as well as a live one (it stops new installs, not
 // history) — see pinnedManifest's own doc comment.
+//
+// Tracked in fixtureExtraVersions and swept in afterAll: the built-in id
+// itself is permanent, so an untracked row here would outlive this file and
+// inflate every other suite's count of the built-in's own versions (see
+// src/db/graders.integration.test.ts's "seeding twice changes nothing").
+const fixtureExtraVersions: { graderId: string; version: string }[] = [];
 async function publishWithdrawnVersion(manifest: GraderManifest) {
+  fixtureExtraVersions.push({ graderId: manifest.id, version: manifest.version });
   await db()
     .insert(graderVersions)
     .values({

@@ -6,7 +6,6 @@ import {
   gatePolicies,
   users,
   workspaces,
-  gradingRubrics,
   gradeRuns,
 } from '../src/db/schema';
 import { persistPr } from '../src/db/queries/persist-pr';
@@ -21,7 +20,7 @@ import {
 import { agentReadinessManifest } from '../src/domain/grading/graders/agent-readiness';
 import { deliveryHealthManifest } from '../src/domain/grading/graders/delivery-health';
 import { testDisciplineManifest } from '../src/domain/grading/graders/test-discipline';
-import { rubricView } from '../src/domain/grading/rubric-view';
+import { installBuiltIns } from '../src/db/queries/graders';
 import { recomputeExecutedDetections } from '../src/db/queries/ai-involvement';
 import type { AgentMarker } from '../src/domain/ai-involvement/types';
 if (process.env.NODE_ENV === 'production' || process.env.DEMO_MODE !== 'true')
@@ -68,36 +67,11 @@ try {
     .insert(workspaces)
     .values({ id: 'demo-workspace', name: 'Demo workspace' })
     .onConflictDoNothing();
-  await db()
-    .insert(gradingRubrics)
-    .values({
-      graderId: agentReadinessManifest.id,
-      version: agentReadinessManifest.version,
-      evaluatorVersion: agentReadinessManifest.evaluatorVersion,
-      definition: rubricView(agentReadinessManifest),
-      manifest: agentReadinessManifest,
-    })
-    .onConflictDoNothing();
-  await db()
-    .insert(gradingRubrics)
-    .values({
-      graderId: deliveryHealthManifest.id,
-      version: deliveryHealthManifest.version,
-      evaluatorVersion: deliveryHealthManifest.evaluatorVersion,
-      definition: rubricView(deliveryHealthManifest),
-      manifest: deliveryHealthManifest,
-    })
-    .onConflictDoNothing();
-  await db()
-    .insert(gradingRubrics)
-    .values({
-      graderId: testDisciplineManifest.id,
-      version: testDisciplineManifest.version,
-      evaluatorVersion: testDisciplineManifest.evaluatorVersion,
-      definition: rubricView(testDisciplineManifest),
-      manifest: testDisciplineManifest,
-    })
-    .onConflictDoNothing();
+  // Publishes the three built-ins into (graders, grader_versions) and installs
+  // them into the demo workspace — the same seeding a real workspace gets from
+  // ensureDefaultWorkspace(), done here because this workspace row is inserted
+  // directly rather than through that path.
+  await installBuiltIns('demo-workspace');
   const graded = new Date('2026-09-30T09:12:00Z');
   await db()
     .insert(gradeRuns)

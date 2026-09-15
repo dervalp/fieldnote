@@ -43,6 +43,13 @@ export type PublicGradeView =
       state: 'graded';
       repository: PublicRepository;
       grader: PublicGrader;
+      // The full manifest the grade was computed with, alongside its redacted
+      // PublicGrader: the card seam (gradeCardProps) needs the real thing —
+      // its tagline, its checks, its category — and nothing about handing it
+      // to that seam leaks a field PublicGrader itself withholds, since
+      // nothing downstream of gradeCardProps renders `needs` or a program's
+      // source.
+      manifest: GraderManifest;
       grade: PublicGrade;
       stale: boolean;
     };

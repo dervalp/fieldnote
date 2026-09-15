@@ -8,9 +8,11 @@ import {
 } from './fixtures';
 import { gradePresentation } from '../domain/grading/presentation';
 import { nextTier } from '../domain/grading/next-tier';
-import { AGENT_READINESS } from '../domain/grading/graders/agent-readiness';
-import { graderCheckTitles } from '../domain/grading/registry';
+import { agentReadinessManifest } from '../domain/grading/graders/agent-readiness';
 import grade from '../domain/grading/graders/test-discipline/grader.mjs';
+const checkTitles = Object.fromEntries(
+  agentReadinessManifest.checks.map((check) => [check.id, check.title]),
+);
 describe('demoGrade', () => {
   it('grades the demo documents at 80, failing only documented-tests', () => {
     expect(demoGrade.score).toBe(80);
@@ -26,7 +28,7 @@ describe('demoGrade', () => {
     // covered by presentation.test.ts and next-tier.test.ts.
     const score = demoGrade.score!;
     expect(gradePresentation(score).finish).toBe('silver');
-    const next = nextTier(score, demoGrade.checks, graderCheckTitles(AGENT_READINESS));
+    const next = nextTier(score, demoGrade.checks, checkTitles);
     expect(next?.targetFinish).toBe('Prismatic');
     expect(next?.targetScore).toBe(100);
     expect(next?.moves.map((move) => move.title)).toEqual(['Validation commands']);

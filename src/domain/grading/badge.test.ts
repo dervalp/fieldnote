@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest';
 import { badgeParts, renderBadge } from './badge';
 import type { PublicGradeView } from './public-grade';
+import { agentReadinessManifest } from './graders/agent-readiness';
 
 const grader = {
   id: 'fieldnote/agent-readiness',
@@ -32,7 +33,14 @@ const grade = {
     },
   ],
 };
-const graded: PublicGradeView = { state: 'graded', repository, grader, grade, stale: false };
+const graded: PublicGradeView = {
+  state: 'graded',
+  repository,
+  grader,
+  manifest: agentReadinessManifest,
+  grade,
+  stale: false,
+};
 
 test('a fresh grade shows its score and label', () => {
   expect(badgeParts(graded)).toEqual({
@@ -43,7 +51,8 @@ test('a fresh grade shows its score and label', () => {
 });
 
 test('a stale grade shows no number', () => {
-  expect(badgeParts({ ...graded, stale: true }).right).toBe('stale');
+  const stale: PublicGradeView = { ...graded, stale: true };
+  expect(badgeParts(stale).right).toBe('stale');
 });
 
 test('an ungraded pair says so', () => {
@@ -66,10 +75,11 @@ test('the badge never names a check', () => {
 });
 
 test('a grader title cannot inject markup', () => {
-  const svg = renderBadge({
+  const injected: PublicGradeView = {
     ...graded,
     grader: { ...grader, title: '</text><script>alert(1)</script>' },
-  });
+  };
+  const svg = renderBadge(injected);
   expect(svg).not.toContain('<script>');
   expect(svg).toContain('&lt;script&gt;');
 });
@@ -87,10 +97,11 @@ test('the badge is a complete SVG document with an accessible name', () => {
 // sits in. The cap is on what is drawn, not on what the manifest says.
 test('a runaway grader title is capped, with an ellipsis to say so', () => {
   const long = { ...grader, title: 'A'.repeat(200) };
-  const { left } = badgeParts({ ...graded, grader: long });
+  const longGraded: PublicGradeView = { ...graded, grader: long };
+  const { left } = badgeParts(longGraded);
   expect(left).toHaveLength(40);
   expect(left.endsWith('…')).toBe(true);
-  expect(renderBadge({ ...graded, grader: long })).not.toContain('A'.repeat(41));
+  expect(renderBadge(longGraded)).not.toContain('A'.repeat(41));
 });
 
 test('a title that fits is left alone', () => {

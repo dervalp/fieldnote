@@ -18,6 +18,7 @@ import { publicGradeSettings, writePublicGrade } from './queries/public-grade-se
 import { publicGrade } from './queries/public-grades';
 import { AGENT_READINESS, agentReadinessManifest } from '../domain/grading/graders/agent-readiness';
 import { runDeclarative } from '../domain/grading/declarative';
+import { installBuiltIns } from './queries/graders';
 
 // A signed-out visitor is a session that throws, which is what currentUser()
 // does in the real application; requireWorkspace() calls it first.
@@ -84,6 +85,10 @@ beforeAll(async () => {
       { workspaceId: workspace, userId: secondOwner, role: 'owner' },
       { workspaceId: workspace, userId: member, role: 'member' },
     ]);
+  // This workspace row is inserted directly rather than through
+  // ensureDefaultWorkspace(), so it needs its own built-ins install: sharing
+  // and scheduling now check installedGrader(), not the global registry.
+  await installBuiltIns(workspace);
 });
 
 const fixtureRepositories: string[] = [];

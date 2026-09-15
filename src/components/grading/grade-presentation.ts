@@ -4,7 +4,7 @@ import { finishNames } from '../../domain/grading/finish-names';
 import { modeNames } from '../../domain/grading/mode-names';
 import { categoryNames } from '../../domain/grading/category-names';
 import { nextTier } from '../../domain/grading/next-tier';
-import { getGrader, graderCheckTitles } from '../../domain/grading/registry';
+import type { GraderManifest } from '../../domain/grading/manifest';
 import type { CheckResult } from '../../domain/grading/types';
 
 /**
@@ -19,9 +19,8 @@ import type { CheckResult } from '../../domain/grading/types';
  * more. That is the point — one seam, not four.
  *
  * The card's line and its check titles are the grader's, not fieldnote's, so
- * they come from the manifest `graderId` names. The caller names the grader
- * rather than the seam assuming one: there is exactly one today, and that
- * assumption should be visible where it is made.
+ * they come from the manifest the caller already resolved — this seam
+ * resolves nothing of its own any more.
  */
 export function gradeCardProps(input: {
   score: number;
@@ -29,10 +28,11 @@ export function gradeCardProps(input: {
   sha: string;
   rubricVersion: string;
   checks: CheckResult[];
-  graderId: string;
+  grader: GraderManifest;
 }): GradeCardProps {
   const grade = gradePresentation(input.score);
-  const grader = getGrader(input.graderId);
+  const grader = input.grader;
+  const checkTitles = Object.fromEntries(grader.checks.map((check) => [check.id, check.title]));
   return {
     score: input.score,
     finish: grade.finish,
@@ -45,10 +45,10 @@ export function gradeCardProps(input: {
     title: grader.card.title,
     // owner/name. A marketplace has two people who both want the name
     // test-coverage, so the owner is part of the identity, not decoration.
-    author: input.graderId.split('/')[0],
+    author: grader.id.split('/')[0],
     mode: modeNames[grader.mode],
     category: categoryNames[grader.category],
-    next: nextTier(input.score, input.checks, graderCheckTitles(input.graderId)),
+    next: nextTier(input.score, input.checks, checkTitles),
     repositoryName: input.repositoryName,
     rubricVersion: input.rubricVersion,
     sha: input.sha,

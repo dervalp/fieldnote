@@ -36,7 +36,7 @@ beforeEach(() => {
 });
 
 test('a graded page shows the card, the commit and the checks', async () => {
-  deps.publicGrade.mockResolvedValue({ state: 'graded', repository, grader, grade, stale: false });
+  deps.publicGrade.mockResolvedValue({ state: 'graded', repository, grader, manifest: agentReadinessManifest, grade, stale: false });
   const html = renderToStaticMarkup(await PublicGrade({ params: params() }));
   expect(html).toContain('Agent Readiness');
   expect(html).toContain('acme / widgets');
@@ -48,13 +48,13 @@ test('a graded page shows the card, the commit and the checks', async () => {
 // The private and ungraded branches each have an h1; the graded one had none,
 // which left the page a heading short of an outline.
 test('a graded page has a heading naming the repository and the grader', async () => {
-  deps.publicGrade.mockResolvedValue({ state: 'graded', repository, grader, grade, stale: false });
+  deps.publicGrade.mockResolvedValue({ state: 'graded', repository, grader, manifest: agentReadinessManifest, grade, stale: false });
   const html = renderToStaticMarkup(await PublicGrade({ params: params() }));
   expect(html).toContain('<h1>Agent Readiness · acme/widgets</h1>');
 });
 
 test('a stale grade says so on the page', async () => {
-  deps.publicGrade.mockResolvedValue({ state: 'graded', repository, grader, grade, stale: true });
+  deps.publicGrade.mockResolvedValue({ state: 'graded', repository, grader, manifest: agentReadinessManifest, grade, stale: true });
   const html = renderToStaticMarkup(await PublicGrade({ params: params() }));
   expect(html).toContain('more than 30 days');
 });
@@ -81,7 +81,7 @@ test('a private page is not indexed, and a graded one is', async () => {
   expect(await generateMetadata({ params: params() })).toMatchObject({
     robots: { index: false, follow: false },
   });
-  deps.publicGrade.mockResolvedValue({ state: 'graded', repository, grader, grade, stale: false });
+  deps.publicGrade.mockResolvedValue({ state: 'graded', repository, grader, manifest: agentReadinessManifest, grade, stale: false });
   const metadata = await generateMetadata({ params: params() });
   expect(metadata.robots).toBeUndefined();
   expect(metadata.title).toContain('Agent Readiness');

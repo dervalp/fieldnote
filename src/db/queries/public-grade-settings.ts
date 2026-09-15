@@ -3,10 +3,8 @@ import { db } from '../index';
 import { installations, publicGrades, repositories, workspaceRepositories } from '../schema';
 import { requireRepository, requireWorkspace } from '../../workspaces/access';
 import { currentUser } from '../../auth/session';
-// The same deliberate side-effect import grade-runs.ts documents: importing a
-// grader module registers it, and a serverless entry point has no boot step.
-import '../../domain/grading/graders';
-import { getGrader } from '../../domain/grading/registry';
+import { installedGrader } from './graders';
+import { ManifestError } from '../../domain/grading/manifest';
 
 /**
  * Session-bound half of public sharing: what the grades page draws, and what
@@ -42,10 +40,11 @@ export async function writePublicGrade(
   graderId: string,
   shared: boolean,
 ): Promise<void> {
-  getGrader(graderId);
   const repository = await requireRepository(repositoryId);
   const workspace = await requireWorkspace(undefined, 'owner');
   if (workspace.id === 'demo' || repository.isDemo) throw new Error('Demo workspace is read-only');
+  const installed = await installedGrader(workspace.id, graderId);
+  if (!installed) throw new ManifestError('unknown_grader', `No grader '${graderId}' is installed.`);
   const user = await currentUser();
   const [available] = await db()
     .select({ id: repositories.id })

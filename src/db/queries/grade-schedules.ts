@@ -9,7 +9,8 @@ import {
 } from '../schema';
 import { requireRepository, requireWorkspace } from '../../workspaces/access';
 import { currentUser } from '../../auth/session';
-import { getGrader } from '../../domain/grading/registry';
+import { installedGrader } from './graders';
+import { ManifestError } from '../../domain/grading/manifest';
 
 /**
  * What the page needs to draw one toggle. Absent means off.
@@ -96,10 +97,11 @@ export async function writeGradeSchedule(
   graderId: string,
   enabled: boolean,
 ): Promise<void> {
-  getGrader(graderId);
   const repository = await requireRepository(repositoryId);
   const workspace = await requireWorkspace();
   if (workspace.id === 'demo' || repository.isDemo) throw new Error('Demo workspace is read-only');
+  const installed = await installedGrader(workspace.id, graderId);
+  if (!installed) throw new ManifestError('unknown_grader', `No grader '${graderId}' is installed.`);
   const user = await currentUser();
   if (!enabled) {
     await db()

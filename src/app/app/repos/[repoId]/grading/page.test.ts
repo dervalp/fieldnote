@@ -12,10 +12,14 @@ const deps = vi.hoisted(() => ({
   schedules: vi.fn(),
   workspace: vi.fn(),
   publicSettings: vi.fn(),
+  installedGraders: vi.fn(),
 }));
 vi.mock('../../../../../workspaces/access', () => ({
   requireRepository: deps.authorize,
   requireWorkspace: deps.workspace,
+}));
+vi.mock('../../../../../db/queries/graders', () => ({
+  installedGraders: deps.installedGraders,
 }));
 vi.mock('../../../../../db/queries/grade-runs', () => ({
   gradeSummaries: deps.summaries,
@@ -64,7 +68,11 @@ vi.mock('../../../../../components/grading/share-toggle', () => ({
   }) => createElement('p', null, `share:${graderId}:${shared ? 'on' : 'off'}:${canShare ? 'owner' : 'member'}`),
 }));
 import Grading from './page';
-import { DELIVERY_HEALTH } from '../../../../../domain/grading/graders/delivery-health';
+import { agentReadinessManifest } from '../../../../../domain/grading/graders/agent-readiness';
+import {
+  DELIVERY_HEALTH,
+  deliveryHealthManifest,
+} from '../../../../../domain/grading/graders/delivery-health';
 const completed = {
   id: 'old',
   score: 60,
@@ -74,6 +82,17 @@ const completed = {
   computedAt: new Date('2026-09-08'),
   checks: [],
 };
+// installedGraders() rows, in the order the workspace is presumed to have
+// installed them — Agent Readiness first, the way the built-ins install.
+const installedEntry = (manifest: typeof agentReadinessManifest) => ({
+  manifest,
+  version: manifest.version,
+  consentedNeeds: 'hash',
+  verifiedAt: new Date('2026-01-01'),
+  withdrawnAt: null,
+  latestVersion: manifest.version,
+});
+const bothInstalled = [installedEntry(agentReadinessManifest), installedEntry(deliveryHealthManifest)];
 const call = (run?: string, grader?: string) =>
   Grading({
     params: Promise.resolve({ repoId: 'repo' }),
@@ -88,6 +107,7 @@ beforeEach(() => {
     isDemo: false,
     isPrivate: false,
   });
+  deps.installedGraders.mockResolvedValue(bothInstalled);
   deps.summaries.mockResolvedValue([
     {
       graderId: 'fieldnote/agent-readiness',
@@ -104,6 +124,13 @@ beforeEach(() => {
   deps.schedules.mockResolvedValue({});
   deps.workspace.mockResolvedValue({ id: 'workspace', name: 'W', role: 'owner' });
   deps.publicSettings.mockResolvedValue({});
+});
+test('a workspace with nothing installed sees one empty-state surface, not a crash', async () => {
+  deps.installedGraders.mockResolvedValue([]);
+  const html = renderToStaticMarkup(await call());
+  expect(html).toContain('No graders installed.');
+  expect(html).toContain('href="/app/settings/graders"');
+  expect(deps.summaries).not.toHaveBeenCalled();
 });
 test('latest completed score remains visible alongside failed current attempt', async () => {
   const html = renderToStaticMarkup(await call());
@@ -146,7 +173,7 @@ test('both graders render a card region', async () => {
   const html = renderToStaticMarkup(await call());
   // Agent Readiness has a completed grade and renders the real GradeCard;
   // Delivery Health has never run and renders its own ungraded tile — both
-  // rows come from listGraders(), not from a hardcoded pair.
+  // rows come from installedGraders(), not from a hardcoded pair.
   expect(html).toContain('Agent Readiness');
   expect(html).toContain('Delivery Health');
   expect(html).toContain('Not graded yet');
@@ -182,7 +209,7 @@ test('the Act entry appears under the readiness card and disappears under a diff
   expect(deliverySelected).not.toMatch(/act-(un)?available/);
 });
 
-test('Agent Readiness renders before Delivery Health, in listGraders() registration order', async () => {
+test('Agent Readiness renders before Delivery Health, in installedGraders() order', async () => {
   const html = renderToStaticMarkup(await call());
   const readinessIndex = html.indexOf('Agent Readiness');
   const deliveryIndex = html.indexOf('Delivery Health');

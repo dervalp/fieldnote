@@ -1,7 +1,7 @@
 import type { GradeCardProps } from '@fieldnote/design-system';
 import type { CheckResult } from '../../domain/grading/types';
 import { gradeCardProps } from '../grading/grade-presentation';
-import { AGENT_READINESS } from '../../domain/grading/graders/agent-readiness';
+import { agentReadinessManifest } from '../../domain/grading/graders/agent-readiness';
 import { ladderLine } from './ladder-copy';
 
 /**
@@ -86,7 +86,7 @@ export function sampleCard(score: number, remaining = 0): GradeCardProps {
     sha: SAMPLE_SHA,
     rubricVersion: RUBRIC_VERSION,
     checks: failingFor(remaining),
-    graderId: AGENT_READINESS,
+    grader: agentReadinessManifest,
   });
   // The product card shows the grader's one tagline. The ladder is selling
   // the six finishes, so it swaps in a line per band — marketing's own copy,

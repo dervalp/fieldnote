@@ -5,13 +5,8 @@ import { requireRepository, requireWorkspace } from '../../../../../workspaces/a
 import { getGrade, gradeHistory, gradeSummaries } from '../../../../../db/queries/grade-runs';
 import { publicGradeSettings } from '../../../../../db/queries/public-grade-settings';
 import { ShareToggle } from '../../../../../components/grading/share-toggle';
-// Importing the barrel (not just agent-readiness) registers every built-in
-// grader as a side effect, the way registry.ts's own docstring on
-// listGraders() asks a caller to. This is the one page that needs the full
-// roster; every other caller still names the one grader it means.
-import { AGENT_READINESS } from '../../../../../domain/grading/graders';
-import { getGrader, graderCheckTitles, listGraders } from '../../../../../domain/grading/registry';
-import { ManifestError } from '../../../../../domain/grading/manifest';
+import { AGENT_READINESS } from '../../../../../domain/grading/graders/agent-readiness';
+import { installedGraders } from '../../../../../db/queries/graders';
 import { gradeCardProps } from '../../../../../components/grading/grade-presentation';
 import { GradeControls } from '../../../../../components/grading/report';
 import { GradeReport } from '../../../../../components/grading/report-view';
@@ -27,13 +22,14 @@ import { gradeSchedules } from '../../../../../db/queries/grade-schedules';
 import { ScheduleToggle } from '../../../../../components/grading/schedule-toggle';
 export const dynamic = 'force-dynamic';
 
-// A row of cards, one per registered grader, whether or not it has ever run —
+// A row of cards, one per installed grader, whether or not it has ever run —
 // so a second grader advertises itself before anyone has used it. `?grader=`
 // selects which card's report and history render beneath the row, defaulting
-// to the built-in readiness grader; an id nothing registers is a 404 rather
-// than a silent fallback to the default. There is no primary grader and no
-// composite score: the graders answer different questions, and a mean of
-// "can an agent work here" and "does work reach green cleanly" is a number
+// to the built-in readiness grader when it is installed and otherwise the
+// first installed entry; an id the workspace has not installed is a 404
+// rather than a silent fallback to the default. There is no primary grader
+// and no composite score: the graders answer different questions, and a mean
+// of "can an agent work here" and "does work reach green cleanly" is a number
 // about nothing.
 export default async function Grading({
   params,
@@ -44,16 +40,28 @@ export default async function Grading({
 }) {
   const repoId = pageRouteId((await params).repoId);
   const repo = await requireRepository(repoId);
-  const { run, grader } = await searchParams;
-  const graders = listGraders();
-  let selectedGrader;
-  try {
-    selectedGrader = getGrader(grader ?? AGENT_READINESS);
-  } catch (error) {
-    if (error instanceof ManifestError) notFound();
-    throw error;
+  const workspace = await requireWorkspace();
+  const installed = await installedGraders(workspace.id);
+  if (installed.length === 0) {
+    return (
+      <Surface>
+        <p>
+          No graders installed. A workspace owner can install one from{' '}
+          <Link href="/app/settings/graders">workspace settings</Link>.
+        </p>
+      </Surface>
+    );
   }
-  const checkTitles = graderCheckTitles(selectedGrader.id);
+  const { run, grader } = await searchParams;
+  const graders = installed.map((entry) => entry.manifest);
+  const selectedEntry = grader
+    ? installed.find((entry) => entry.manifest.id === grader)
+    : (installed.find((entry) => entry.manifest.id === AGENT_READINESS) ?? installed[0]);
+  if (!selectedEntry) notFound();
+  const selectedGrader = selectedEntry.manifest;
+  const checkTitles = Object.fromEntries(
+    selectedGrader.checks.map((check) => [check.id, check.title]),
+  );
   // The one place the /app prefix is spelled is repoSectionPath; the grader
   // selection rides on the query string it already carries.
   const gradingHref = (query = '') => repoSectionPath(repoId, 'grading', query);
@@ -67,20 +75,18 @@ export default async function Grading({
     query.set('run', runId);
     return gradingHref(`?${query}`);
   };
-  const [summaries, history, historical, enabled, plan, schedules, sharing, workspace] =
-    await Promise.all([
-      gradeSummaries(
-        [repoId],
-        graders.map((entry) => entry.id),
-      ),
-      gradeHistory(repoId, selectedGrader.id),
-      run ? getGrade(repoId, run, selectedGrader.id) : Promise.resolve(null),
-      actEnabled(repoId),
-      latestPlan(repoId),
-      gradeSchedules(repoId),
-      publicGradeSettings(repoId),
-      requireWorkspace(),
-    ]);
+  const [summaries, history, historical, enabled, plan, schedules, sharing] = await Promise.all([
+    gradeSummaries(
+      [repoId],
+      graders.map((entry) => entry.id),
+    ),
+    gradeHistory(repoId, selectedGrader.id),
+    run ? getGrade(repoId, run, selectedGrader.id) : Promise.resolve(null),
+    actEnabled(repoId),
+    latestPlan(repoId),
+    gradeSchedules(repoId),
+    publicGradeSettings(repoId),
+  ]);
   if (run && !historical) notFound();
   const summaryFor = (graderId: string) => summaries.find((entry) => entry.graderId === graderId);
   const summary = summaryFor(selectedGrader.id);
@@ -147,7 +153,7 @@ export default async function Grading({
                       sha: entryGrade.sha,
                       rubricVersion: entryGrade.rubricVersion,
                       checks: entryGrade.checks,
-                      graderId: entry.id,
+                      grader: entry,
                     })}
                   />
                 ) : (

@@ -36,6 +36,7 @@ import {
 } from '../domain/grading/graders/agent-readiness';
 import { TEST_DISCIPLINE } from '../domain/grading/graders/test-discipline';
 import { ManifestError } from '../domain/grading/manifest';
+import { installBuiltIns } from './queries/graders';
 const HEAD_SHA = 'a'.repeat(40);
 // collectFiles is mocked the way src/db/grade-runs.integration.test.ts mocks
 // it: resolveHeadSha stays a fixed stub, since the scheduler's own
@@ -81,6 +82,10 @@ beforeAll(async () => {
   await db()
     .insert(workspaceMemberships)
     .values({ workspaceId: context.workspace, userId: context.user, role: 'member' });
+  // This workspace row is inserted directly rather than through
+  // ensureDefaultWorkspace(), so it needs its own built-ins install:
+  // writeGradeSchedule now checks installedGrader(), not the global registry.
+  await installBuiltIns(context.workspace);
   secondUser = randomUUID();
   secondWorkspace = randomUUID();
   await db()

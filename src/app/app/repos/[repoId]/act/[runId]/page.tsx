@@ -5,8 +5,7 @@ import { getPlan } from '../../../../../../db/queries/authoring-runs';
 import { PlanView } from '../../../../../../components/act/plan-view';
 import { pageRouteId } from '../../../../../../lib/page-route-id';
 import { repoSectionPath } from '../../../../../../lib/app-routes';
-import { AGENT_READINESS } from '../../../../../../domain/grading/graders/agent-readiness';
-import { graderCheckTitles } from '../../../../../../domain/grading/registry';
+import { agentReadinessManifest } from '../../../../../../domain/grading/graders/agent-readiness';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,7 +29,9 @@ export default async function Plan({
       <PlanView
         run={plan.run}
         remedies={plan.remedies}
-        checkTitles={graderCheckTitles(AGENT_READINESS)}
+        checkTitles={Object.fromEntries(
+          agentReadinessManifest.checks.map((check) => [check.id, check.title]),
+        )}
       />
       <p>
         <Link href={repoSectionPath(repoId, 'grading')}>Back to readiness</Link>

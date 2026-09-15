@@ -62,7 +62,7 @@ export default async function PublicGrade({ params }: { params: Params }) {
               sha: resolved.grade.sha,
               rubricVersion: resolved.grade.rubricVersion,
               checks: resolved.grade.checks,
-              graderId: resolved.grader.id,
+              grader: resolved.manifest,
             })}
           />
           {resolved.stale && (

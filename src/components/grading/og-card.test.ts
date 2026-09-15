@@ -29,7 +29,7 @@ const render = (view: Parameters<typeof OgCard>[0]['view']) =>
   renderToStaticMarkup(createElement(OgCard, { view }));
 
 test('a graded image shows the score, the grader and the repository', () => {
-  const html = render({ state: 'graded', repository, grader, grade, stale: false });
+  const html = render({ state: 'graded', repository, grader, manifest: agentReadinessManifest, grade, stale: false });
   expect(html).toContain('80');
   expect(html).toContain('Very good');
   expect(html).toContain('Agent Readiness');
@@ -37,13 +37,13 @@ test('a graded image shows the score, the grader and the repository', () => {
 });
 
 test('an image never carries a check or a file name', () => {
-  const html = render({ state: 'graded', repository, grader, grade, stale: false });
+  const html = render({ state: 'graded', repository, grader, manifest: agentReadinessManifest, grade, stale: false });
   expect(html).not.toContain('README.md');
   expect(html).not.toContain('Project documentation');
 });
 
 test('a stale image says stale and no number', () => {
-  const html = render({ state: 'graded', repository, grader, grade, stale: true });
+  const html = render({ state: 'graded', repository, grader, manifest: agentReadinessManifest, grade, stale: true });
   expect(html).toContain('stale');
   expect(html).not.toContain('>80<');
 });

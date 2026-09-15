@@ -7,10 +7,7 @@ import {
   repositories,
   workspaceRepositories,
 } from '../schema';
-// A public page is its own serverless entry point, with its own module graph:
-// without this import no grader is registered and every address is private.
-import '../../domain/grading/graders';
-import { getGrader } from '../../domain/grading/registry';
+import { graderVersion, latestPublishedVersion } from './graders';
 import {
   freshAt,
   isStale,
@@ -44,12 +41,6 @@ export async function publicGrade(
   // and throws when they are absent, and a public request has no business
   // needing them. DEMO_MODE is the one value this module reads.
   if (process.env.DEMO_MODE === 'true') return PRIVATE;
-  let manifest;
-  try {
-    manifest = getGrader(graderId);
-  } catch {
-    return PRIVATE;
-  }
   // GitHub names are case-insensitive, and two rows for one name would make
   // "which repository is this" a guess — so anything but exactly one match is
   // private.
@@ -88,7 +79,6 @@ export async function publicGrade(
   if (matches.length !== 1) return PRIVATE;
   const [match] = matches;
   const repository = { owner: match.owner, name: match.name, isPrivate: match.isPrivate };
-  const grader = publicGrader(manifest);
   const [run] = await db()
     .select({
       result: runs.result,
@@ -106,12 +96,18 @@ export async function publicGrade(
     )
     .orderBy(desc(runs.createdAt), desc(runs.id))
     .limit(1);
-  if (!run?.result || !run.sha || !run.completedAt)
-    return { state: 'ungraded', repository, grader };
+  if (!run?.result || !run.sha || !run.completedAt) {
+    // Nothing scored: fall back to the newest published version for identity.
+    const manifest = await latestPublishedVersion(graderId);
+    return manifest ? { state: 'ungraded', repository, grader: publicGrader(manifest) } : PRIVATE;
+  }
+  const manifest = await graderVersion(graderId, run.result.rubricVersion);
+  if (!manifest) return PRIVATE;
   return {
     state: 'graded',
     repository,
-    grader,
+    grader: publicGrader(manifest),
+    manifest,
     grade: publicGradeFrom(
       run.result,
       { sha: run.sha, completedAt: run.completedAt },

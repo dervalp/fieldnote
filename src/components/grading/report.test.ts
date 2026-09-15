@@ -18,12 +18,10 @@ import {
   AGENT_READINESS,
   agentReadinessManifest,
 } from '../../domain/grading/graders/agent-readiness';
-import {
-  DELIVERY_HEALTH,
-  deliveryHealthManifest,
-} from '../../domain/grading/graders/delivery-health';
-import { graderCheckTitles } from '../../domain/grading/registry';
-const titles = graderCheckTitles(agentReadinessManifest.id);
+import { deliveryHealthManifest } from '../../domain/grading/graders/delivery-health';
+const titles = Object.fromEntries(
+  agentReadinessManifest.checks.map((check) => [check.id, check.title]),
+);
 const sha = 'a'.repeat(40);
 const grade: CompletedGrade = {
   id: 'run',
@@ -94,7 +92,7 @@ test.each([0, 49, 50, 69, 70, 79, 80, 89, 90, 99, 100])(
           sha,
           rubricVersion: '0.1.0',
           checks: grade.checks,
-          graderId: AGENT_READINESS,
+          grader: agentReadinessManifest,
         }),
       ),
     );
@@ -127,7 +125,7 @@ test('the accessible name carries author, version, mode and category, not just t
         sha,
         rubricVersion: deliveryHealthManifest.version,
         checks: [],
-        graderId: DELIVERY_HEALTH,
+        grader: deliveryHealthManifest,
       }),
     ),
   );
@@ -177,7 +175,7 @@ test.each([
         sha,
         rubricVersion: '0.1.0',
         checks: score === 100 ? [passingCheck] : [passingCheck, failingCheck],
-        graderId: AGENT_READINESS,
+        grader: agentReadinessManifest,
       }),
     ),
   );
