@@ -6,7 +6,7 @@ import { sessions } from '../../../../db/schema';
 import { tokenHash } from '../../../../auth/crypto';
 import { env } from '../../../../lib/env';
 export async function POST(request: Request) {
-  // Railway terminates HTTPS before forwarding to the application server.
+  // Vercel terminates HTTPS before forwarding to the application server.
   const publicOrigin = new URL(env().integration?.APP_URL ?? request.url).origin;
   const origin = request.headers.get('origin');
   if (!origin || origin !== publicOrigin) return new Response('Invalid origin', { status: 403 });

@@ -1,6 +1,6 @@
 # Operations
 
-Everything needed to run `ai-metrics` beyond the seeded demo: tests, continuous
+Everything needed to run `fieldnote` beyond the seeded demo: tests, continuous
 integration, production configuration, and operator commands. For the product
 overview see the [README](../README.md); for architecture see
 [architecture.md](architecture.md).
