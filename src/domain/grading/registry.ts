@@ -1,29 +1,16 @@
-import { ManifestError, parseManifest, type GraderManifest } from './manifest';
+import { parseManifest, type GraderManifest } from './manifest';
+import { agentReadinessManifest } from './graders/agent-readiness';
+import { deliveryHealthManifest } from './graders/delivery-health';
+import { testDisciplineManifest } from './graders/test-discipline';
 
-// Built-ins are registered at boot, the way registerRubric() already works.
-// There is no install flow, no publishing and no marketplace in this slice —
-// but a built-in grader is an ordinary grader, so it comes through this door
-// and gets no private interface behind it.
-const graders = new Map<string, GraderManifest>();
-
-export function registerGrader(input: unknown): GraderManifest {
-  const manifest = parseManifest(input);
-  graders.set(manifest.id, manifest);
-  return manifest;
+/**
+ * fieldnote's own graders, as code. They are where a built-in is written,
+ * reviewed and tested — and from slice 6 they are a *seed*: seedBuiltInGraders()
+ * publishes them into the registry, where they are ordinary rows resolved by
+ * the same query a stranger's grader is. Nothing else reads this list.
+ */
+export function builtInManifests(): GraderManifest[] {
+  return [agentReadinessManifest, deliveryHealthManifest, testDisciplineManifest];
 }
 
-export function getGrader(graderId: string): GraderManifest {
-  const manifest = graders.get(graderId);
-  if (!manifest)
-    throw new ManifestError('unknown_grader', `No grader '${graderId}' is registered.`);
-  return manifest;
-}
-
-export function graderCheckTitles(graderId: string): Record<string, string> {
-  return Object.fromEntries(getGrader(graderId).checks.map((check) => [check.id, check.title]));
-}
-
-/** Every registered grader, in registration order. Import graders/index first. */
-export function listGraders(): GraderManifest[] {
-  return [...graders.values()];
-}
+export { parseManifest };

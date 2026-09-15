@@ -1,4 +1,4 @@
-import { registerGrader } from '../registry';
+import { parseManifest } from '../manifest';
 import { source } from './test-discipline/source.generated';
 
 export const TEST_DISCIPLINE = 'fieldnote/test-discipline';
@@ -8,7 +8,7 @@ export const TEST_DISCIPLINE = 'fieldnote/test-discipline';
 // and the extraction rule says the answer to that is kind: code, not a new
 // primitive. It is an ordinary grader: in production its program runs in the
 // sandbox exactly as a stranger's would, even though fieldnote wrote it.
-export const testDisciplineManifest = registerGrader({
+export const testDisciplineManifest = parseManifest({
   id: TEST_DISCIPLINE,
   version: '0.1.0',
   evaluatorVersion: '1.0.0',

@@ -15,19 +15,6 @@ import {
   requireWorkspace,
 } from '../../workspaces/access';
 import { currentUser } from '../../auth/session';
-// Deliberate side-effect import: importing a grader module registers it as a
-// side effect (see domain/grading/graders/index.ts), and there is no boot
-// step in a serverless deployment to do that registration for us — each
-// entry point (the page's server action, the Inngest worker) gets its own
-// module graph. This query module is the one door every grader resolution
-// already walks through: requestGrade (the page's path) and validateGradeRun
-// (the worker's path) both call getGrader() below. Importing the barrel here,
-// for its registration side effect only, is what makes both built-ins
-// resolvable from either entry point. Do not remove this as dead code — it
-// has no bindings to use because its job is the import itself; deleting it
-// silently brings back `unknown_grader` for any grader the caller's own
-// module graph doesn't otherwise reach.
-import '../../domain/grading/graders';
 import { getGrader } from '../../domain/grading/registry';
 import { manifestHash } from '../../domain/grading/manifest-hash';
 import { rubricView } from '../../domain/grading/rubric-view';

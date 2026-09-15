@@ -1,4 +1,4 @@
-import { registerGrader } from '../registry';
+import { parseManifest } from '../manifest';
 
 export const AGENT_READINESS = 'fieldnote/agent-readiness';
 
@@ -10,7 +10,7 @@ export const AGENT_READINESS = 'fieldnote/agent-readiness';
 // order, same 20 points each, same explanations. The card tagline is new: the
 // six per-finish flavour lines this grader used to supply are a deliberate
 // loss, recorded in the design. Do not smuggle them back in as a special case.
-export const agentReadinessManifest = registerGrader({
+export const agentReadinessManifest = parseManifest({
   id: AGENT_READINESS,
   version: '0.1.0',
   evaluatorVersion: '1.0.0',

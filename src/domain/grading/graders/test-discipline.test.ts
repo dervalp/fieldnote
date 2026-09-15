@@ -1,11 +1,10 @@
 import { expect, test } from 'vitest';
-import { getGrader } from '../registry';
 import { changesOverTime } from '../manifest';
 import { TEST_DISCIPLINE, testDisciplineManifest } from './test-discipline';
 import { source } from './test-discipline/source.generated';
 
 test('test-discipline is an ordinary code grader over the file list', () => {
-  expect(getGrader(TEST_DISCIPLINE)).toBe(testDisciplineManifest);
+  expect(testDisciplineManifest.id).toBe(TEST_DISCIPLINE);
   expect(testDisciplineManifest).toMatchObject({
     version: '0.1.0',
     evaluatorVersion: '1.0.0',

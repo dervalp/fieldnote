@@ -1,11 +1,7 @@
-// The barrel comes first on purpose. Registration is a side effect of
-// importing a grader, ES modules evaluate imports in source order, and the
-// order assertion below is about the barrel's declared order — not about
-// which import this test file happens to list first.
 import { AGENT_READINESS, DELIVERY_HEALTH, TEST_DISCIPLINE, deliveryHealthManifest } from './index';
 import { expect, test } from 'vitest';
 import { runDeclarative } from '../declarative';
-import { getGrader, listGraders } from '../registry';
+import { builtInManifests } from '../registry';
 import type { MetricsWindow, RepositorySnapshot } from '../types';
 
 const metricsWindow = (over: Partial<MetricsWindow> = {}): MetricsWindow => ({
@@ -31,17 +27,17 @@ test('delivery health grades a pinned window at version 0.2.0', () => {
   expect(deliveryHealthManifest.subject).toBe('repository_window');
 });
 
-test('the grader registers and is an ordinary one', () => {
-  expect(getGrader(DELIVERY_HEALTH)).toBe(deliveryHealthManifest);
+test('the grader is an ordinary one', () => {
+  expect(deliveryHealthManifest.id).toBe(DELIVERY_HEALTH);
   expect(deliveryHealthManifest.checks.reduce((sum, c) => sum + c.points, 0)).toBe(100);
   expect(deliveryHealthManifest.mode).toBe('deterministic');
   expect(deliveryHealthManifest.category).toBe('delivery-health');
 });
 
-test('all built-ins are listed, readiness first', () => {
+test('all built-ins are seeded, readiness first', () => {
   // The row on the Grades tab renders in this order, so it is a product
-  // decision worth pinning rather than an accident of the module graph.
-  expect(listGraders().map((grader) => grader.id)).toEqual([
+  // decision worth pinning rather than an accident of the seed list.
+  expect(builtInManifests().map((grader) => grader.id)).toEqual([
     AGENT_READINESS,
     DELIVERY_HEALTH,
     TEST_DISCIPLINE,

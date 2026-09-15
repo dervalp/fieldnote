@@ -1,8 +1,6 @@
-// The barrel comes first: importing it is what registers every built-in.
-import './index';
 import { expect, test } from 'vitest';
 import { manifestHash } from '../manifest-hash';
-import { listGraders } from '../registry';
+import { builtInManifests } from '../registry';
 
 // What registerRubric freezes for an (id, version): the whole manifest except
 // `card`, which is copy. Computed here the way registerRubric computes it
@@ -28,7 +26,7 @@ const PINNED: Record<string, string> = {
 
 test('every built-in version still freezes exactly what it froze when it shipped', () => {
   const actual = Object.fromEntries(
-    listGraders().map((manifest) => [`${manifest.id}@${manifest.version}`, frozenHash(manifest)]),
+    builtInManifests().map((manifest) => [`${manifest.id}@${manifest.version}`, frozenHash(manifest)]),
   );
   expect(actual).toEqual(PINNED);
 });

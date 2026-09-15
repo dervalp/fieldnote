@@ -1,4 +1,4 @@
-import { registerGrader } from '../registry';
+import { parseManifest } from '../manifest';
 
 export const DELIVERY_HEALTH = 'fieldnote/delivery-health';
 
@@ -15,7 +15,7 @@ export const DELIVERY_HEALTH = 'fieldnote/delivery-health';
 // mismatch` on the first grade request against a database that already holds
 // the 0.1.0 row. Runs recorded against 0.1.0 keep pointing at the 0.1.0
 // rubric, which still exists and still renders.
-export const deliveryHealthManifest = registerGrader({
+export const deliveryHealthManifest = parseManifest({
   id: DELIVERY_HEALTH,
   version: '0.2.0',
   evaluatorVersion: '1.0.0',

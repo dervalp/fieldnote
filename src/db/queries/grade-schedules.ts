@@ -9,11 +9,6 @@ import {
 } from '../schema';
 import { requireRepository, requireWorkspace } from '../../workspaces/access';
 import { currentUser } from '../../auth/session';
-// The same deliberate side-effect import grade-runs.ts documents: importing a
-// grader module registers it, and a serverless entry point has no boot step to
-// do that for us. writeGradeSchedule resolves a grader through getGrader(), so
-// this module is one of the doors that has to have them registered.
-import '../../domain/grading/graders';
 import { getGrader } from '../../domain/grading/registry';
 
 /**
