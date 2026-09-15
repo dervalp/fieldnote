@@ -3,7 +3,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect, unstable_rethrow } from 'next/navigation';
 import { ManifestError } from '../../../../domain/grading/manifest';
 import { publishGrader, withdrawVersion } from '../../../../db/queries/grader-publishing';
-import { installGrader } from '../../../../db/queries/grader-installs';
+import { installGrader, updateInstall, uninstallGrader } from '../../../../db/queries/grader-installs';
 
 type Result = { error?: string };
 const value = (form: FormData, key: string) => String(form.get(key) ?? '');
@@ -33,6 +33,7 @@ async function save(
       'Code graders cannot be published yet': 'Code graders cannot be published yet.',
       'Grader unavailable': 'That grader is not yours to change.',
       'Version unavailable': 'That version is no longer available.',
+      'Grader not installed': 'That grader is not installed in this workspace.',
       ...overrides,
     };
     return {
@@ -69,5 +70,23 @@ export async function installGraderVersion(form: FormData): Promise<Result> {
     },
     'We could not install this grader. Please try again.',
     { 'Version unavailable': 'That version is no longer available to install.' },
+  );
+}
+
+export async function updateGraderInstall(form: FormData): Promise<Result> {
+  return save(
+    async () => {
+      await updateInstall(value(form, 'graderId'), value(form, 'version'));
+      redirect('/app/settings/graders');
+    },
+    'We could not update this grader. Please try again.',
+    { 'Version unavailable': 'That version is no longer available to install.' },
+  );
+}
+
+export async function uninstallGraderVersion(form: FormData): Promise<Result> {
+  return save(
+    () => uninstallGrader(value(form, 'graderId')),
+    'We could not uninstall this grader. Please try again.',
   );
 }

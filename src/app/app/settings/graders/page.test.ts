@@ -6,6 +6,8 @@ const deps = vi.hoisted(() => ({
   workspaceGraders: vi.fn(),
   browsableGraders: vi.fn(),
   installGraderVersion: vi.fn(),
+  updateGraderInstall: vi.fn(),
+  uninstallGraderVersion: vi.fn(),
 }));
 vi.mock('../../../../workspaces/access', () => ({
   requireWorkspace: deps.workspace,
@@ -20,6 +22,8 @@ vi.mock('./actions', () => ({
   publishGraderVersion: vi.fn(),
   withdrawGraderVersion: vi.fn(),
   installGraderVersion: deps.installGraderVersion,
+  updateGraderInstall: deps.updateGraderInstall,
+  uninstallGraderVersion: deps.uninstallGraderVersion,
 }));
 import Graders from './page';
 

@@ -5,7 +5,13 @@ import { workspaceGraders, type PublishedVersion } from '../../../../db/queries/
 import { browsableGraders, type BrowsableGrader } from '../../../../db/queries/graders';
 import { SettingsForm } from '../../../../components/settings-form';
 import { ConsentScreen } from '../../../../components/grading/consent';
-import { publishGraderVersion, withdrawGraderVersion, installGraderVersion } from './actions';
+import {
+  publishGraderVersion,
+  withdrawGraderVersion,
+  installGraderVersion,
+  updateGraderInstall,
+  uninstallGraderVersion,
+} from './actions';
 import { accountSettingsPath, workspaceSettingsPath } from '../../../../lib/app-routes';
 
 export const dynamic = 'force-dynamic';
@@ -70,7 +76,10 @@ export default async function Graders({
           manifest={installing.manifest}
           author={installing.author}
           version={installing.version}
-          action={installGraderVersion}
+          // Already installed (at any version) means this consent screen is
+          // confirming an update, not a first install — the same screen
+          // either way, because a new version may want to read more.
+          action={installing.installed ? updateGraderInstall : installGraderVersion}
           cancelHref="/app/settings/graders"
         />
       ) : (
@@ -88,7 +97,32 @@ export default async function Graders({
                   </p>
                 </div>
                 {entry.installed ? (
-                  <span className="fine">Installed</span>
+                  <div>
+                    <p className="fine">Installed · v{entry.installed.version}</p>
+                    {entry.installed.latestVersion !== entry.installed.version && (
+                      <>
+                        <p className="fine">
+                          Update available — version {entry.installed.latestVersion}
+                        </p>
+                        {owner && (
+                          <Link
+                            href={`/app/settings/graders?install=${encodeURIComponent(`${entry.id}@${entry.installed.latestVersion}`)}`}
+                          >
+                            Update
+                          </Link>
+                        )}
+                      </>
+                    )}
+                    {owner && (
+                      <SettingsForm action={uninstallGraderVersion} submitLabel="Uninstall">
+                        <input type="hidden" name="graderId" value={entry.id} />
+                        <p className="fine">
+                          Uninstalling also turns off this workspace&rsquo;s nightly grading and
+                          public sharing for this grader. Grades already produced stay.
+                        </p>
+                      </SettingsForm>
+                    )}
+                  </div>
                 ) : (
                   owner && (
                     <Link
