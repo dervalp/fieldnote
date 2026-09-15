@@ -11,6 +11,7 @@ import { graderVersion, latestPublishedVersion } from './graders';
 import {
   freshAt,
   isStale,
+  publicGradedView,
   publicGradeFrom,
   publicGrader,
   type PublicGradeView,
@@ -103,16 +104,19 @@ export async function publicGrade(
   }
   const manifest = await graderVersion(graderId, run.result.rubricVersion);
   if (!manifest) return PRIVATE;
-  return {
-    state: 'graded',
+  // Never the same lookup as `manifest`: this asks what is published *now*,
+  // to say whether the shown grade is on an earlier rubric — comparing the
+  // pinned manifest to itself would make that vacuously false.
+  const latestManifest = await latestPublishedVersion(graderId);
+  return publicGradedView({
     repository,
-    grader: publicGrader(manifest),
     manifest,
+    latestManifest,
     grade: publicGradeFrom(
       run.result,
       { sha: run.sha, completedAt: run.completedAt },
       match.isPrivate,
     ),
     stale: isStale(freshAt(run.completedAt, run.confirmedAt), now),
-  };
+  });
 }

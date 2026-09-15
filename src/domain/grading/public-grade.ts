@@ -17,6 +17,7 @@ export type PublicRepository = { owner: string; name: string; isPrivate: boolean
 export type PublicGrader = {
   id: string;
   title: string;
+  tagline: string;
   author: string;
   mode: GraderManifest['mode'];
   category: GraderManifest['category'];
@@ -43,21 +44,19 @@ export type PublicGradeView =
       state: 'graded';
       repository: PublicRepository;
       grader: PublicGrader;
-      // The full manifest the grade was computed with, alongside its redacted
-      // PublicGrader: the card seam (gradeCardProps) needs the real thing —
-      // its tagline, its checks, its category — and nothing about handing it
-      // to that seam leaks a field PublicGrader itself withholds, since
-      // nothing downstream of gradeCardProps renders `needs` or a program's
-      // source.
-      manifest: GraderManifest;
       grade: PublicGrade;
       stale: boolean;
+      // Whether the shown grade was computed against a version older than
+      // what is now published. Never carries the newer manifest itself — a
+      // visitor is told "an earlier rubric", not shown what changed.
+      outdated: boolean;
     };
 
 export function publicGrader(manifest: GraderManifest): PublicGrader {
   return {
     id: manifest.id,
     title: manifest.card.title,
+    tagline: manifest.card.tagline,
     // owner/name: the owner is part of a grader's identity, not decoration.
     author: manifest.id.split('/')[0],
     mode: manifest.mode,
@@ -66,6 +65,39 @@ export function publicGrader(manifest: GraderManifest): PublicGrader {
     version: manifest.version,
     evaluatorVersion: manifest.evaluatorVersion,
     checkTitles: Object.fromEntries(manifest.checks.map((check) => [check.id, check.title])),
+  };
+}
+
+/**
+ * Assembles the 'graded' branch of PublicGradeView. Pure and DB-free:
+ * public-grades.ts resolves the run's own pinned manifest and the newest
+ * published one, and hands both here — this is "where the view is built",
+ * so the outdated comparison lives beside the redaction it sits next to,
+ * not in the page.
+ *
+ * `latestManifest` is the newest published version at read time, never the
+ * one the grade was computed with — comparing the pinned manifest to itself
+ * would make `outdated` vacuously false, which is the bug this replaces.
+ */
+export function publicGradedView(input: {
+  repository: PublicRepository;
+  manifest: GraderManifest;
+  latestManifest: GraderManifest | null;
+  grade: PublicGrade;
+  stale: boolean;
+}): Extract<PublicGradeView, { state: 'graded' }> {
+  const { latestManifest, manifest } = input;
+  const outdated = latestManifest
+    ? manifest.version !== latestManifest.version ||
+      manifest.evaluatorVersion !== latestManifest.evaluatorVersion
+    : false;
+  return {
+    state: 'graded',
+    repository: input.repository,
+    grader: publicGrader(manifest),
+    grade: input.grade,
+    stale: input.stale,
+    outdated,
   };
 }
 

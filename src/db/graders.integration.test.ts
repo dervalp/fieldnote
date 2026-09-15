@@ -252,6 +252,46 @@ test("installedGraders reports a newer published version than the one it pinned,
   expect(entry?.latestVersion).toBe('0.2.0');
 });
 
+test('installedGraders returns a deterministic order, by install time, not insertion order', async () => {
+  // Two fixture ids, both random UUID-derived — nothing about their string
+  // order can explain the assertion below. Installed in the OPPOSITE order
+  // from the row order asserted, and with installedAt set explicitly rather
+  // than left to defaultNow(), so a query with no ORDER BY (Postgres's
+  // natural order tends to follow insertion, but makes no promise, and
+  // changes the moment a row is updated in place) would fail this the same
+  // way a caller re-pinning a version in production would see its card row
+  // jump.
+  const installedSecond = fixtureGraderId();
+  const installedFirst = fixtureGraderId();
+  const secondManifest = await publishVersion({ graderId: installedSecond });
+  const firstManifest = await publishVersion({ graderId: installedFirst });
+  await db()
+    .insert(graderInstalls)
+    .values({
+      workspaceId: workspace,
+      graderId: installedSecond,
+      version: secondManifest.version,
+      installedBy: null,
+      consentedNeeds: needsHash(secondManifest.needs),
+      installedAt: new Date('2026-06-01T00:00:00Z'),
+    });
+  await db()
+    .insert(graderInstalls)
+    .values({
+      workspaceId: workspace,
+      graderId: installedFirst,
+      version: firstManifest.version,
+      installedBy: null,
+      consentedNeeds: needsHash(firstManifest.needs),
+      installedAt: new Date('2026-01-01T00:00:00Z'),
+    });
+  const installed = await installedGraders(workspace);
+  const ids = installed
+    .map((entry) => entry.manifest.id)
+    .filter((id) => id === installedFirst || id === installedSecond);
+  expect(ids).toEqual([installedFirst, installedSecond]);
+});
+
 test('browsableGraders hides a grader whose only version is withdrawn', async () => {
   const graderId = fixtureGraderId();
   await publishVersion({

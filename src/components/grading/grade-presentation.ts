@@ -8,6 +8,41 @@ import type { GraderManifest } from '../../domain/grading/manifest';
 import type { CheckResult } from '../../domain/grading/types';
 
 /**
+ * Exactly what the card needs to know about a grader: its identity line, its
+ * mode and category, and its checks' titles — never the full manifest.
+ * `PublicGrader` (src/domain/grading/public-grade.ts) already carries this
+ * shape once `tagline` is on it, so the public page passes its redacted view
+ * straight through; graderCardIdentity() below is the same reduction for a
+ * caller holding a full GraderManifest.
+ */
+export type GraderCardIdentity = {
+  id: string;
+  title: string;
+  tagline: string;
+  author: string;
+  mode: GraderManifest['mode'];
+  category: GraderManifest['category'];
+  checkTitles: Record<string, string>;
+};
+
+/** The reduction internal callers apply before calling gradeCardProps —
+ *  never gradeCardProps itself, which must not need a GraderManifest to
+ *  compile against. */
+export function graderCardIdentity(manifest: GraderManifest): GraderCardIdentity {
+  return {
+    id: manifest.id,
+    title: manifest.card.title,
+    tagline: manifest.card.tagline,
+    // owner/name. A marketplace has two people who both want the name
+    // test-coverage, so the owner is part of the identity, not decoration.
+    author: manifest.id.split('/')[0],
+    mode: manifest.mode,
+    category: manifest.category,
+    checkTitles: Object.fromEntries(manifest.checks.map((check) => [check.id, check.title])),
+  };
+}
+
+/**
  * The only place the grading domain meets the design system.
  *
  * `GradeCard` moved into @fieldnote/design-system so the product and the
@@ -18,9 +53,11 @@ import type { CheckResult } from '../../domain/grading/types';
  * No component calls gradePresentation, finishNames or nextTier directly any
  * more. That is the point — one seam, not four.
  *
- * The card's line and its check titles are the grader's, not fieldnote's, so
- * they come from the manifest the caller already resolved — this seam
- * resolves nothing of its own any more.
+ * `grader` is a structural subset, not a GraderManifest: a public caller
+ * holds only PublicGrader (never `needs`, never a program's source, never the
+ * full checks array) and must be able to call this without widening what it
+ * carries. An internal caller reduces its manifest through
+ * graderCardIdentity() first.
  */
 export function gradeCardProps(input: {
   score: number;
@@ -28,11 +65,10 @@ export function gradeCardProps(input: {
   sha: string;
   rubricVersion: string;
   checks: CheckResult[];
-  grader: GraderManifest;
+  grader: GraderCardIdentity;
 }): GradeCardProps {
   const grade = gradePresentation(input.score);
   const grader = input.grader;
-  const checkTitles = Object.fromEntries(grader.checks.map((check) => [check.id, check.title]));
   return {
     score: input.score,
     finish: grade.finish,
@@ -41,14 +77,12 @@ export function gradeCardProps(input: {
     symbol: grade.symbol,
     count: grade.count,
     finishName: finishNames[grade.finish],
-    flavour: grader.card.tagline,
-    title: grader.card.title,
-    // owner/name. A marketplace has two people who both want the name
-    // test-coverage, so the owner is part of the identity, not decoration.
-    author: grader.id.split('/')[0],
+    flavour: grader.tagline,
+    title: grader.title,
+    author: grader.author,
     mode: modeNames[grader.mode],
     category: categoryNames[grader.category],
-    next: nextTier(input.score, input.checks, checkTitles),
+    next: nextTier(input.score, input.checks, grader.checkTitles),
     repositoryName: input.repositoryName,
     rubricVersion: input.rubricVersion,
     sha: input.sha,

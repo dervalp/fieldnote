@@ -1,6 +1,6 @@
 import type { GradeCardProps, GradeFinish } from '@fieldnote/design-system';
 import { describe, expect, it, test } from 'vitest';
-import { gradeBannerProps, gradeCardProps } from './grade-presentation';
+import { gradeBannerProps, gradeCardProps, graderCardIdentity } from './grade-presentation';
 import type { GradePresentation } from '../../domain/grading/presentation';
 import { gradePresentation } from '../../domain/grading/presentation';
 import { finishNames } from '../../domain/grading/finish-names';
@@ -34,7 +34,7 @@ const props = (score: number, checks: CheckResult[] = []): GradeCardProps =>
     sha: '6b1f0a4abcdef',
     rubricVersion: '0.1.0',
     checks,
-    grader: agentReadinessManifest,
+    grader: graderCardIdentity(agentReadinessManifest),
   });
 
 describe('gradeCardProps', () => {
@@ -102,7 +102,7 @@ test('a card carries its grader identity, not fieldnote assumptions', () => {
     sha: 'a'.repeat(40),
     rubricVersion: deliveryHealthManifest.version,
     checks: [],
-    grader: deliveryHealthManifest,
+    grader: graderCardIdentity(deliveryHealthManifest),
   });
   expect(props).toMatchObject({
     title: 'Delivery Health',

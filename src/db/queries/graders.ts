@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { db } from '../index';
 import { graders, graderInstalls, graderVersions, workspaces } from '../schema';
 import { parseManifest, type GraderManifest } from '../../domain/grading/manifest';
@@ -91,7 +91,11 @@ export async function installedGrader(
   };
 }
 
-/** Every grader a workspace installed, pinned to what it consented to. */
+/** Every grader a workspace installed, pinned to what it consented to.
+ *  Ordered by when each was installed, then by grader id: a caller that
+ *  renders these as a row of cards (the grading page, say) needs an order
+ *  that does not depend on Postgres's whim, and does not change the day a
+ *  re-pin updates a row in place. */
 export async function installedGraders(workspaceId: string): Promise<InstalledGrader[]> {
   const rows = await db()
     .select({
@@ -110,7 +114,8 @@ export async function installedGraders(workspaceId: string): Promise<InstalledGr
         eq(graderVersions.version, graderInstalls.version),
       ),
     )
-    .where(eq(graderInstalls.workspaceId, workspaceId));
+    .where(eq(graderInstalls.workspaceId, workspaceId))
+    .orderBy(asc(graderInstalls.installedAt), asc(graderInstalls.graderId));
   const latest = await latestVersionsById(rows.map((row) => row.graderId));
   return rows.map((row) => ({
     manifest: parseManifest(row.manifest),

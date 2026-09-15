@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { db, closeDb } from './index';
 import {
   installations,
@@ -13,12 +13,15 @@ import {
   workspaceMemberships,
   workspaceRepositories,
   gradeRuns,
+  graderInstalls,
+  graderVersions,
 } from './schema';
 import { publicGradeSettings, writePublicGrade } from './queries/public-grade-settings';
 import { publicGrade } from './queries/public-grades';
 import { AGENT_READINESS, agentReadinessManifest } from '../domain/grading/graders/agent-readiness';
 import { runDeclarative } from '../domain/grading/declarative';
 import { installBuiltIns } from './queries/graders';
+import { needsHash } from '../domain/grading/needs-consent';
 
 // A signed-out visitor is a session that throws, which is what currentUser()
 // does in the real application; requireWorkspace() calls it first.
@@ -91,6 +94,28 @@ beforeAll(async () => {
   await installBuiltIns(workspace);
 });
 
+// Publishes a fixture version of AGENT_READINESS itself, newer than the
+// built-in's own — for the "is this grade outdated" tests below. Tracked and
+// swept in afterAll: this id is the real built-in's, permanent, so an
+// untracked row here would leak into every other suite's count of it (the
+// same leak src/db/grade-runs.integration.test.ts's publishWithdrawnVersion
+// guards against).
+const fixtureNewerVersions: string[] = [];
+async function publishNewerReadinessVersion(version: string): Promise<void> {
+  fixtureNewerVersions.push(version);
+  await db()
+    .insert(graderVersions)
+    .values({
+      graderId: AGENT_READINESS,
+      version,
+      evaluatorVersion: agentReadinessManifest.evaluatorVersion,
+      manifest: { ...agentReadinessManifest, version },
+      publishedBy: null,
+      verifiedAt: new Date(),
+    })
+    .onConflictDoNothing();
+}
+
 const fixtureRepositories: string[] = [];
 afterAll(async () => {
   if (fixtureRepositories.length) {
@@ -103,6 +128,11 @@ afterAll(async () => {
       .where(inArray(workspaceRepositories.repositoryId, fixtureRepositories));
     await db().delete(repositories).where(inArray(repositories.id, fixtureRepositories));
     await db().delete(installations).where(inArray(installations.id, fixtureRepositories));
+  }
+  for (const version of fixtureNewerVersions) {
+    await db()
+      .delete(graderVersions)
+      .where(and(eq(graderVersions.graderId, AGENT_READINESS), eq(graderVersions.version, version)));
   }
   // requireWorkspace() calls ensureDefaultWorkspace() for whoever the session
   // names, and secondOwner and member have no defaultForUserId of their own —
@@ -254,6 +284,90 @@ test('a shared, graded, public repository is readable by anyone', async () => {
   expect(view.grader.title).toBe(agentReadinessManifest.card.title);
   expect(view.stale).toBe(false);
   expect(view.grade.checks.some((check) => check.paths.includes('README.md'))).toBe(true);
+});
+
+test('a completed grade resolves the version it was computed with, even after a newer one is published and installed', async () => {
+  const repositoryId = await fixtureRepository();
+  await completedRun(repositoryId);
+  await writePublicGrade(repositoryId, AGENT_READINESS, true);
+  const newerVersion = '9.9.94';
+  await publishNewerReadinessVersion(newerVersion);
+  // "installed" too: the public read path must not consult what a workspace
+  // has since adopted, only the run's own pinned rubric_version. Re-pinning
+  // the workspace's own install is what a real upgrade does.
+  await db()
+    .insert(graderInstalls)
+    .values({
+      workspaceId: workspace,
+      graderId: AGENT_READINESS,
+      version: newerVersion,
+      installedBy: null,
+      consentedNeeds: needsHash(agentReadinessManifest.needs),
+    })
+    .onConflictDoUpdate({
+      target: [graderInstalls.workspaceId, graderInstalls.graderId],
+      set: { version: newerVersion, consentedNeeds: needsHash(agentReadinessManifest.needs) },
+    });
+  try {
+    const [repo] = await db().select().from(repositories).where(eq(repositories.id, repositoryId));
+    const view = await publicGrade(repo.owner, repo.name, AGENT_READINESS);
+    if (view.state !== 'graded') throw new Error('expected a graded view');
+    expect(view.grader.version).toBe(agentReadinessManifest.version);
+    expect(view.grader.version).not.toBe(newerVersion);
+  } finally {
+    // Restores what installBuiltIns() set up, for every later test in this
+    // file that shares this workspace.
+    await db()
+      .insert(graderInstalls)
+      .values({
+        workspaceId: workspace,
+        graderId: AGENT_READINESS,
+        version: agentReadinessManifest.version,
+        installedBy: null,
+        consentedNeeds: needsHash(agentReadinessManifest.needs),
+      })
+      .onConflictDoUpdate({
+        target: [graderInstalls.workspaceId, graderInstalls.graderId],
+        set: {
+          version: agentReadinessManifest.version,
+          consentedNeeds: needsHash(agentReadinessManifest.needs),
+        },
+      });
+    // Cleaned up immediately, not just in this file's afterAll — see the
+    // historical-rubric test below for why a version left behind is not
+    // merely untidy.
+    await db()
+      .delete(graderVersions)
+      .where(
+        and(eq(graderVersions.graderId, AGENT_READINESS), eq(graderVersions.version, newerVersion)),
+      );
+  }
+});
+
+test('a grade carries the historical rubric notice once a newer version is published, and not before', async () => {
+  const repositoryId = await fixtureRepository();
+  await completedRun(repositoryId);
+  await writePublicGrade(repositoryId, AGENT_READINESS, true);
+  const [repo] = await db().select().from(repositories).where(eq(repositories.id, repositoryId));
+
+  const currentHtml = await pageHtml(repo.owner, repo.name);
+  expect(currentHtml).not.toContain('Historical rubric');
+
+  const newerVersion = '9.9.95';
+  await publishNewerReadinessVersion(newerVersion);
+  try {
+    const outdatedHtml = await pageHtml(repo.owner, repo.name);
+    expect(outdatedHtml).toContain('Historical rubric');
+  } finally {
+    // Cleaned up immediately, not just in this file's afterAll: every test
+    // after this one resolves AGENT_READINESS's latestPublishedVersion too,
+    // and a version left behind would make every one of them "outdated".
+    await db()
+      .delete(graderVersions)
+      .where(
+        and(eq(graderVersions.graderId, AGENT_READINESS), eq(graderVersions.version, newerVersion)),
+      );
+  }
 });
 
 test('a private repository shares its score and never its file names', async () => {

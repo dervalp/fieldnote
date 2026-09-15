@@ -36,7 +36,7 @@ beforeEach(() => {
 });
 
 test('a graded page shows the card, the commit and the checks', async () => {
-  deps.publicGrade.mockResolvedValue({ state: 'graded', repository, grader, manifest: agentReadinessManifest, grade, stale: false });
+  deps.publicGrade.mockResolvedValue({ state: 'graded', repository, grader, grade, stale: false, outdated: false });
   const html = renderToStaticMarkup(await PublicGrade({ params: params() }));
   expect(html).toContain('Agent Readiness');
   expect(html).toContain('acme / widgets');
@@ -48,15 +48,43 @@ test('a graded page shows the card, the commit and the checks', async () => {
 // The private and ungraded branches each have an h1; the graded one had none,
 // which left the page a heading short of an outline.
 test('a graded page has a heading naming the repository and the grader', async () => {
-  deps.publicGrade.mockResolvedValue({ state: 'graded', repository, grader, manifest: agentReadinessManifest, grade, stale: false });
+  deps.publicGrade.mockResolvedValue({ state: 'graded', repository, grader, grade, stale: false, outdated: false });
   const html = renderToStaticMarkup(await PublicGrade({ params: params() }));
   expect(html).toContain('<h1>Agent Readiness · acme/widgets</h1>');
 });
 
 test('a stale grade says so on the page', async () => {
-  deps.publicGrade.mockResolvedValue({ state: 'graded', repository, grader, manifest: agentReadinessManifest, grade, stale: true });
+  deps.publicGrade.mockResolvedValue({ state: 'graded', repository, grader, grade, stale: true, outdated: false });
   const html = renderToStaticMarkup(await PublicGrade({ params: params() }));
   expect(html).toContain('more than 30 days');
+});
+
+// The page reads `outdated` straight off the resolved view rather than
+// recomputing it — publicGrade() is where that comparison happens now (see
+// publicGradedView in the domain module), against the newest published
+// version, not against the manifest the grade itself is pinned to.
+test('an outdated grade carries the historical rubric notice; a current one does not', async () => {
+  deps.publicGrade.mockResolvedValue({
+    state: 'graded',
+    repository,
+    grader,
+    grade,
+    stale: false,
+    outdated: true,
+  });
+  const outdatedHtml = renderToStaticMarkup(await PublicGrade({ params: params() }));
+  expect(outdatedHtml).toContain('Historical rubric');
+
+  deps.publicGrade.mockResolvedValue({
+    state: 'graded',
+    repository,
+    grader,
+    grade,
+    stale: false,
+    outdated: false,
+  });
+  const currentHtml = renderToStaticMarkup(await PublicGrade({ params: params() }));
+  expect(currentHtml).not.toContain('Historical rubric');
 });
 
 test('an ungraded pair invites nothing and claims nothing', async () => {
@@ -81,7 +109,7 @@ test('a private page is not indexed, and a graded one is', async () => {
   expect(await generateMetadata({ params: params() })).toMatchObject({
     robots: { index: false, follow: false },
   });
-  deps.publicGrade.mockResolvedValue({ state: 'graded', repository, grader, manifest: agentReadinessManifest, grade, stale: false });
+  deps.publicGrade.mockResolvedValue({ state: 'graded', repository, grader, grade, stale: false, outdated: false });
   const metadata = await generateMetadata({ params: params() });
   expect(metadata.robots).toBeUndefined();
   expect(metadata.title).toContain('Agent Readiness');

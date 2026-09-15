@@ -7,7 +7,7 @@ import { publicGradeSettings } from '../../../../../db/queries/public-grade-sett
 import { ShareToggle } from '../../../../../components/grading/share-toggle';
 import { AGENT_READINESS } from '../../../../../domain/grading/graders/agent-readiness';
 import { installedGraders } from '../../../../../db/queries/graders';
-import { gradeCardProps } from '../../../../../components/grading/grade-presentation';
+import { gradeCardProps, graderCardIdentity } from '../../../../../components/grading/grade-presentation';
 import { GradeControls } from '../../../../../components/grading/report';
 import { GradeReport } from '../../../../../components/grading/report-view';
 import { pageRouteId } from '../../../../../lib/page-route-id';
@@ -153,7 +153,7 @@ export default async function Grading({
                       sha: entryGrade.sha,
                       rubricVersion: entryGrade.rubricVersion,
                       checks: entryGrade.checks,
-                      grader: entry,
+                      grader: graderCardIdentity(entry),
                     })}
                   />
                 ) : (

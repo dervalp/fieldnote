@@ -62,7 +62,7 @@ export default async function PublicGrade({ params }: { params: Params }) {
               sha: resolved.grade.sha,
               rubricVersion: resolved.grade.rubricVersion,
               checks: resolved.grade.checks,
-              grader: resolved.manifest,
+              grader: resolved.grader,
             })}
           />
           {resolved.stale && (
@@ -77,10 +77,7 @@ export default async function PublicGrade({ params }: { params: Params }) {
             checkTitles={resolved.grader.checkTitles}
             graderTitle={resolved.grader.title}
             disclaimer={resolved.grader.disclaimer}
-            outdated={
-              resolved.grade.rubricVersion !== resolved.grader.version ||
-              resolved.grade.evaluatorVersion !== resolved.grader.evaluatorVersion
-            }
+            outdated={resolved.outdated}
           />
         </>
       )}

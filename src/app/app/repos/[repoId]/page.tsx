@@ -12,6 +12,7 @@ import { GradeCard, GradeBanner } from '@fieldnote/design-system';
 import {
   gradeBannerProps,
   gradeCardProps,
+  graderCardIdentity,
 } from '../../../../components/grading/grade-presentation';
 import { AgentsInvolved } from '../../../../components/agents/agents-involved';
 import { AgentShare } from '../../../../components/agents/agent-share';
@@ -80,7 +81,7 @@ export default async function Repository({
               sha: grade.sha,
               rubricVersion: grade.rubricVersion,
               checks: grade.checks,
-              grader: agentReadinessManifest,
+              grader: graderCardIdentity(agentReadinessManifest),
             });
             return (
               <>

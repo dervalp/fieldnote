@@ -1,11 +1,11 @@
 import { expect, test } from 'vitest';
 import { badgeParts, renderBadge } from './badge';
 import type { PublicGradeView } from './public-grade';
-import { agentReadinessManifest } from './graders/agent-readiness';
 
 const grader = {
   id: 'fieldnote/agent-readiness',
   title: 'Agent Readiness',
+  tagline: 'Can an agent work in this repository at all?',
   author: 'fieldnote',
   mode: 'deterministic' as const,
   category: 'agent-readiness' as const,
@@ -37,9 +37,9 @@ const graded: PublicGradeView = {
   state: 'graded',
   repository,
   grader,
-  manifest: agentReadinessManifest,
   grade,
   stale: false,
+  outdated: false,
 };
 
 test('a fresh grade shows its score and label', () => {

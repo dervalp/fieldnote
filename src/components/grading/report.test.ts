@@ -10,7 +10,7 @@ vi.mock('../../app/app/repos/[repoId]/grading/actions', () => ({
 }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 import { GradeCard } from '@fieldnote/design-system';
-import { gradeCardProps } from './grade-presentation';
+import { gradeCardProps, graderCardIdentity } from './grade-presentation';
 import { GradeControls } from './report';
 import { GradeReport } from './report-view';
 import { ScheduleToggle } from './schedule-toggle';
@@ -92,7 +92,7 @@ test.each([0, 49, 50, 69, 70, 79, 80, 89, 90, 99, 100])(
           sha,
           rubricVersion: '0.1.0',
           checks: grade.checks,
-          grader: agentReadinessManifest,
+          grader: graderCardIdentity(agentReadinessManifest),
         }),
       ),
     );
@@ -125,7 +125,7 @@ test('the accessible name carries author, version, mode and category, not just t
         sha,
         rubricVersion: deliveryHealthManifest.version,
         checks: [],
-        grader: deliveryHealthManifest,
+        grader: graderCardIdentity(deliveryHealthManifest),
       }),
     ),
   );
@@ -175,7 +175,7 @@ test.each([
         sha,
         rubricVersion: '0.1.0',
         checks: score === 100 ? [passingCheck] : [passingCheck, failingCheck],
-        grader: agentReadinessManifest,
+        grader: graderCardIdentity(agentReadinessManifest),
       }),
     ),
   );

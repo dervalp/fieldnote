@@ -4,6 +4,7 @@ import { deliveryHealthManifest } from './graders/delivery-health';
 import {
   freshAt,
   isStale,
+  publicGradedView,
   publicGradeFrom,
   publicGrader,
   STALE_AFTER_DAYS,
@@ -33,6 +34,7 @@ test('a public grader is the manifest identity a visitor may read', () => {
   expect(publicGrader(agentReadinessManifest)).toEqual({
     id: 'fieldnote/agent-readiness',
     title: agentReadinessManifest.card.title,
+    tagline: agentReadinessManifest.card.tagline,
     author: 'fieldnote',
     mode: 'deterministic',
     category: 'agent-readiness',
@@ -43,6 +45,54 @@ test('a public grader is the manifest identity a visitor may read', () => {
       agentReadinessManifest.checks.map((check) => [check.id, check.title]),
     ),
   });
+});
+
+// The 'graded' branch of PublicGradeView is where slice 5's narrow-copy
+// invariant lives now: no `needs`, no program source, no full manifest —
+// just what a visitor may read, plus `outdated`. toEqual on a real call
+// through publicGradedView() (not a hand-written literal) is what makes this
+// a guard: a future widening — the whole manifest again, say — adds a key
+// this list does not name, and fails here rather than only showing up as an
+// unused field nobody notices.
+test('a graded view carries exactly the fields a visitor may read, plus whether it is outdated', () => {
+  const view = publicGradedView({
+    repository: { owner: 'acme', name: 'widgets', isPrivate: false },
+    manifest: agentReadinessManifest,
+    latestManifest: agentReadinessManifest,
+    grade: publicGradeFrom(result, run, false),
+    stale: false,
+  });
+  expect(Object.keys(view).sort()).toEqual([
+    'grade',
+    'grader',
+    'outdated',
+    'repository',
+    'stale',
+    'state',
+  ]);
+});
+
+test('publicGradedView marks a grade outdated once a newer version is published', () => {
+  const newer = { ...agentReadinessManifest, version: '9.9.9' };
+  const view = publicGradedView({
+    repository: { owner: 'acme', name: 'widgets', isPrivate: false },
+    manifest: agentReadinessManifest,
+    latestManifest: newer,
+    grade: publicGradeFrom(result, run, false),
+    stale: false,
+  });
+  expect(view.outdated).toBe(true);
+});
+
+test('publicGradedView is not outdated when nothing newer has published', () => {
+  const view = publicGradedView({
+    repository: { owner: 'acme', name: 'widgets', isPrivate: false },
+    manifest: agentReadinessManifest,
+    latestManifest: agentReadinessManifest,
+    grade: publicGradeFrom(result, run, false),
+    stale: false,
+  });
+  expect(view.outdated).toBe(false);
 });
 
 test('a public repository keeps its evidence paths, and never its line ranges', () => {
