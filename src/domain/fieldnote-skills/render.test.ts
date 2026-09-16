@@ -84,15 +84,17 @@ describe('renderInstallation', () => {
   test('does not render files for unsupported agents', () => {
     const rendered = render({
       agents: [
-        { agent: 'codex', supported: false, skillsRoot: '.agents/skills' },
+        { agent: 'codex', supported: false, skillsRoot: '.custom/skills' },
+        { agent: 'claude-code', supported: true, skillsRoot: '.claude/skills' },
         { agent: 'cursor', supported: true, skillsRoot: '.cursor/skills' },
       ],
     });
 
+    expect([...rendered.files.keys()].some((path) => path.startsWith('.agents/'))).toBe(false);
     expect([...rendered.files.keys()].some((path) => path.startsWith('.cursor/'))).toBe(false);
-    expect(rendered.files.get('.agents/skills/fieldnote-testing/SKILL.md')).toBe(upstreamTesting);
+    expect(rendered.files.get('.claude/skills/fieldnote-testing/SKILL.md')).toBe(upstreamTesting);
     expect(JSON.parse(rendered.files.get('.fieldnote/skills.lock.json')!).agents).toEqual([
-      { agent: 'codex', skillsRoot: '.agents/skills' },
+      { agent: 'claude-code', skillsRoot: '.claude/skills' },
     ]);
   });
 

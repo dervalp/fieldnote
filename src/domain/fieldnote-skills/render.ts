@@ -50,6 +50,7 @@ function isUnresolvedProfile(content: string): boolean {
 function supportedAgents(agents: ConfirmedAgent[]): Array<{ agent: AgentId; skillsRoot: string }> {
   const supported = agents
     .flatMap((agent) => {
+      if (!agent.supported) return [];
       const adapter = setupAdapters[agent.agent as keyof typeof setupAdapters];
       if (!adapter) return [];
       if (agent.skillsRoot !== null && agent.skillsRoot !== adapter.skillsRoot)
