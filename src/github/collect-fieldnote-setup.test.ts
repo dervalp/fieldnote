@@ -159,6 +159,47 @@ test('excludes symlinks, submodules, secrets, source, ordinary locks, and binary
   expect(mocks.getBlob).toHaveBeenCalledTimes(1);
 });
 
+test('allows only the Fieldnote skills lock among ordinary lockfiles', async () => {
+  mocks.getTree.mockResolvedValue({
+    data: {
+      truncated: false,
+      tree: [
+        blob('.fieldnote/skills.lock.json'),
+        blob('.fieldnote/npm-shrinkwrap.json'),
+        blob('.fieldnote/Cargo.lock'),
+      ],
+    },
+  });
+
+  await expect(collectFieldnoteSetup('fixture-repo', 'abc')).resolves.toMatchObject({
+    complete: true,
+    paths: ['.fieldnote/skills.lock.json'],
+    documents: [expect.objectContaining({ path: '.fieldnote/skills.lock.json' })],
+  });
+  expect(mocks.getBlob).toHaveBeenCalledTimes(1);
+});
+
+test('collects extensionless Cursor marker paths without admitting arbitrary extensionless files', async () => {
+  mocks.getTree.mockResolvedValue({
+    data: {
+      truncated: false,
+      tree: [blob('.cursor/rules'), blob('.cursor/config'), blob('scripts/setup')],
+    },
+  });
+
+  const snapshot = await collectFieldnoteSetup('fixture-repo', 'abc');
+
+  expect(snapshot.paths).toEqual(['.cursor/rules']);
+  expect(snapshot.documents).toEqual([expect.objectContaining({ path: '.cursor/rules' })]);
+  expect(snapshot.candidates).toContainEqual(
+    expect.objectContaining({
+      agent: 'cursor',
+      confirmed: false,
+      evidence: [{ source: 'path', value: '.cursor/rules' }],
+    }),
+  );
+});
+
 test('marks invalid UTF-8 and embedded-NUL relevant blobs incomplete without returning them', async () => {
   mocks.getTree.mockResolvedValue({
     data: { truncated: false, tree: [blob('README.md', 'utf8'), blob('AGENTS.md', 'nul')] },

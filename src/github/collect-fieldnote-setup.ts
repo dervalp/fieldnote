@@ -122,10 +122,8 @@ function isSecretOrLock(path: string): boolean {
   return (
     name.startsWith('.env') ||
     /(?:secret|credential|password|private[._-]?key|access[._-]?token)/.test(name) ||
-    /(?:^|[.-])(pnpm-lock|package-lock|yarn|bun|cargo|poetry|composer|gemfile)\.(?:json|ya?ml|lock)$/.test(
-      name,
-    ) ||
-    name.endsWith('.lock') ||
+    /(?:^|[._-])(?:lock|lockb|shrinkwrap)(?:[._-]|$)/.test(name) ||
+    name === 'go.sum' ||
     /\.(?:pem|key|p12|pfx|der|crt)$/i.test(name)
   );
 }
@@ -134,11 +132,14 @@ function isTextEvidencePath(path: string): boolean {
   return /\.(?:md|mdx|mdc|txt|json|toml|ya?ml)$/i.test(path);
 }
 
+const extensionlessAgentMarkers = new Set(['.cursor/rules']);
+
 /** Text configuration and process documents; never arbitrary application source. */
 function isRelevant(path: string): boolean {
   if (isSecretOrLock(path)) return false;
   if (rootFiles.has(path)) return true;
   if (path === '.github/copilot-instructions.md') return true;
+  if (extensionlessAgentMarkers.has(path)) return true;
   if (
     (path.startsWith('.agents/') || path.startsWith('.claude/') || path.startsWith('.cursor/')) &&
     isTextEvidencePath(path)
