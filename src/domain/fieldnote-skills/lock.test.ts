@@ -57,4 +57,16 @@ describe('installation lock', () => {
       ),
     ).toThrow();
   });
+
+  test('rejects an empty target set and noncanonical V1 adapter roots', () => {
+    expect(() => parseInstallationLock(JSON.stringify({ ...lock, agents: [] }))).toThrow();
+    expect(() =>
+      parseInstallationLock(
+        JSON.stringify({
+          ...lock,
+          agents: [{ agent: 'codex', skillsRoot: '.custom/skills' }],
+        }),
+      ),
+    ).toThrow();
+  });
 });

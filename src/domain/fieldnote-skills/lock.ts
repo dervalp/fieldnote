@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { setupAdapters } from './adapters';
 
 export interface LockedAgent {
   agent: string;
@@ -97,10 +98,12 @@ function canonicalize(lock: InstallationLock): InstallationLock {
   const agents = lock.agents.map((agent) => {
     assertString(agent.agent);
     assertString(agent.skillsRoot);
-    if (agent.agent.length === 0) throw new Error('Invalid installation lock.');
+    const adapter = setupAdapters[agent.agent as keyof typeof setupAdapters];
+    if (!adapter || agent.skillsRoot !== adapter.skillsRoot) throw new Error('Invalid installation lock.');
     assertSafeRelativePath(agent.skillsRoot);
     return { agent: agent.agent, skillsRoot: agent.skillsRoot };
   });
+  if (agents.length === 0) throw new Error('Invalid installation lock.');
   assertNoDuplicates(agents.map((agent) => agent.agent));
   assertNoDuplicates(agents.map((agent) => agent.skillsRoot));
 

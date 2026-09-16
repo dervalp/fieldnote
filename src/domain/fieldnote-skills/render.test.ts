@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
+import { parseInstallationLock } from './lock';
 import type { SkillsRelease } from './types';
 import { renderInstallation, verifyInstallation } from './render';
 
@@ -83,15 +84,24 @@ describe('renderInstallation', () => {
   test('does not render files for unsupported agents', () => {
     const rendered = render({
       agents: [
-        { agent: 'codex', supported: true, skillsRoot: '.agents/skills' },
-        { agent: 'cursor', supported: false, skillsRoot: '.cursor/skills' },
+        { agent: 'codex', supported: false, skillsRoot: '.agents/skills' },
+        { agent: 'cursor', supported: true, skillsRoot: '.cursor/skills' },
       ],
     });
 
     expect([...rendered.files.keys()].some((path) => path.startsWith('.cursor/'))).toBe(false);
+    expect(rendered.files.get('.agents/skills/fieldnote-testing/SKILL.md')).toBe(upstreamTesting);
     expect(JSON.parse(rendered.files.get('.fieldnote/skills.lock.json')!).agents).toEqual([
       { agent: 'codex', skillsRoot: '.agents/skills' },
     ]);
+  });
+
+  test('rejects a canonical target pointed at a noncanonical skills root', () => {
+    expect(() =>
+      render({
+        agents: [{ agent: 'codex', supported: true, skillsRoot: '.custom/skills' }],
+      }),
+    ).toThrow();
   });
 
   test.each([
@@ -150,7 +160,7 @@ describe('verifyInstallation', () => {
     const rendered = render();
 
     expect(
-      verifyInstallation({ commitSha: 'commit-1', files: rendered.files }, 'skills-v0.1.0'),
+      verifyInstallation({ commitSha: 'commit-1', files: rendered.files }, release),
     ).toMatchObject({
       state: 'current',
       release: 'skills-v0.1.0',
@@ -165,7 +175,10 @@ describe('verifyInstallation', () => {
     const rendered = render();
 
     expect(
-      verifyInstallation({ commitSha: 'commit-1', files: rendered.files }, 'skills-v0.2.0'),
+      verifyInstallation(
+        { commitSha: 'commit-1', files: rendered.files },
+        { ...release, release: 'skills-v0.2.0' },
+      ),
     ).toMatchObject({ state: 'outdated', release: 'skills-v0.1.0', reasons: [] });
   });
 
@@ -174,7 +187,7 @@ describe('verifyInstallation', () => {
     const files = new Map(rendered.files);
     files.set('.agents/skills/fieldnote-testing/SKILL.md', '# Modified\n');
 
-    expect(verifyInstallation({ commitSha: 'commit-1', files }, 'skills-v0.1.0')).toMatchObject({
+    expect(verifyInstallation({ commitSha: 'commit-1', files }, release)).toMatchObject({
       state: 'drifted',
       reasons: expect.arrayContaining([
         'Hash mismatch for .agents/skills/fieldnote-testing/SKILL.md.',
@@ -188,12 +201,33 @@ describe('verifyInstallation', () => {
     files.delete('.agents/skills/fieldnote-testing/SKILL.md');
     files.set('.fieldnote/profile.md', '# Profile\n\nTODO: test command');
 
-    expect(verifyInstallation({ commitSha: 'commit-1', files }, 'skills-v0.1.0')).toMatchObject({
+    expect(verifyInstallation({ commitSha: 'commit-1', files }, release)).toMatchObject({
       state: 'partial',
       reasons: expect.arrayContaining([
         'Missing .agents/skills/fieldnote-testing/SKILL.md.',
         'Profile contains unresolved required values.',
       ]),
+    });
+  });
+
+  test('reports a syntactically valid subset lock as partial against the release catalogue', () => {
+    const rendered = render();
+    const files = new Map(rendered.files);
+    const lock = parseInstallationLock(files.get('.fieldnote/skills.lock.json')!);
+    const subset = {
+      ...lock,
+      skills: lock.skills.filter((skill) => skill.name === 'fieldnote-testing'),
+      files: lock.files.filter(
+        (file) =>
+          file.path === '.fieldnote/profile.md' ||
+          file.path.includes('/fieldnote-testing/'),
+      ),
+    };
+    files.set('.fieldnote/skills.lock.json', JSON.stringify(subset));
+
+    expect(verifyInstallation({ commitSha: 'commit-1', files }, release)).toMatchObject({
+      state: 'partial',
+      reasons: expect.arrayContaining(['Lock does not declare skill fieldnote-review.']),
     });
   });
 });

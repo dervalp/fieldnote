@@ -1,4 +1,5 @@
 import type { AgentId } from '../ai-involvement/types';
+import { setupAdapters } from './adapters';
 import {
   assertSafeRelativePath,
   type InstallationLock,
@@ -48,11 +49,12 @@ function isUnresolvedProfile(content: string): boolean {
 
 function supportedAgents(agents: ConfirmedAgent[]): Array<{ agent: AgentId; skillsRoot: string }> {
   const supported = agents
-    .filter((agent) => agent.supported)
-    .map((agent) => {
-      if (!agent.skillsRoot) throw new Error(`Supported agent ${agent.agent} has no skills root.`);
-      assertSafeRelativePath(agent.skillsRoot);
-      return { agent: agent.agent, skillsRoot: agent.skillsRoot };
+    .flatMap((agent) => {
+      const adapter = setupAdapters[agent.agent as keyof typeof setupAdapters];
+      if (!adapter) return [];
+      if (agent.skillsRoot !== null && agent.skillsRoot !== adapter.skillsRoot)
+        throw new Error(`Agent ${agent.agent} has a noncanonical skills root.`);
+      return [{ agent: agent.agent, skillsRoot: adapter.skillsRoot }];
     });
 
   if (new Set(supported.map((agent) => agent.agent)).size !== supported.length)
@@ -61,6 +63,44 @@ function supportedAgents(agents: ConfirmedAgent[]): Array<{ agent: AgentId; skil
     throw new Error('Duplicate supported skills root.');
 
   return supported.sort((left, right) => lexicographically(left.agent, right.agent));
+}
+
+function releaseCompletenessReasons(lock: InstallationLock, latest: SkillsRelease): string[] {
+  if (lock.release !== latest.release) return [];
+
+  const reasons: string[] = [];
+  if (lock.revision !== latest.revision) reasons.push('Lock revision does not match the validated release.');
+  if (lock.releaseLockHash !== latest.releaseLockHash)
+    reasons.push('Lock release hash does not match the validated release.');
+
+  const skills = new Map(lock.skills.map((skill) => [skill.name, skill]));
+  const files = new Map(lock.files.map((file) => [file.path, file]));
+  const latestSkillNames = new Set(latest.skills.map((skill) => skill.name));
+  for (const skill of latest.skills) {
+    const lockedSkill = skills.get(skill.name);
+    if (!lockedSkill) {
+      reasons.push(`Lock does not declare skill ${skill.name}.`);
+      continue;
+    }
+    if (lockedSkill.version !== skill.version)
+      reasons.push(`Lock version for ${skill.name} does not match the validated release.`);
+
+    for (const agent of lock.agents) {
+      for (const file of skill.files) {
+        const path = `${agent.skillsRoot}/${skill.name}/${file.path}`;
+        const lockedFile = files.get(path);
+        if (!lockedFile) {
+          reasons.push(`Lock does not declare ${path}.`);
+        } else if (lockedFile.sourceHash !== file.hash || lockedFile.hash !== file.hash) {
+          reasons.push(`Lock hashes for ${path} do not match the validated release.`);
+        }
+      }
+    }
+  }
+  for (const skill of lock.skills) {
+    if (!latestSkillNames.has(skill.name)) reasons.push(`Lock declares unknown skill ${skill.name}.`);
+  }
+  return reasons;
 }
 
 function validateRelease(release: SkillsRelease): void {
@@ -160,7 +200,7 @@ function observation(
 
 export function verifyInstallation(
   snapshot: InstallationSnapshot,
-  latest: string,
+  latest: SkillsRelease,
 ): InstallationObservation {
   const lockContent = snapshot.files.get(lockPath);
   if (lockContent === undefined)
@@ -176,6 +216,7 @@ export function verifyInstallation(
 
   const missing: string[] = [];
   const drifted: string[] = [];
+  const incomplete = releaseCompletenessReasons(lock, latest);
   for (const file of lock.files) {
     const content = snapshot.files.get(file.path);
     if (content === undefined) {
@@ -194,8 +235,8 @@ export function verifyInstallation(
     missing.push('Profile contains unresolved required values.');
   }
 
-  if (missing.length > 0)
-    return observation(snapshot, lock, lockHash, 'partial', [...missing, ...drifted]);
+  if (incomplete.length > 0 || missing.length > 0)
+    return observation(snapshot, lock, lockHash, 'partial', [...incomplete, ...missing, ...drifted]);
   if (drifted.length > 0) return observation(snapshot, lock, lockHash, 'drifted', drifted);
-  return observation(snapshot, lock, lockHash, lock.release === latest ? 'current' : 'outdated', []);
+  return observation(snapshot, lock, lockHash, lock.release === latest.release ? 'current' : 'outdated', []);
 }
