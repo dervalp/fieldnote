@@ -3,8 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { latestSkillsRelease, readSkillsRelease } from './github-release';
 
 const repository = 'https://api.github.com/repos/dervalp/fieldnote-skills';
-const digest = (value: string) => `sha256:${createHash('sha256').update(value).digest('hex')}`;
-const encode = (value: string) => Buffer.from(value).toString('base64');
+const digest = (value: string | Buffer) =>
+  `sha256:${createHash('sha256').update(value).digest('hex')}`;
+const encode = (value: string | Buffer) => Buffer.from(value).toString('base64');
 
 type FakeOptions = {
   corrupt?: string;
@@ -13,11 +14,15 @@ type FakeOptions = {
   lockRelease?: string;
   skillCount?: number;
   fileBytes?: number;
+  filePath?: string;
+  fileContent?: Buffer;
+  metadataPadding?: number;
+  normalizedBinaryLockHash?: boolean;
   corruptCoreHash?: boolean;
   responseStatus?: { endpoint: string; status: number; message: string };
 };
 
-function contentResponse(path: string, value: string) {
+function contentResponse(path: string, value: string | Buffer) {
   return {
     type: 'file',
     encoding: 'base64',
@@ -45,11 +50,13 @@ function fakeFetch(options: FakeOptions = {}) {
   const files = Array.from({ length: count }, (_, index) => {
     const name = count === 1 ? 'fieldnote-testing' : `fieldnote-skill-${index}`;
     const content =
-      options.fileBytes === undefined
+      options.fileContent ??
+      (options.fileBytes === undefined
         ? '# Fieldnote testing\n\nUse test-first development.\n'
-        : 'x'.repeat(options.fileBytes);
+        : 'x'.repeat(options.fileBytes));
     return { name, content };
   });
+  const path = options.filePath ?? 'SKILL.md';
   const catalog = {
     version: 1,
     skills: files.map(({ name }) => ({
@@ -65,23 +72,29 @@ function fakeFetch(options: FakeOptions = {}) {
   };
   const lock = {
     release: options.lockRelease ?? tag,
-    skills: files.map(({ name, content }) => ({
+    skills: files.map(({ name, content }) => {
+      const fileHash = options.normalizedBinaryLockHash ? digest(Buffer.from(content).toString('utf8')) : digest(content);
+      return {
       name,
       version: '0.1.0',
-      coreHash: options.corruptCoreHash ? digest(`${content}corrupt`) : digest(`SKILL.md ${digest(content)}`),
+      coreHash: options.corruptCoreHash ? digest(`${content}corrupt`) : digest(`${path} ${fileHash}`),
       files: {
-        'SKILL.md': { role: 'prompt', hash: digest(content) },
+        [path]: { role: 'prompt', hash: fileHash },
       },
-    })),
+    };
+    }),
   };
-  const releaseMetadata = { release: options.metadataRelease ?? tag };
+  const releaseMetadata = {
+    release: options.metadataRelease ?? tag,
+    ...(options.metadataPadding === undefined ? {} : { padding: 'x'.repeat(options.metadataPadding) }),
+  };
   const encoded = {
     'release.json': JSON.stringify(releaseMetadata),
     'catalog.json': JSON.stringify(catalog),
     'skills.lock.json': JSON.stringify(lock),
     ...Object.fromEntries(
       files.map(({ name, content }) => [
-        `skills/${name}/SKILL.md`,
+        `skills/${name}/${path}`,
         options.corrupt === name ? `${content}corrupt` : content,
       ]),
     ),
@@ -157,8 +170,9 @@ function fakeFetch(options: FakeOptions = {}) {
         parents: [],
       });
     const contentPath = endpoint.match(/^\/repos\/dervalp\/fieldnote-skills\/contents\/(.+)\?ref=(.+)$/);
-    if (contentPath && contentPath[2] === revision && encoded[contentPath[1] as keyof typeof encoded])
-      return Response.json(contentResponse(contentPath[1], encoded[contentPath[1] as keyof typeof encoded]));
+    const requestedPath = contentPath ? decodeURIComponent(contentPath[1]) : undefined;
+    if (contentPath && contentPath[2] === revision && requestedPath && encoded[requestedPath as keyof typeof encoded])
+      return Response.json(contentResponse(requestedPath, encoded[requestedPath as keyof typeof encoded]));
     return new Response(JSON.stringify({ message: 'not found' }), { status: 404 });
   }) as typeof fetch;
 
@@ -233,6 +247,39 @@ describe('published Fieldnote Skills releases', () => {
 
   it('rejects a tag whose release metadata does not agree with the requested tag', async () => {
     const source = fakeFetch({ metadataRelease: 'skills-v9.9.9' });
+
+    await expect(readSkillsRelease('skills-v0.1.0', source.fetcher)).rejects.toMatchObject({
+      code: 'release_invalid',
+      retryable: false,
+    });
+  });
+
+  it('encodes URL-reserved locked file paths without losing the immutable revision', async () => {
+    const source = fakeFetch({ filePath: 'SKILL.md#published' });
+
+    await expect(readSkillsRelease('skills-v0.1.0', source.fetcher)).resolves.toMatchObject({
+      revision: source.revision,
+      skills: [{ files: [{ path: 'SKILL.md#published' }] }],
+    });
+    expect(source.calls.at(-1)?.url).toBe(
+      `${repository}/contents/skills/fieldnote-testing/SKILL.md%23published?ref=${source.revision}`,
+    );
+  });
+
+  it('rejects invalid UTF-8 whose normalized text would otherwise match the lock', async () => {
+    const source = fakeFetch({
+      fileContent: Buffer.from([0xc3, 0x28]),
+      normalizedBinaryLockHash: true,
+    });
+
+    await expect(readSkillsRelease('skills-v0.1.0', source.fetcher)).rejects.toMatchObject({
+      code: 'release_invalid',
+      retryable: false,
+    });
+  });
+
+  it('rejects oversized decoded release metadata before parsing it', async () => {
+    const source = fakeFetch({ metadataPadding: 256 * 1024 });
 
     await expect(readSkillsRelease('skills-v0.1.0', source.fetcher)).rejects.toMatchObject({
       code: 'release_invalid',

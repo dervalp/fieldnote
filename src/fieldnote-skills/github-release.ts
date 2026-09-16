@@ -1,3 +1,4 @@
+import 'server-only';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { ReleaseFile, SkillsRelease } from '../domain/fieldnote-skills/types';
@@ -109,14 +110,15 @@ async function readContent(
   fetcher: typeof fetch,
   path: string,
   revision: string,
-): Promise<{ text: string; bytes: number }> {
+): Promise<{ bytes: Buffer; size: number }> {
   const value = await responseJson(
     fetcher,
-    `${repository}/contents/${path}?ref=${revision}`,
+    `${repository}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(revision)}`,
     requestOptions('force-cache'),
   );
   const parsed = contentSchema.safeParse(value);
   if (!parsed.success) invalid();
+  if (parsed.data.size > maxFileBytes) invalid();
   let bytes: Buffer;
   try {
     bytes = Buffer.from(parsed.data.content.replace(/\s/g, ''), 'base64');
@@ -124,7 +126,15 @@ async function readContent(
     invalid();
   }
   if (bytes.byteLength !== parsed.data.size) invalid();
-  return { text: bytes.toString('utf8'), bytes: bytes.byteLength };
+  return { bytes, size: bytes.byteLength };
+}
+
+function decodeText(bytes: Buffer): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return invalid();
+  }
 }
 
 function parseJson<T>(text: string, schema: z.ZodType<T>): T {
@@ -181,15 +191,15 @@ export async function readSkillsRelease(
 
   let totalBytes = 0;
   const metadataContent = await readContent(fetcher, 'release.json', revision);
-  totalBytes = addBytes(totalBytes, metadataContent.bytes);
+  totalBytes = addBytes(totalBytes, metadataContent.size);
   const catalogContent = await readContent(fetcher, 'catalog.json', revision);
-  totalBytes = addBytes(totalBytes, catalogContent.bytes);
+  totalBytes = addBytes(totalBytes, catalogContent.size);
   const lockContent = await readContent(fetcher, 'skills.lock.json', revision);
-  totalBytes = addBytes(totalBytes, lockContent.bytes);
+  totalBytes = addBytes(totalBytes, lockContent.size);
 
-  const metadata = parseJson(metadataContent.text, releaseMetadataSchema);
-  const catalog = parseJson(catalogContent.text, catalogSchema);
-  const lock = parseJson(lockContent.text, lockSchema);
+  const metadata = parseJson(decodeText(metadataContent.bytes), releaseMetadataSchema);
+  const catalog = parseJson(decodeText(catalogContent.bytes), catalogSchema);
+  const lock = parseJson(decodeText(lockContent.bytes), lockSchema);
   assertMatchingMetadata(tag, metadata, lock, catalog);
 
   const skills = [] as SkillsRelease['skills'];
@@ -201,15 +211,14 @@ export async function readSkillsRelease(
       left < right ? -1 : left > right ? 1 : 0,
     )) {
       const content = await readContent(fetcher, `skills/${catalogSkill.name}/${path}`, revision);
-      if (content.bytes > maxFileBytes) invalid();
-      totalBytes = addBytes(totalBytes, content.bytes);
-      const contentHash = hash(content.text);
+      totalBytes = addBytes(totalBytes, content.size);
+      const contentHash = hash(content.bytes);
       if (contentHash !== file.hash) invalid();
       if (file.role === 'prompt') promptParts.push(`${path} ${contentHash}`);
-      files.push({ path, content: content.text, hash: contentHash });
+      files.push({ path, content: decodeText(content.bytes), hash: contentHash });
     }
     if (hash(promptParts.join('\n')) !== locked.coreHash) invalid();
     skills.push({ name: catalogSkill.name, version: catalogSkill.version, files });
   }
-  return { release: tag, revision, releaseLockHash: hash(lockContent.text), skills };
+  return { release: tag, revision, releaseLockHash: hash(lockContent.bytes), skills };
 }
