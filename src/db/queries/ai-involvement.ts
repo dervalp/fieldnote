@@ -186,3 +186,36 @@ export async function loadDetections(
     state: state ?? null,
   };
 }
+
+/**
+ * Worker-safe detection read: it relies only on the repository id and returns
+ * normalized evidence, never browser/session state or the detection scan state.
+ */
+export async function loadDetectionsForWorker(repositoryId: string): Promise<Detection[]> {
+  const rows = await db()
+    .select({
+      agent: s.repoAiDetections.agent,
+      kind: s.repoAiDetections.kind,
+      signal: s.repoAiDetections.signal,
+      firstSeenAt: s.repoAiDetections.firstSeenAt,
+      lastSeenAt: s.repoAiDetections.lastSeenAt,
+      occurrences: s.repoAiDetections.occurrences,
+      evidence: s.repoAiDetections.evidence,
+    })
+    .from(s.repoAiDetections)
+    .where(eq(s.repoAiDetections.repositoryId, repositoryId))
+    .orderBy(sql`${s.repoAiDetections.occurrences} desc nulls last`, asc(s.repoAiDetections.agent));
+  return rows.map((row) => ({
+    agent: row.agent,
+    kind: row.kind,
+    signal: row.signal,
+    firstSeenAt: row.firstSeenAt?.toISOString() ?? null,
+    lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
+    occurrences: row.occurrences,
+    evidence: row.evidence.map((evidence) => ({
+      source: evidence.source,
+      value: evidence.value,
+      prCount: evidence.prCount,
+    })),
+  }));
+}
