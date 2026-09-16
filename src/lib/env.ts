@@ -49,3 +49,15 @@ export function emailEnv(input: Record<string, string | undefined> = process.env
     .safeParse(input);
   return result.success ? result.data : null;
 }
+
+/** Server-only GitHub credential for public Fieldnote Skills release capacity. */
+export function fieldnoteSkillsGithubToken(input: Record<string, string | undefined> = process.env) {
+  return z
+    .object({
+      FIELDNOTE_SKILLS_GITHUB_TOKEN: z.preprocess(
+        (value) => (value === '' ? undefined : value),
+        z.string().trim().min(1).optional(),
+      ),
+    })
+    .parse(input).FIELDNOTE_SKILLS_GITHUB_TOKEN;
+}
