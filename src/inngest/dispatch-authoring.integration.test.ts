@@ -14,6 +14,10 @@ import { listUndispatchedPlans } from '../db/queries/authoring-runs';
 import { floorAuthorVersion } from '../domain/act/remedies';
 import { dispatchAuthoringPlan } from './dispatch-authoring';
 
+// These browser-only dependencies are not used by the trusted dispatcher.
+vi.mock('../auth/session', () => ({ currentUser: async () => ({ id: 'unused' }) }));
+vi.mock('../lib/env', () => ({ env: () => ({ DEMO_MODE: 'false' }) }));
+
 const owner = randomUUID();
 const workspace = randomUUID();
 
@@ -52,10 +56,13 @@ async function seedRun(
   kind: 'plan' | 'execute' = 'plan',
 ) {
   const id = randomUUID();
+  const planRunId = kind === 'execute' ? (await seedRun(repositoryId, 'failed')).id : null;
   await db().insert(authoringRuns).values({
     id,
     repositoryId,
     kind,
+    workflow: 'readiness-remediation',
+    planRunId,
     requestedBy: owner,
     requestedWorkspaceId: workspace,
     state,

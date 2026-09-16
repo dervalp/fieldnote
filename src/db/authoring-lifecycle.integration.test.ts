@@ -149,6 +149,7 @@ async function queuedRun(repositoryId: string) {
     id,
     repositoryId,
     kind: 'plan',
+    workflow: 'readiness-remediation',
     requestedBy: context.user,
     requestedWorkspaceId: context.workspace,
     state: 'queued',
@@ -161,10 +162,17 @@ async function queuedRun(repositoryId: string) {
 // gets its own repository rather than sharing one with a queued plan run.
 async function queuedExecuteRun(repositoryId: string) {
   const id = randomUUID();
+  const planRunId = await queuedRun(repositoryId);
+  await db()
+    .update(authoringRuns)
+    .set({ state: 'complete', sha, completedAt: new Date() })
+    .where(eq(authoringRuns.id, planRunId));
   await db().insert(authoringRuns).values({
     id,
     repositoryId,
     kind: 'execute',
+    workflow: 'readiness-remediation',
+    planRunId,
     requestedBy: context.user,
     requestedWorkspaceId: context.workspace,
     state: 'queued',
