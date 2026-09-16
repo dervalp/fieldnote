@@ -74,7 +74,7 @@ CREATE TABLE "repository_fieldnote_installations" (
 	"lock_hash" text NOT NULL,
 	"agents" jsonb NOT NULL,
 	"commit_sha" text NOT NULL,
-	"reasons" jsonb NOT NULL,
+	"reasons" text[] NOT NULL,
 	"verified_at" timestamp with time zone NOT NULL,
 	CONSTRAINT "repository_fieldnote_installations_state" CHECK ("repository_fieldnote_installations"."state" IN ('current','outdated','partial','drifted'))
 );

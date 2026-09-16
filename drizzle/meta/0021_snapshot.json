@@ -1,6 +1,6 @@
 {
-  "id": "5fdb48d1-73ec-4c3b-b90d-377bbb351cc9",
-  "prevId": "e7fa700c-a0b0-45fe-8951-9b78ffa3311c",
+  "id": "ee5a159b-72f3-44a4-8a46-22049563045a",
+  "prevId": "580af446-6c8c-493e-b7d7-e8efe0f38502",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -4064,7 +4064,7 @@
         },
         "reasons": {
           "name": "reasons",
-          "type": "jsonb",
+          "type": "text[]",
           "primaryKey": false,
           "notNull": true
         },

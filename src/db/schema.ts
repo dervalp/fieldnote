@@ -11,6 +11,7 @@ import {
   index,
   foreignKey,
   unique,
+  customType,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
@@ -23,7 +24,8 @@ import type {
   ChangedFile,
 } from '../domain/pull-request/types';
 import type { ReviewEvent } from '../domain/dashboard/types';
-import type { AgentCandidate, ConfirmedAgent } from '../domain/fieldnote-skills/types';
+import { agentCandidateSchema, confirmedAgentSchema } from '../domain/fieldnote-skills/types';
+import type { z } from 'zod';
 import type {
   AgentMarker,
   AgentId,
@@ -34,6 +36,14 @@ import type {
 const id = () => text('id').primaryKey();
 const created = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
 const updated = () => timestamp('updated_at', { withTimezone: true }).notNull().defaultNow();
+// Validate persisted agent records in both directions, including reads of rows
+// written outside the application. PostgreSQL drivers may decode JSON eagerly.
+const validatedJsonb = <T>(schema: z.ZodType<T>) =>
+  customType<{ data: T; driverData: string }>({
+    dataType: () => 'jsonb',
+    toDriver: (value) => JSON.stringify(schema.parse(value)),
+    fromDriver: (value) => schema.parse(typeof value === 'string' ? JSON.parse(value) : value),
+  });
 export const installations = pgTable('github_installations', {
   id: id(),
   githubInstallationId: text('github_installation_id').notNull().unique(),
@@ -921,8 +931,8 @@ export const fieldnoteSetupProposals = pgTable(
     skillsRelease: text('skills_release').notNull(),
     skillsRevision: text('skills_revision').notNull(),
     releaseLockHash: text('release_lock_hash').notNull(),
-    detectedAgents: jsonb('detected_agents').$type<AgentCandidate[]>().notNull(),
-    confirmedAgents: jsonb('confirmed_agents').$type<ConfirmedAgent[]>(),
+    detectedAgents: validatedJsonb(agentCandidateSchema.array())('detected_agents').notNull(),
+    confirmedAgents: validatedJsonb(confirmedAgentSchema.array())('confirmed_agents'),
     state: text('state').$type<'exploring' | 'awaiting-input' | 'ready'>().notNull(),
     createdAt: created(),
     updatedAt: updated(),
@@ -1020,9 +1030,9 @@ export const repositoryFieldnoteInstallations = pgTable(
     release: text('release').notNull(),
     revision: text('revision').notNull(),
     lockHash: text('lock_hash').notNull(),
-    agents: jsonb('agents').$type<ConfirmedAgent[]>().notNull(),
+    agents: validatedJsonb(confirmedAgentSchema.array())('agents').notNull(),
     commitSha: text('commit_sha').notNull(),
-    reasons: jsonb('reasons').$type<string[]>().notNull(),
+    reasons: text('reasons').array().notNull(),
     verifiedAt: timestamp('verified_at', { withTimezone: true }).notNull(),
   },
   (t) => [

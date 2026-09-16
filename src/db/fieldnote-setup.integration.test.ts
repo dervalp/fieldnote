@@ -180,11 +180,102 @@ test('generated migrations backfill pre-existing readiness rows and remove the t
     const [column] =
       await connection`select column_default from information_schema.columns where table_name = 'authoring_runs' and column_name = 'workflow'`;
     expect(column.column_default).toBeNull();
+    const [reasonsColumn] =
+      await connection`select data_type, udt_name from information_schema.columns where table_name = 'repository_fieldnote_installations' and column_name = 'reasons'`;
+    expect(reasonsColumn).toEqual({ data_type: 'ARRAY', udt_name: '_text' });
   } finally {
     await connection.end();
     await admin`drop database ${admin(databaseName)}`;
     await admin.end();
   }
+});
+
+test.each(['detectedAgents', 'confirmedAgents'] as const)(
+  'rejects malformed %s JSON on proposal write and load',
+  async (field) => {
+    const value = await plan();
+    await proposal(value.id);
+    const invalid =
+      field === 'detectedAgents'
+        ? [
+            {
+              agent: 'codex' as const,
+              label: 'Codex',
+              supported: true,
+              confirmed: false,
+              evidence: [],
+              extra: 'untrusted',
+            },
+          ]
+        : [
+            {
+              agent: 'codex' as const,
+              supported: true,
+              skillsRoot: '.agents/skills',
+              extra: 'untrusted',
+            },
+          ];
+    // Structurally compatible TypeScript values can still contain undeclared fields.
+    await expect(
+      db()
+        .update(schema.fieldnoteSetupProposals)
+        .set({ [field]: invalid })
+        .where(eq(schema.fieldnoteSetupProposals.authoringRunId, value.id)),
+    ).rejects.toThrow();
+    // Bypass the application boundary to simulate malformed historical/external JSON.
+    await db().execute(
+      sql`update fieldnote_setup_proposals set ${sql.identifier(field === 'detectedAgents' ? 'detected_agents' : 'confirmed_agents')} = ${JSON.stringify(invalid)}::jsonb where authoring_run_id = ${value.id}`,
+    );
+    const { loadSetupPlan, readySetupAndQueueExecute } = await import('./queries/fieldnote-setup');
+    await expect(loadSetupPlan(value.id)).rejects.toThrow();
+    await expect(readySetupAndQueueExecute(value.id)).rejects.toThrow();
+    const [stored] = await db()
+      .select()
+      .from(schema.authoringRuns)
+      .where(eq(schema.authoringRuns.id, value.id));
+    expect(stored.state).toBe('running');
+    expect(
+      await db()
+        .select()
+        .from(schema.authoringRuns)
+        .where(eq(schema.authoringRuns.planRunId, value.id)),
+    ).toEqual([]);
+  },
+);
+
+test('rejects invalid installation agent JSON before persistence and when loading corrupted rows', async () => {
+  const repositoryId = await repository();
+  const { recordInstallationObservation } = await import('./queries/fieldnote-setup');
+  const observation = {
+    state: 'partial' as const,
+    release: '0.1.0',
+    revision: 'b'.repeat(40),
+    lockHash: 'hash',
+    agents,
+    commitSha: sha,
+    reasons: ['Missing profile', 'Missing skills'],
+  };
+  const invalidAgents = [{ ...agents[0], extra: 'untrusted' }];
+  await expect(
+    recordInstallationObservation(repositoryId, { ...observation, agents: invalidAgents }),
+  ).rejects.toThrow();
+  expect(
+    await db()
+      .select()
+      .from(schema.repositoryFieldnoteInstallations)
+      .where(eq(schema.repositoryFieldnoteInstallations.repositoryId, repositoryId)),
+  ).toEqual([]);
+  const stored = await recordInstallationObservation(repositoryId, observation);
+  expect(stored.reasons).toEqual(['Missing profile', 'Missing skills']);
+  await db().execute(
+    sql`update repository_fieldnote_installations set agents = '[{"agent":"unknown","supported":true,"skillsRoot":".agents/skills"}]'::jsonb where repository_id = ${repositoryId}`,
+  );
+  await expect(
+    db()
+      .select()
+      .from(schema.repositoryFieldnoteInstallations)
+      .where(eq(schema.repositoryFieldnoteInstallations.repositoryId, repositoryId)),
+  ).rejects.toThrow();
 });
 
 test('requires a linked plan for execute and forbids one for plan', async () => {

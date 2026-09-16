@@ -1,20 +1,39 @@
 import type { AgentId } from '../ai-involvement/types';
+import { z } from 'zod';
 
 export type SupportedSetupAgent = 'codex' | 'claude-code';
 
-export interface AgentCandidate {
-  agent: AgentId;
-  label: string;
-  supported: boolean;
-  confirmed: boolean;
-  evidence: Array<{ source: 'path' | 'executed' | 'configured' | 'declared'; value: string }>;
-}
+const agentIdSchema = z.enum([
+  'claude-code',
+  'codex',
+  'copilot',
+  'cursor',
+  'devin',
+  'gemini',
+  'unidentified',
+]) satisfies z.ZodType<AgentId>;
 
-export interface ConfirmedAgent {
-  agent: AgentId;
-  supported: boolean;
-  skillsRoot: string | null;
-}
+export const agentCandidateSchema = z.strictObject({
+  agent: agentIdSchema,
+  label: z.string(),
+  supported: z.boolean(),
+  confirmed: z.boolean(),
+  evidence: z.array(
+    z.strictObject({
+      source: z.enum(['path', 'executed', 'configured', 'declared']),
+      value: z.string(),
+    }),
+  ),
+});
+
+export const confirmedAgentSchema = z.strictObject({
+  agent: agentIdSchema,
+  supported: z.boolean(),
+  skillsRoot: z.string().nullable(),
+});
+
+export type AgentCandidate = z.infer<typeof agentCandidateSchema>;
+export type ConfirmedAgent = z.infer<typeof confirmedAgentSchema>;
 
 export interface ReleaseFile {
   path: string;
