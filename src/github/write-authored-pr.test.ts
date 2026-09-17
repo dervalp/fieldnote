@@ -95,7 +95,9 @@ function fakeClient() {
         }),
       },
       pulls: {
-        list: vi.fn(async () => ({ data: prs })),
+        list: vi.fn(async ({ head }: { head: string }) => ({
+          data: prs.filter((pr) => head.endsWith(`:${pr.head.ref}`)),
+        })),
         create: vi.fn(async ({ head: branch, base: target }: { head: string; base: string }) => {
           const pr = {
             number: 42,
@@ -185,6 +187,90 @@ test('recovers a ref or PR whose provider response was lost without another comm
   expect(result.number).toBe(42);
   expect(client.rest.git.createCommit).toHaveBeenCalledTimes(1);
   expect(client.rest.pulls.create).toHaveBeenCalledTimes(1);
+});
+
+test.each([
+  ['closed', false],
+  ['closed', true],
+  ['merged', false],
+  ['merged', true],
+  ['partial merge', false],
+  ['partial merge', true],
+] as const)(
+  'a new run repairs the same release after %s (old ref deleted=%s) and recovers its lost response',
+  async (outcome, deleted) => {
+    const github = authoredPrClient(base);
+    const first = await writeAuthoredPullRequest(input, github.client);
+    github.prs[0].state = 'closed';
+    if (outcome !== 'closed') {
+      github.refs.set('heads/main', first.headSha);
+      input = { ...input, proposalBaseSha: first.headSha, expectedBaseSha: first.headSha };
+    }
+    if (deleted) github.refs.delete(`heads/${first.branch}`);
+    const originalRef = github.refs.get(`heads/${first.branch}`);
+    input = {
+      ...input,
+      runId: 'another-execute',
+      files: new Map([['.fieldnote/profile.md', `Repair after ${outcome}`]]),
+    };
+    const create = github.api.pulls.create.getMockImplementation()!;
+    github.api.pulls.create.mockImplementationOnce(async (args) => {
+      await create(args);
+      throw { status: 503 };
+    });
+    await expect(writeAuthoredPullRequest(input, github.client)).rejects.toMatchObject({
+      code: 'github_unavailable',
+    });
+    const repaired = await writeAuthoredPullRequest(input, github.client);
+    expect(repaired.branch).toBe('fieldnote/setup-skills-v0.1.0-run-another-execute');
+    expect(repaired.number).toBe(43);
+    expect(github.refs.get(`heads/${first.branch}`)).toBe(originalRef);
+    expect(github.prs[0].state).toBe('closed');
+    expect(github.api.git.createCommit).toHaveBeenCalledTimes(2);
+    expect(github.api.git.createRef).toHaveBeenCalledTimes(2);
+    expect(github.api.pulls.create).toHaveBeenCalledTimes(2);
+  },
+);
+
+test('same-run terminal PR with a deleted ref is discovered before any new mutation', async () => {
+  const github = authoredPrClient(base);
+  const first = await writeAuthoredPullRequest(input, github.client);
+  github.prs[0].state = 'closed';
+  github.refs.delete(`heads/${first.branch}`);
+  await expect(writeAuthoredPullRequest(input, github.client)).rejects.toMatchObject({
+    code: 'setup_conflict',
+  });
+  expect(github.api.git.createCommit).toHaveBeenCalledTimes(1);
+  expect(github.api.git.createRef).toHaveBeenCalledTimes(1);
+});
+
+test.each(['../escape', 'run space', '', 'a'.repeat(129)])(
+  'rejects invalid fallback run identity before provider mutation: %s',
+  async (runId) => {
+    input.runId = runId;
+    await expect(call()).rejects.toMatchObject({ code: 'invalid_installation' });
+    expect(client.rest.git.createBlob).not.toHaveBeenCalled();
+  },
+);
+
+test('a foreign fallback branch or terminal same-run PR cannot be adopted or rewritten', async () => {
+  const github = authoredPrClient(base);
+  await writeAuthoredPullRequest(input, github.client);
+  github.prs[0].state = 'closed';
+  input = { ...input, runId: 'next' };
+  github.refs.set('heads/fieldnote/setup-skills-v0.1.0-run-next', base);
+  await expect(writeAuthoredPullRequest(input, github.client)).rejects.toMatchObject({
+    code: 'setup_conflict',
+  });
+  github.refs.delete('heads/fieldnote/setup-skills-v0.1.0-run-next');
+  const next = await writeAuthoredPullRequest(input, github.client);
+  github.prs[1].state = 'closed';
+  input.files = new Map([['.fieldnote/profile.md', 'Changed desired bytes']]);
+  await expect(writeAuthoredPullRequest(input, github.client)).rejects.toMatchObject({
+    code: 'setup_conflict',
+  });
+  expect(github.refs.get(`heads/${next.branch}`)).toBe(next.headSha);
+  expect(github.api.git.createCommit).toHaveBeenCalledTimes(2);
 });
 
 test('recovers concurrent ref creation only when it points at the exact authored commit', async () => {

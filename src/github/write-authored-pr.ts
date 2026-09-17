@@ -56,7 +56,12 @@ export async function writeAuthoredPullRequest(
 ): Promise<{ number: number; branch: string; headSha: string; url: string }> {
   try {
     const version = /^(?:skills-)?v?(\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?)$/.exec(input.release)?.[1];
-    if (!version || !input.files.size || !Number.isFinite(Date.parse(input.commitDate)))
+    if (
+      !version ||
+      !input.files.size ||
+      !Number.isFinite(Date.parse(input.commitDate)) ||
+      !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(input.runId)
+    )
       throw new SetupWriteError('invalid_installation');
     for (const [path, content] of input.files) {
       try {
@@ -74,7 +79,16 @@ export async function writeAuthoredPullRequest(
         throw new SetupWriteError('invalid_installation');
     }
     const identity = { owner: input.owner, repo: input.repo };
-    const branch = `fieldnote/setup-skills-v${version}`;
+    const canonicalBranch = `fieldnote/setup-skills-v${version}`;
+    const runBranch = `${canonicalBranch}-run-${input.runId}`;
+    if (
+      [canonicalBranch, runBranch].some(
+        (name) =>
+          name.length > 240 || name.includes('..') || name.endsWith('.') || name.endsWith('.lock'),
+      )
+    )
+      throw new SetupWriteError('invalid_installation');
+    let branch = canonicalBranch;
     const title = `Set up Fieldnote Skills v${version}`;
     const { data: repository } = await client.rest.repos.get(identity);
     const ref = async (name: string) => {
@@ -135,6 +149,10 @@ export async function writeAuthoredPullRequest(
       );
       return `${title}\n\nFieldnote setup: ${fingerprint}`;
     };
+    const runMarker = `Fieldnote setup run: ${input.runId}`;
+    const ownCommit = (commit: { message: string; parents: Array<{ sha: string }> }) =>
+      commit.message.split('\n').includes(runMarker) ||
+      (commit.parents.length === 1 && commit.message === commitMessage(commit.parents[0].sha));
     const verifyHead = async (sha: string) => {
       const result = await tree(sha);
       if (result.commit.parents.length !== 1) throw new SetupWriteError('setup_conflict');
@@ -176,7 +194,9 @@ export async function writeAuthoredPullRequest(
         expected.set(path, `100644:blob:${blobSha(content)}`);
       const actual = [...result.entries].filter(([, entry]) => entry.type !== 'tree');
       if (
-        result.commit.message !== commitMessage(parentSha) ||
+        ![commitMessage(parentSha), `${commitMessage(parentSha)}\n${runMarker}`].includes(
+          result.commit.message,
+        ) ||
         actual.length !== expected.size ||
         actual.some(
           ([path, entry]) => expected.get(path) !== `${entry.mode}:${entry.type}:${entry.sha}`,
@@ -193,7 +213,46 @@ export async function writeAuthoredPullRequest(
       }
       return work();
     };
+    const findPr = async (candidate = branch) => {
+      const { data } = await client.rest.pulls.list({
+        ...identity,
+        head: `${input.owner}:${candidate}`,
+        state: 'all',
+        per_page: 100,
+      });
+      if (
+        data.length > 1 ||
+        data.some((pr) => pr.head.ref !== candidate || pr.base.ref !== repository.default_branch)
+      )
+        throw new SetupWriteError('setup_conflict');
+      return data;
+    };
+    // Discover terminal PRs even when GitHub deleted their branch. A per-run
+    // name is injective for the validated run ID and is never force-updated.
+    let found = await findPr();
     let headSha = await ref(branch);
+    if (found[0]?.state === 'closed') {
+      const { data: prior } = await client.rest.git.getCommit({
+        ...identity,
+        commit_sha: found[0].head.sha,
+      });
+      if (ownCommit(prior)) throw new SetupWriteError('setup_conflict');
+      branch = runBranch;
+      found = await findPr();
+      headSha = await ref(branch);
+    } else {
+      // A retry must recover its fallback even if the canonical occupancy has
+      // disappeared since its previous attempt.
+      const priorRunPrs = await findPr(runBranch);
+      const priorRunHead = await ref(runBranch);
+      if (priorRunPrs.length || priorRunHead) {
+        branch = runBranch;
+        found = priorRunPrs;
+        headSha = priorRunHead;
+      }
+    }
+    if (found.some((pr) => pr.state !== 'open') || (found.length && !headSha))
+      throw new SetupWriteError('setup_conflict');
     if (headSha) await verifyHead(headSha);
     else {
       if (baseSha !== input.expectedBaseSha) throw new SetupWriteError('setup_conflict');
@@ -219,7 +278,7 @@ export async function writeAuthoredPullRequest(
       const { data: commit } = await mutate(() =>
         client.rest.git.createCommit({
           ...identity,
-          message: commitMessage(baseSha),
+          message: `${commitMessage(baseSha)}\n${runMarker}`,
           tree: newTree.sha,
           parents: [baseSha],
           author,
@@ -243,16 +302,7 @@ export async function writeAuthoredPullRequest(
         headSha = recovered;
       }
     }
-    const findPr = async () =>
-      (
-        await client.rest.pulls.list({
-          ...identity,
-          head: `${input.owner}:${branch}`,
-          state: 'all',
-          per_page: 100,
-        })
-      ).data;
-    let found = await findPr();
+    found = await findPr();
     let pr:
       | {
           number: number;

@@ -117,12 +117,14 @@ export function authoredPrClient(baseSha: string) {
       }),
     },
     pulls: {
-      list: vi.fn(async () => ({ data: prs })),
+      list: vi.fn(async ({ head }: { head: string }) => ({
+        data: prs.filter((pr) => head.endsWith(`:${pr.head.ref}`)),
+      })),
       create: vi.fn(async ({ head, base }: { head: string; base: string }) => {
         const pr = {
-          number: 42,
+          number: 42 + prs.length,
           state: 'open',
-          html_url: 'https://github.test/pr/42',
+          html_url: `https://github.test/pr/${42 + prs.length}`,
           head: { ref: head, sha: refs.get(`heads/${head}`)! },
           base: { ref: base },
         };
