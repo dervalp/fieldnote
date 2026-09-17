@@ -146,6 +146,124 @@ async function proposal(planRunId: string) {
     });
 }
 
+test('setup summary authorizes first and never exposes another repository run or PR', async () => {
+  const { getSetupSummary } = await import('./queries/fieldnote-setup');
+  const foreign = await plan();
+  await proposal(foreign.id);
+  const local = await repository();
+  expect(await getSetupSummary(local, 'skills-v0.2.0')).toEqual({
+    installation: { kind: 'missing', latest: 'skills-v0.2.0' },
+    progress: null,
+    latestAvailable: true,
+  });
+  expect((await getSetupSummary(local, 'skills-v0.2.0', foreign.id)).progress).toBeNull();
+  await expect(getSetupSummary(foreign.repositoryId, 'skills-v0.2.0')).rejects.toThrow('not found');
+});
+
+test('setup summary selects the latest setup plan and its linked execute PR, ignoring readiness', async () => {
+  const { getSetupSummary } = await import('./queries/fieldnote-setup');
+  const id = await repository();
+  const complete = { state: 'complete' as const, completedAt: new Date() };
+  const old = run(id, { ...complete, createdAt: new Date('2026-01-01') });
+  const latest = run(id, { ...complete, createdAt: new Date('2026-01-02') });
+  const readiness = run(id, {
+    ...complete,
+    workflow: 'readiness-remediation',
+    createdAt: new Date('2026-01-03'),
+  });
+  await db().insert(schema.authoringRuns).values([old, latest, readiness]);
+  const oldExecute = run(id, { ...complete, kind: 'execute', planRunId: old.id });
+  const execute = run(id, { ...complete, kind: 'execute', planRunId: latest.id });
+  await db().insert(schema.authoringRuns).values([oldExecute, execute]);
+  await db()
+    .insert(schema.authoredPullRequests)
+    .values([
+      {
+        id: randomUUID(),
+        authoringRunId: oldExecute.id,
+        repositoryId: id,
+        number: 1,
+        branch: 'old',
+        headSha: sha,
+        url: 'https://github.com/octo/repo/pull/1',
+        outcome: 'closed',
+        openedAt: new Date(),
+      },
+      {
+        id: randomUUID(),
+        authoringRunId: execute.id,
+        repositoryId: id,
+        number: 2,
+        branch: 'new',
+        headSha: sha,
+        url: 'https://github.com/octo/repo/pull/2',
+        outcome: 'open',
+        openedAt: new Date(),
+      },
+    ]);
+  const summary = await getSetupSummary(id, 'skills-v0.2.0');
+  expect(summary.progress).toEqual({
+    runId: latest.id,
+    state: 'open',
+    pullRequestUrl: 'https://github.com/octo/repo/pull/2',
+  });
+  expect(summary.installation.kind).toBe('proposed');
+  expect((await getSetupSummary(id, 'skills-v0.2.0', old.id)).progress).toEqual({
+    runId: old.id,
+    state: 'closed',
+    pullRequestUrl: 'https://github.com/octo/repo/pull/1',
+  });
+});
+
+test('merged setup remains verifying until a newer installation observation and preserves release outage state', async () => {
+  const { getSetupSummary, recordInstallationObservation } =
+    await import('./queries/fieldnote-setup');
+  const value = await plan();
+  await db()
+    .update(schema.authoringRuns)
+    .set({ state: 'complete', completedAt: new Date() })
+    .where(eq(schema.authoringRuns.id, value.id));
+  const execute = run(value.repositoryId, {
+    kind: 'execute',
+    planRunId: value.id,
+    state: 'complete',
+    completedAt: new Date(),
+  });
+  await db().insert(schema.authoringRuns).values(execute);
+  await db()
+    .insert(schema.authoredPullRequests)
+    .values({
+      id: randomUUID(),
+      authoringRunId: execute.id,
+      repositoryId: value.repositoryId,
+      number: 1,
+      branch: 'setup',
+      headSha: sha,
+      url: 'https://github.com/octo/repo/pull/1',
+      outcome: 'merged',
+      openedAt: new Date('2026-01-01'),
+      mergedAt: new Date('2026-01-02'),
+    });
+  expect((await getSetupSummary(value.repositoryId, null)).progress?.state).toBe('verifying');
+  await recordInstallationObservation(value.repositoryId, {
+    state: 'outdated',
+    release: 'skills-v0.1.0',
+    revision: sha,
+    lockHash: 'hash',
+    agents,
+    commitSha: sha,
+    reasons: [],
+  });
+  const summary = await getSetupSummary(value.repositoryId, null);
+  expect(summary.progress).toBeNull();
+  expect(summary.installation).toEqual({
+    kind: 'outdated',
+    installed: 'skills-v0.1.0',
+    latest: '',
+  });
+  expect(summary.latestAvailable).toBe(false);
+});
+
 test('persists the workflow discriminator instead of treating setup as readiness', async () => {
   const value = await plan();
   const rows = await db().execute(

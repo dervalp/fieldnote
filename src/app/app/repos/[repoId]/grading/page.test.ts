@@ -13,6 +13,8 @@ const deps = vi.hoisted(() => ({
   workspace: vi.fn(),
   publicSettings: vi.fn(),
   installedGraders: vi.fn(),
+  setup: vi.fn(),
+  release: vi.fn(),
 }));
 vi.mock('../../../../../workspaces/access', () => ({
   requireRepository: deps.authorize,
@@ -32,10 +34,11 @@ vi.mock('../../../../../github/installation-permissions', () => ({
 }));
 vi.mock('../../../../../db/queries/authoring-runs', () => ({ latestPlan: deps.latestPlan }));
 vi.mock('../../../../../db/queries/grade-schedules', () => ({ gradeSchedules: deps.schedules }));
-vi.mock('../../../../../components/act/act-entry', () => ({
-  ActEntry: ({ availability }: { availability: { available: boolean } }) =>
-    createElement('p', null, availability.available ? 'act-available' : 'act-unavailable'),
+vi.mock('../../../../../db/queries/fieldnote-setup', () => ({ getSetupSummary: deps.setup }));
+vi.mock('../../../../../fieldnote-skills/github-release', () => ({
+  latestSkillsRelease: deps.release,
 }));
+vi.mock('./actions', () => ({ requestPlanRun: vi.fn(), requestFieldnoteSetup: vi.fn() }));
 vi.mock('../../../../../components/grading/report', () => ({
   GradeControls: ({ graderId, initial }: { graderId: string; initial: { state: string } | null }) =>
     createElement('p', null, `controls:${graderId}:${initial?.state ?? 'none'}`),
@@ -65,7 +68,12 @@ vi.mock('../../../../../components/grading/share-toggle', () => ({
     graderId: string;
     shared: boolean;
     canShare: boolean;
-  }) => createElement('p', null, `share:${graderId}:${shared ? 'on' : 'off'}:${canShare ? 'owner' : 'member'}`),
+  }) =>
+    createElement(
+      'p',
+      null,
+      `share:${graderId}:${shared ? 'on' : 'off'}:${canShare ? 'owner' : 'member'}`,
+    ),
 }));
 import Grading from './page';
 import { agentReadinessManifest } from '../../../../../domain/grading/graders/agent-readiness';
@@ -82,6 +90,7 @@ const completed = {
   computedAt: new Date('2026-09-08'),
   checks: [],
 };
+const failedCheck = { id: 'root-agent-instructions', status: 'fail', points: 0, maxPoints: 10 };
 // installedGraders() rows, in the order the workspace is presumed to have
 // installed them — Agent Readiness first, the way the built-ins install.
 const installedEntry = (manifest: typeof agentReadinessManifest) => ({
@@ -92,7 +101,10 @@ const installedEntry = (manifest: typeof agentReadinessManifest) => ({
   withdrawnAt: null,
   latestVersion: manifest.version,
 });
-const bothInstalled = [installedEntry(agentReadinessManifest), installedEntry(deliveryHealthManifest)];
+const bothInstalled = [
+  installedEntry(agentReadinessManifest),
+  installedEntry(deliveryHealthManifest),
+];
 const call = (run?: string, grader?: string) =>
   Grading({
     params: Promise.resolve({ repoId: 'repo' }),
@@ -124,6 +136,12 @@ beforeEach(() => {
   deps.schedules.mockResolvedValue({});
   deps.workspace.mockResolvedValue({ id: 'workspace', name: 'W', role: 'owner' });
   deps.publicSettings.mockResolvedValue({});
+  deps.setup.mockResolvedValue({
+    installation: { kind: 'current', release: 'skills-v0.1.0' },
+    progress: null,
+    latestAvailable: true,
+  });
+  deps.release.mockResolvedValue({ release: 'skills-v0.1.0' });
 });
 test('a workspace with nothing installed sees one empty-state surface, not a crash', async () => {
   deps.installedGraders.mockResolvedValue([]);
@@ -195,18 +213,75 @@ test('?grader= selects which report is shown', async () => {
 });
 
 test('the Act entry appears under the readiness card and disappears under a different one', async () => {
+  deps.actEnabled.mockResolvedValue(true);
+  deps.fetchGrantedPermissions.mockResolvedValue({ contents: 'write', pullRequests: 'write' });
   // Presence alone would still pass if the isReadiness gate were removed
   // (grade truthy is enough on its own); asserting absence under a different
   // card is what actually exercises the gate. Both graders carry a completed
   // grade here so that "no Act marker" cannot be explained by "no grade".
   deps.summaries.mockResolvedValue([
-    { graderId: 'fieldnote/agent-readiness', latest: completed, status: null },
+    {
+      graderId: 'fieldnote/agent-readiness',
+      latest: { ...completed, checks: [failedCheck] },
+      status: null,
+    },
     { graderId: DELIVERY_HEALTH, latest: completed, status: null },
   ]);
   const readinessSelected = renderToStaticMarkup(await call());
-  expect(readinessSelected).toMatch(/act-(un)?available/);
+  expect(readinessSelected).toContain('Plan the fixes');
   const deliverySelected = renderToStaticMarkup(await call(undefined, DELIVERY_HEALTH));
-  expect(deliverySelected).not.toMatch(/act-(un)?available/);
+  expect(deliverySelected).not.toContain('Plan the fixes');
+});
+
+test.each(['missing', 'proposed', 'partial', 'drifted', 'outdated'])(
+  'hides readiness planning for %s setup',
+  async (kind) => {
+    deps.actEnabled.mockResolvedValue(true);
+    deps.fetchGrantedPermissions.mockResolvedValue({ contents: 'write', pullRequests: 'write' });
+    deps.summaries.mockResolvedValue([
+      {
+        graderId: 'fieldnote/agent-readiness',
+        latest: { ...completed, checks: [failedCheck] },
+        status: null,
+      },
+    ]);
+    deps.setup.mockResolvedValue({
+      installation: {
+        kind,
+        release: 'skills-v0.1.0',
+        installed: 'skills-v0.1.0',
+        latest: 'skills-v0.2.0',
+        reasons: ['Missing skill'],
+        runId: 'setup',
+        pullRequestUrl: null,
+      },
+      progress: null,
+      latestAvailable: true,
+    });
+    expect(renderToStaticMarkup(await call())).not.toContain('Plan the fixes');
+  },
+);
+test('offers setup before the first readiness grade', async () => {
+  deps.actEnabled.mockResolvedValue(true);
+  deps.fetchGrantedPermissions.mockResolvedValue({ contents: 'write', pullRequests: 'write' });
+  deps.summaries.mockResolvedValue([]);
+  deps.setup.mockResolvedValue({
+    installation: { kind: 'missing', latest: 'skills-v0.1.0' },
+    progress: null,
+    latestAvailable: true,
+  });
+  expect(renderToStaticMarkup(await call())).toContain('Set up Fieldnote');
+});
+test('a release outage preserves the stored installation and explains freshness is unknown', async () => {
+  deps.release.mockRejectedValue(new Error('unavailable'));
+  deps.setup.mockResolvedValue({
+    installation: { kind: 'current', release: 'skills-v0.1.0' },
+    progress: null,
+    latestAvailable: false,
+  });
+  const html = renderToStaticMarkup(await call());
+  expect(html).toContain('Fieldnote Skills v0.1.0 installed');
+  expect(html).toContain('Unable to check for a newer Fieldnote Skills release');
 });
 
 test('Agent Readiness renders before Delivery Health, in installedGraders() order', async () => {

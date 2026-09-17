@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import { db } from '../index';
 import {
   authoringRuns as runs,
@@ -12,12 +12,98 @@ import {
 import type {
   ConfirmedAgent,
   InstallationObservation,
+  InstallationState,
   SetupRepositorySnapshot,
   SkillsRelease,
 } from '../../domain/fieldnote-skills/types';
 import { requireRepository } from '../../workspaces/access';
 import { requestPlan } from './authoring-runs';
 import type { SetupAuthorResult } from '../../authoring/setup-author';
+import { classifyInstallation } from '../../domain/fieldnote-skills/classify';
+
+export interface SetupProgress {
+  runId: string;
+  state: 'exploring' | 'awaiting-input' | 'preparing' | 'open' | 'verifying' | 'failed' | 'closed';
+  pullRequestUrl: string | null;
+}
+
+// Latest release is supplied by the server page. A provider outage must not
+// turn an observed outdated installation into a current one.
+export async function getSetupSummary(
+  repositoryId: string,
+  latestRelease: string | null,
+  planRunId?: string,
+): Promise<{
+  installation: InstallationState;
+  progress: SetupProgress | null;
+  latestAvailable: boolean;
+}> {
+  await requireRepository(repositoryId);
+  const [[observation], [plan]] = await Promise.all([
+    db().select().from(installations).where(eq(installations.repositoryId, repositoryId)),
+    db()
+      .select({ id: runs.id, state: runs.state, proposalState: proposals.state })
+      .from(runs)
+      .leftJoin(proposals, eq(proposals.authoringRunId, runs.id))
+      .where(
+        and(
+          eq(runs.repositoryId, repositoryId),
+          eq(runs.workflow, 'fieldnote-setup'),
+          eq(runs.kind, 'plan'),
+          planRunId ? eq(runs.id, planRunId) : undefined,
+        ),
+      )
+      .orderBy(desc(runs.createdAt), desc(runs.id))
+      .limit(1),
+  ]);
+  let progress: SetupProgress | null = null;
+  if (plan) {
+    const [execution] = await db()
+      .select({
+        state: runs.state,
+        url: pullRequests.url,
+        outcome: pullRequests.outcome,
+        mergedAt: pullRequests.mergedAt,
+      })
+      .from(runs)
+      .leftJoin(
+        pullRequests,
+        and(eq(pullRequests.authoringRunId, runs.id), eq(pullRequests.repositoryId, repositoryId)),
+      )
+      .where(
+        and(
+          eq(runs.planRunId, plan.id),
+          eq(runs.repositoryId, repositoryId),
+          eq(runs.workflow, 'fieldnote-setup'),
+          eq(runs.kind, 'execute'),
+        ),
+      );
+    let state: SetupProgress['state'] | null;
+    if (execution?.outcome === 'merged') {
+      state =
+        observation && execution.mergedAt && observation.verifiedAt >= execution.mergedAt
+          ? null
+          : 'verifying';
+    } else if (execution?.outcome === 'open') state = 'open';
+    else if (execution?.outcome === 'closed') state = 'closed';
+    else if (plan.state === 'failed' || execution?.state === 'failed') state = 'failed';
+    else if (execution || plan.proposalState === 'ready') state = 'preparing';
+    else if (plan.proposalState === 'awaiting-input') state = 'awaiting-input';
+    else state = 'exploring';
+    if (state) progress = { runId: plan.id, state, pullRequestUrl: execution?.url ?? null };
+  }
+  const active = progress && progress.state !== 'failed' && progress.state !== 'closed';
+  const installation = classifyInstallation({
+    observation: observation ?? null,
+    latest: latestRelease ?? observation?.release ?? '',
+    openPr:
+      active && progress
+        ? { runId: progress.runId, pullRequestUrl: progress.pullRequestUrl }
+        : null,
+  });
+  if (!latestRelease && installation.kind === 'outdated') installation.latest = '';
+  return { installation, progress, latestAvailable: latestRelease !== null };
+}
 
 export type SetupReleaseIdentity = Pick<SkillsRelease, 'release' | 'revision' | 'releaseLockHash'>;
 type Transaction = Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0];
