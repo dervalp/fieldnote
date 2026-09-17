@@ -208,6 +208,40 @@ test('observes only current-head bounded feedback and discards raw provider text
     expect.objectContaining({ disposition: 'ambiguous' }),
   ]);
 });
+test.each(['merged', 'closed'] as const)(
+  'carries actual GitHub timestamps for %s outcomes',
+  async (outcome) => {
+    api.pulls.get.mockResolvedValueOnce({
+      data: {
+        state: 'closed',
+        merged: outcome === 'merged',
+        merged_at: outcome === 'merged' ? '2026-01-02T10:00:00Z' : null,
+        closed_at: '2026-01-02T10:00:00Z',
+        head: { sha: head, ref: pr.branch },
+      },
+    } as never);
+    expect(await observeAuthoredPr(context)).toMatchObject({
+      outcome,
+      mergedAt: outcome === 'merged' ? '2026-01-02T10:00:00.000Z' : null,
+      closedAt: '2026-01-02T10:00:00.000Z',
+    });
+  },
+);
+test.each([null, 'private provider timestamp', '2026-02-30T10:00:00Z'])(
+  'rejects invalid merge timestamps without leaking provider details: %s',
+  async (mergedAt) => {
+    api.pulls.get.mockResolvedValueOnce({
+      data: {
+        state: 'closed',
+        merged: true,
+        merged_at: mergedAt,
+        closed_at: '2026-01-02T10:00:00Z',
+        head: { sha: head, ref: pr.branch },
+      },
+    } as never);
+    await expect(observeAuthoredPr(context)).rejects.toMatchObject({ code: 'github_unavailable' });
+  },
+);
 test('repair reconstructs managed files, regenerates lock, and writes only after fresh authorization', async () => {
   expect(await repairAuthoredPr('pr', 'repair')).toEqual({ headSha: 'c'.repeat(40) });
   const input = deps.write.mock.calls[0][0];
@@ -225,8 +259,13 @@ test('permission loss and closed PR prevent any repair authoring', async () => {
   deps.permissions.mockResolvedValueOnce({ contents: 'read', pullRequests: 'write' });
   await expect(repairAuthoredPr('pr', 'repair')).rejects.toMatchObject({ code: 'access_revoked' });
   api.pulls.get.mockResolvedValueOnce({
-    data: { state: 'closed', merged: false, head: { sha: head, ref: pr.branch } },
-  });
+    data: {
+      state: 'closed',
+      merged: false,
+      closed_at: '2026-01-01T10:00:00Z',
+      head: { sha: head, ref: pr.branch },
+    },
+  } as never);
   await expect(repairAuthoredPr('pr', 'repair')).rejects.toMatchObject({ code: 'setup_conflict' });
   expect(deps.sandbox).not.toHaveBeenCalled();
   expect(deps.write).not.toHaveBeenCalled();

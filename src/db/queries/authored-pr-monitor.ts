@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, eq, inArray, isNull, lt, or } from 'drizzle-orm';
+import { and, asc, eq, inArray, not, or } from 'drizzle-orm';
 import { db } from '../index';
 import {
   authoredPullRequests as prs,
@@ -7,7 +7,13 @@ import {
   authoringNotes as notes,
   repositoryFieldnoteInstallations as installations,
 } from '../schema';
-import type { Feedback, HumanReason } from '../../domain/act/pr-monitor';
+import { installationCoversPullRequest } from './fieldnote-installations';
+import {
+  parseAuthoredPrOutcome,
+  type AuthoredPrOutcome,
+  type Feedback,
+  type HumanReason,
+} from '../../domain/act/pr-monitor';
 
 export async function findAuthoredPr(repositoryId: string, number: number) {
   return (
@@ -28,10 +34,7 @@ export async function listMonitoredPrs() {
     .where(
       or(
         eq(prs.outcome, 'open'),
-        and(
-          eq(prs.outcome, 'merged'),
-          or(isNull(installations.repositoryId), lt(installations.verifiedAt, prs.mergedAt)),
-        ),
+        and(eq(prs.outcome, 'merged'), not(installationCoversPullRequest())),
       ),
     );
 }
@@ -189,20 +192,25 @@ export async function finishPrRepair(
         );
   });
 }
-export async function recordPrOutcome(
-  id: string,
-  snapshot: { outcome: 'open' | 'merged' | 'closed'; headSha: string },
-) {
-  // Open snapshots never adopt an unknown head: repair's compare-and-set owns it.
-  if (snapshot.outcome === 'open') return;
-  await db()
-    .update(prs)
-    .set({
-      outcome: snapshot.outcome,
-      closedAt: new Date(),
-      ...(snapshot.outcome === 'merged' ? { mergedAt: new Date() } : {}),
-    })
-    .where(and(eq(prs.id, id), eq(prs.outcome, 'open')));
+export async function recordPrOutcome(id: string, snapshot: AuthoredPrOutcome) {
+  const outcome = parseAuthoredPrOutcome(snapshot);
+  return db().transaction(async (tx) => {
+    const [pr] = await tx.select().from(prs).where(eq(prs.id, id)).for('update');
+    // Merge is irreversible. A repeated or stale response cannot regress it
+    // or change its actual provider timestamp. Closed PRs may reopen or merge.
+    if (!pr || pr.outcome === 'merged') return pr ?? null;
+    const [updated] = await tx
+      .update(prs)
+      .set({
+        outcome: outcome.outcome,
+        mergedAt: outcome.mergedAt === null ? null : new Date(outcome.mergedAt),
+        closedAt: outcome.closedAt === null ? null : new Date(outcome.closedAt),
+        // Never adopt a provider head here: repair's compare-and-set owns it.
+      })
+      .where(eq(prs.id, id))
+      .returning();
+    return updated;
+  });
 }
 export async function recordMonitorHumanRequired(id: string, reason: HumanReason) {
   await db().transaction(async (tx) => {

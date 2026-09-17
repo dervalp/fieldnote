@@ -71,6 +71,7 @@ beforeEach(() => {
   durable.length = 0;
   deps.load.mockResolvedValue({ pr, repairs: [] });
   deps.observe.mockResolvedValue(snapshot);
+  deps.outcome.mockImplementation(async (_id, snapshot) => snapshot);
   deps.reserve.mockResolvedValue({
     id: 'repair',
     ordinal: 1,
@@ -206,6 +207,20 @@ test('delayed obsolete repair deliveries do not record a human stop', async () =
   deps.repair.mockRejectedValueOnce(new SetupWriteError('repair_obsolete'));
   await handler(context);
   expect(deps.finish).not.toHaveBeenCalled();
+  expect(deps.human).not.toHaveBeenCalled();
+});
+test('stale open provider data cannot dispatch a repair or human stop after a persisted merge', async () => {
+  deps.load.mockResolvedValue({
+    pr: { ...pr, outcome: 'merged' },
+    repairs: [{ id: 'repair', ordinal: 1, state: 'queued' }],
+  });
+  deps.outcome.mockResolvedValue({ outcome: 'merged' });
+  await handler(context);
+  expect(deps.send).toHaveBeenCalledWith('verify-installation', {
+    name: 'repository/fieldnote.installation.verify.requested',
+    data: { authoredPrId: 'pr' },
+  });
+  expect(deps.repair).not.toHaveBeenCalled();
   expect(deps.human).not.toHaveBeenCalled();
 });
 test('reconciliation redelivers promptly after failure recovery outage without event-ID expiry', async () => {

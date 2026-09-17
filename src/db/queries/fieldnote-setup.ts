@@ -20,6 +20,7 @@ import { requireRepository } from '../../workspaces/access';
 import { requestPlan } from './authoring-runs';
 import type { SetupAuthorResult } from '../../authoring/setup-author';
 import { classifyInstallation } from '../../domain/fieldnote-skills/classify';
+import { installationCoversPullRequest } from './fieldnote-installations';
 
 export interface SetupProgress {
   runId: string;
@@ -63,13 +64,14 @@ export async function getSetupSummary(
         state: runs.state,
         url: pullRequests.url,
         outcome: pullRequests.outcome,
-        mergedAt: pullRequests.mergedAt,
+        verified: installationCoversPullRequest(),
       })
       .from(runs)
       .leftJoin(
         pullRequests,
         and(eq(pullRequests.authoringRunId, runs.id), eq(pullRequests.repositoryId, repositoryId)),
       )
+      .leftJoin(installations, eq(installations.repositoryId, runs.repositoryId))
       .where(
         and(
           eq(runs.planRunId, plan.id),
@@ -80,10 +82,7 @@ export async function getSetupSummary(
       );
     let state: SetupProgress['state'] | null;
     if (execution?.outcome === 'merged') {
-      state =
-        observation && execution.mergedAt && observation.verifiedAt >= execution.mergedAt
-          ? null
-          : 'verifying';
+      state = execution.verified ? null : 'verifying';
     } else if (execution?.outcome === 'open') state = 'open';
     else if (execution?.outcome === 'closed') state = 'closed';
     else if (plan.proposalState === 'awaiting-input' && plan.state === 'running')
@@ -551,7 +550,7 @@ export async function recordInstallationObservation(
   repositoryId: string,
   observation: InstallationObservation,
 ) {
-  const value = { repositoryId, ...observation, verifiedAt: new Date() };
+  const value = { repositoryId, ...observation, sourceAuthoredPrId: null, verifiedAt: new Date() };
   const [stored] = await db()
     .insert(installations)
     .values(value)

@@ -14,10 +14,12 @@ import { sha256 } from '../domain/fieldnote-skills/lock';
 
 const context = vi.hoisted(() => ({
   repositoryId: '',
+  send: vi.fn(),
   configs: [] as Array<{ onFailure?: (input: unknown) => Promise<unknown> }>,
 }));
 vi.mock('../inngest/client', () => ({
   inngest: {
+    send: context.send,
     createFunction: (
       config: { onFailure?: (input: unknown) => Promise<unknown> },
       handler: unknown,
@@ -41,6 +43,154 @@ const workspace = randomUUID();
 const repositories: string[] = [];
 const sha = 'a'.repeat(40);
 const agents = [{ agent: 'codex' as const, supported: true, skillsRoot: '.agents/skills' }];
+const mergedOutcome = (mergedAt = '2026-01-02T10:00:00.000Z') => ({
+  outcome: 'merged' as const,
+  headSha: sha,
+  mergedAt,
+  closedAt: mergedAt,
+});
+const closedOutcome = {
+  outcome: 'closed' as const,
+  headSha: sha,
+  mergedAt: null,
+  closedAt: '2026-01-01T10:00:00.000Z',
+};
+
+test('invalid terminal timestamps are rejected before persistence', async () => {
+  const { pr, monitor } = await repairFixture();
+  await expect(
+    monitor.recordPrOutcome(pr.id, { ...mergedOutcome(), mergedAt: 'invalid provider text' }),
+  ).rejects.toThrow('Invalid authored pull request outcome');
+  expect((await monitor.loadAuthoredPrMonitor(pr.id))?.pr.outcome).toBe('open');
+});
+
+test.each([false, true])(
+  'a closed setup can merge after reopen=%s while merged outcomes never regress',
+  async (reopen) => {
+    const { pr, monitor } = await repairFixture();
+    const { loadInstallationVerification } = await import('./queries/fieldnote-installations');
+    const provider = await import('../github/monitor-authored-pr');
+    const observed = vi.spyOn(provider, 'observeAuthoredPr');
+    const { monitorAuthoredPrFunction } = await import('../inngest/functions/monitor-authored-pr');
+    const handler = monitorAuthoredPrFunction as unknown as (input: unknown) => Promise<unknown>;
+    const send = vi.fn();
+    const deliver = async (outcome: Parameters<typeof monitor.recordPrOutcome>[1]) => {
+      observed.mockResolvedValue({ ...outcome, failures: [], reviews: [], pending: false });
+      await handler({
+        event: { data: { authoredPrId: pr.id } },
+        step: {
+          run: async (_name: string, work: () => Promise<unknown>) => work(),
+          sendEvent: send,
+        },
+      });
+    };
+    try {
+      await deliver(closedOutcome);
+      expect((await monitor.loadAuthoredPrMonitor(pr.id))?.pr.outcome).toBe('closed');
+      if (reopen) {
+        await deliver({ outcome: 'open', headSha: 'unknown-head', mergedAt: null, closedAt: null });
+        expect((await monitor.loadAuthoredPrMonitor(pr.id))?.pr).toMatchObject({
+          outcome: 'open',
+          headSha: sha,
+          closedAt: null,
+        });
+      }
+      await deliver(mergedOutcome());
+      expect((await loadInstallationVerification(pr.id))?.pr).toMatchObject({
+        outcome: 'merged',
+        mergedAt: new Date('2026-01-02T10:00:00.000Z'),
+      });
+      expect(send).toHaveBeenLastCalledWith('verify-installation', {
+        name: 'repository/fieldnote.installation.verify.requested',
+        data: { authoredPrId: pr.id },
+      });
+      await deliver({ outcome: 'open', headSha: 'unknown-head', mergedAt: null, closedAt: null });
+      expect(send).toHaveBeenLastCalledWith('verify-installation', {
+        name: 'repository/fieldnote.installation.verify.requested',
+        data: { authoredPrId: pr.id },
+      });
+      await deliver(closedOutcome);
+      await deliver(mergedOutcome('2026-01-09T10:00:00.000Z'));
+      expect((await monitor.loadAuthoredPrMonitor(pr.id))?.pr).toMatchObject({
+        outcome: 'merged',
+        headSha: sha,
+        mergedAt: new Date('2026-01-02T10:00:00.000Z'),
+      });
+    } finally {
+      observed.mockRestore();
+    }
+  },
+);
+
+test.each(['2026-01-02T10:00:00.000Z', '2026-01-03T10:00:00.000Z'])(
+  'late monitoring of an earlier merge cannot supersede a verified newer update (older timestamp %s)',
+  async (olderTimestamp) => {
+    const { pr: older, monitor } = await repairFixture();
+    const q = await import('./queries/fieldnote-setup');
+    const verification = await import('./queries/fieldnote-installations');
+    await db()
+      .update(schema.authoringRuns)
+      .set({ state: 'complete', completedAt: new Date() })
+      .where(eq(schema.authoringRuns.id, older.authoringRunId));
+    const updatePlan = await plan(older.repositoryId);
+    await proposal(updatePlan.id);
+    const execute = await q.readySetupAndQueueExecute(updatePlan.id);
+    const newer = await q.recordAuthoredPullRequest({
+      authoringRunId: execute.id,
+      repositoryId: older.repositoryId,
+      number: 43,
+      branch: 'fieldnote/update',
+      headSha: sha,
+      url: 'https://github.test/pr/43',
+      outcome: 'open',
+      openedAt: new Date(),
+    });
+    // Reversed delivery order: B is observed and verified before A is observed.
+    await monitor.recordPrOutcome(newer.id, mergedOutcome('2026-01-03T10:00:00.000Z'));
+    const observation = {
+      state: 'current' as const,
+      release: 'skills-v0.2.0',
+      revision: 'b'.repeat(40),
+      lockHash: sha256('new-lock'),
+      agents,
+      commitSha: sha,
+      reasons: [],
+    };
+    await verification.recordVerifiedInstallation(newer.id, observation);
+    await monitor.recordPrOutcome(older.id, mergedOutcome(olderTimestamp));
+    expect(await verification.loadInstallationVerification(older.id)).toBeNull();
+    const collector = await import('../github/verify-fieldnote-installation');
+    const scan = vi.spyOn(collector, 'collectInstallationSnapshot');
+    try {
+      const { verifyFieldnoteInstallationFunction } =
+        await import('../inngest/functions/verify-fieldnote-installation');
+      const verify = verifyFieldnoteInstallationFunction as unknown as (
+        input: unknown,
+      ) => Promise<unknown>;
+      expect(
+        await verify({
+          event: { data: { authoredPrId: older.id } },
+          step: { run: async (_name: string, work: () => Promise<unknown>) => work() },
+        }),
+      ).toBeNull();
+      expect(scan).not.toHaveBeenCalled();
+    } finally {
+      scan.mockRestore();
+    }
+    expect(
+      await verification.recordVerifiedInstallation(older.id, {
+        ...observation,
+        state: 'partial',
+        release: 'skills-v0.1.0',
+      }),
+    ).toBeNull();
+    const [stored] = await db()
+      .select()
+      .from(schema.repositoryFieldnoteInstallations)
+      .where(eq(schema.repositoryFieldnoteInstallations.repositoryId, older.repositoryId));
+    expect(stored).toMatchObject({ state: 'current', release: 'skills-v0.2.0' });
+  },
+);
 
 test('merged verification persists idempotently and terminal reconciliation keeps merge time stable', async () => {
   const { pr, monitor } = await repairFixture();
@@ -57,7 +207,7 @@ test('merged verification persists idempotently and terminal reconciliation keep
     reasons: [],
   };
   expect(await recordVerifiedInstallation(pr.id, observation)).toBeNull();
-  await monitor.recordPrOutcome(pr.id, { outcome: 'merged', headSha: sha });
+  await monitor.recordPrOutcome(pr.id, mergedOutcome());
   const loaded = await loadInstallationVerification(pr.id);
   expect(loaded?.run.id).toBe(pr.authoringRunId);
   await Promise.all([
@@ -69,10 +219,103 @@ test('merged verification persists idempotently and terminal reconciliation keep
     .from(schema.repositoryFieldnoteInstallations)
     .where(eq(schema.repositoryFieldnoteInstallations.repositoryId, pr.repositoryId));
   const repeated = await recordVerifiedInstallation(pr.id, observation);
+  expect(repeated).toMatchObject({ sourceAuthoredPrId: pr.id });
   expect(repeated?.verifiedAt).toEqual(stored.verifiedAt);
-  await monitor.recordPrOutcome(pr.id, { outcome: 'merged', headSha: sha });
+  await monitor.recordPrOutcome(pr.id, mergedOutcome());
   expect((await loadInstallationVerification(pr.id))?.pr.mergedAt).toEqual(loaded?.pr.mergedAt);
   expect((await monitor.listMonitoredPrs()).map((row) => row.id)).not.toContain(pr.id);
+});
+
+test('an older scan cannot suppress recovery of a newer merge after lost verification dispatch', async () => {
+  const { pr: older, monitor } = await repairFixture();
+  const q = await import('./queries/fieldnote-setup');
+  const verification = await import('./queries/fieldnote-installations');
+  await monitor.recordPrOutcome(older.id, mergedOutcome('2026-01-02T10:00:00.000Z'));
+  const observation = {
+    state: 'current' as const,
+    release: 'skills-v0.1.0',
+    revision: sha,
+    lockHash: sha256('lock'),
+    agents,
+    commitSha: sha,
+    reasons: [],
+  };
+  // A's scan runs after B's actual merge time, before B's monitor delivery.
+  await verification.recordVerifiedInstallation(older.id, observation);
+  await db()
+    .update(schema.authoringRuns)
+    .set({ state: 'complete', completedAt: new Date() })
+    .where(eq(schema.authoringRuns.id, older.authoringRunId));
+  const update = await plan(older.repositoryId);
+  await proposal(update.id);
+  const execute = await q.readySetupAndQueueExecute(update.id);
+  const newer = await q.recordAuthoredPullRequest({
+    authoringRunId: execute.id,
+    repositoryId: older.repositoryId,
+    number: 43,
+    branch: 'fieldnote/update',
+    headSha: sha,
+    url: 'https://github.test/pr/43',
+    outcome: 'open',
+    openedAt: new Date(),
+  });
+  const provider = await import('../github/monitor-authored-pr');
+  const observed = vi
+    .spyOn(provider, 'observeAuthoredPr')
+    .mockResolvedValue({ ...mergedOutcome('2026-01-03T10:00:00.000Z'), failures: [], reviews: [] });
+  const { monitorAuthoredPrFunction } = await import('../inngest/functions/monitor-authored-pr');
+  const { reconcileAuthoring } = await import('../inngest/functions/reconcile-authoring');
+  const runStep = async (_name: string, work: () => Promise<unknown>) => work();
+  const monitorHandler = monitorAuthoredPrFunction as unknown as (
+    input: unknown,
+  ) => Promise<unknown>;
+  const reconcile = reconcileAuthoring as unknown as (input: unknown) => Promise<unknown>;
+  const failedSend = vi.fn().mockRejectedValue(new Error('lost verification dispatch'));
+  try {
+    await expect(
+      monitorHandler({
+        event: { data: { authoredPrId: newer.id } },
+        step: { run: runStep, sendEvent: failedSend },
+      }),
+    ).rejects.toThrow('lost verification dispatch');
+    expect((await monitor.listMonitoredPrs()).map((pr) => pr.id)).toContain(newer.id);
+    expect(
+      (await q.getSetupSummary(older.repositoryId, 'skills-v0.1.0', update.id)).progress?.state,
+    ).toBe('verifying');
+    const recovered = vi.fn(async (_name, event) => {
+      expect(event).toEqual({
+        name: 'repository/fieldnote.installation.verify.requested',
+        data: { authoredPrId: newer.id },
+      });
+      await verification.recordVerifiedInstallation(newer.id, observation);
+    });
+    context.send.mockImplementation(async (event) => {
+      if (
+        event.name === 'repository/authored-pr.monitor.requested' &&
+        event.data.authoredPrId === newer.id
+      )
+        await monitorHandler({ event, step: { run: runStep, sendEvent: recovered } });
+    });
+    await reconcile({ step: { run: runStep } });
+    expect(recovered).toHaveBeenCalledTimes(1);
+    expect(
+      (await q.getSetupSummary(older.repositoryId, 'skills-v0.1.0', update.id)).progress,
+    ).toBeNull();
+    const monitored = (await monitor.listMonitoredPrs()).map((pr) => pr.id);
+    expect(monitored).not.toContain(newer.id);
+    expect(monitored).not.toContain(older.id);
+    expect(
+      await verification.recordVerifiedInstallation(older.id, { ...observation, state: 'partial' }),
+    ).toBeNull();
+    const [stored] = await db()
+      .select()
+      .from(schema.repositoryFieldnoteInstallations)
+      .where(eq(schema.repositoryFieldnoteInstallations.repositoryId, older.repositoryId));
+    expect(stored).toMatchObject({ state: 'current', sourceAuthoredPrId: newer.id });
+  } finally {
+    observed.mockRestore();
+    context.send.mockReset();
+  }
 });
 
 test('confirmed missing authoring access has a distinct terminal error', async () => {
@@ -540,7 +783,7 @@ test('concurrent repair reservations reuse one ordinal, cap at three, and termin
     await monitor.reservePrRepair(pr.id, sha, { ...trigger, reference: 'check:4' }),
   ).toBeNull();
   expect((await monitor.loadAuthoredPrMonitor(pr.id))?.repairs).toHaveLength(3);
-  await monitor.recordPrOutcome(pr.id, { outcome: 'closed', headSha: sha });
+  await monitor.recordPrOutcome(pr.id, closedOutcome);
   expect(await monitor.reservePrRepair(pr.id, sha, trigger)).toBeNull();
   expect((await monitor.listMonitoredPrs()).map((row) => row.id)).not.toContain(pr.id);
   expect(
@@ -899,46 +1142,26 @@ test('setup summary selects the latest setup plan and its linked execute PR, ign
   });
 });
 
-test('merged setup remains verifying until a newer installation observation and preserves release outage state', async () => {
+test('merged setup requires an attributed observation and preserves release outage state', async () => {
   const { getSetupSummary, recordInstallationObservation } =
     await import('./queries/fieldnote-setup');
-  const value = await plan();
-  await db()
-    .update(schema.authoringRuns)
-    .set({ state: 'complete', completedAt: new Date() })
-    .where(eq(schema.authoringRuns.id, value.id));
-  const execute = run(value.repositoryId, {
-    kind: 'execute',
-    planRunId: value.id,
-    state: 'complete',
-    completedAt: new Date(),
-  });
-  await db().insert(schema.authoringRuns).values(execute);
-  await db()
-    .insert(schema.authoredPullRequests)
-    .values({
-      id: randomUUID(),
-      authoringRunId: execute.id,
-      repositoryId: value.repositoryId,
-      number: 1,
-      branch: 'setup',
-      headSha: sha,
-      url: 'https://github.com/octo/repo/pull/1',
-      outcome: 'merged',
-      openedAt: new Date('2026-01-01'),
-      mergedAt: new Date('2026-01-02'),
-    });
-  expect((await getSetupSummary(value.repositoryId, null)).progress?.state).toBe('verifying');
-  await recordInstallationObservation(value.repositoryId, {
-    state: 'outdated',
+  const { recordVerifiedInstallation } = await import('./queries/fieldnote-installations');
+  const { pr, monitor } = await repairFixture();
+  await monitor.recordPrOutcome(pr.id, mergedOutcome());
+  expect((await getSetupSummary(pr.repositoryId, null)).progress?.state).toBe('verifying');
+  const observation = {
+    state: 'outdated' as const,
     release: 'skills-v0.1.0',
     revision: sha,
     lockHash: 'hash',
     agents,
     commitSha: sha,
     reasons: [],
-  });
-  const summary = await getSetupSummary(value.repositoryId, null);
+  };
+  await recordInstallationObservation(pr.repositoryId, observation);
+  expect((await getSetupSummary(pr.repositoryId, null)).progress?.state).toBe('verifying');
+  await recordVerifiedInstallation(pr.id, observation);
+  const summary = await getSetupSummary(pr.repositoryId, null);
   expect(summary.progress).toBeNull();
   expect(summary.installation).toEqual({
     kind: 'outdated',
@@ -973,9 +1196,16 @@ test('generated migrations backfill pre-existing readiness rows and remove the t
     await connection`insert into github_installations(id, github_installation_id, account_login, account_type) values ('installation', 'installation', 'octo', 'Organization')`;
     await connection`insert into repositories(id, installation_id, github_repository_id, owner, name, default_branch, is_private) values ('repository', 'installation', 'repository', 'octo', 'repo', 'main', false)`;
     await connection`insert into authoring_runs(id, repository_id, kind, requested_by, requested_workspace_id, state, author_version) values ('legacy', 'repository', 'plan', 'owner', 'workspace', 'queued', 'readiness-floor-v01')`;
-    for (const migration of migrations.slice(20)) {
+    for (const migration of migrations.slice(20, 23)) {
       for (const statement of migration.sql) await connection.unsafe(statement);
     }
+    await connection`insert into repository_fieldnote_installations(repository_id, state, release, revision, lock_hash, agents, commit_sha, reasons, verified_at) values ('repository', 'partial', 'legacy', 'sha', 'hash', '[]'::jsonb, 'sha', ARRAY[]::text[], now())`;
+    for (const migration of migrations.slice(23)) {
+      for (const statement of migration.sql) await connection.unsafe(statement);
+    }
+    const [legacyObservation] =
+      await connection`select source_authored_pr_id from repository_fieldnote_installations where repository_id = 'repository'`;
+    expect(legacyObservation).toEqual({ source_authored_pr_id: null });
     const [legacy] =
       await connection`select workflow, plan_run_id from authoring_runs where id = 'legacy'`;
     expect(legacy).toEqual({ workflow: 'readiness-remediation', plan_run_id: null });

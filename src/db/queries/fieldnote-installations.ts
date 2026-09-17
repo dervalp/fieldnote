@@ -1,4 +1,5 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, exists, gt, gte, or, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { db } from '../index';
 import {
   authoredPullRequests as prs,
@@ -10,6 +11,37 @@ import {
 import type { InstallationObservation } from '../../domain/fieldnote-skills/types';
 
 type Reader = Pick<ReturnType<typeof db>, 'select'>;
+
+/** Correlated predicate shared by reconciliation and the authorized setup UI. */
+export function installationCoversPullRequest() {
+  const source = alias(prs, 'installation_source_pr');
+  const sourceRun = alias(runs, 'installation_source_run');
+  return exists(
+    db()
+      .select({ id: source.id })
+      .from(source)
+      .innerJoin(
+        sourceRun,
+        and(
+          eq(sourceRun.id, source.authoringRunId),
+          eq(sourceRun.repositoryId, source.repositoryId),
+        ),
+      )
+      .where(
+        and(
+          eq(source.id, installations.sourceAuthoredPrId),
+          eq(source.repositoryId, prs.repositoryId),
+          eq(source.outcome, 'merged'),
+          eq(sourceRun.workflow, 'fieldnote-setup'),
+          eq(sourceRun.kind, 'execute'),
+          or(
+            gt(source.mergedAt, prs.mergedAt),
+            and(eq(source.mergedAt, prs.mergedAt), gte(source.number, prs.number)),
+          ),
+        ),
+      ),
+  );
+}
 async function verificationContext(reader: Reader, id: string) {
   const [context] = await reader
     .select({ pr: prs, run: runs, proposal: proposals })
@@ -26,7 +58,8 @@ async function verificationContext(reader: Reader, id: string) {
       ),
     );
   if (!context || !context.pr.mergedAt) return null;
-  // A delayed event for an earlier setup must never overwrite an update's scan.
+  // GitHub's actual merge time determines authority, never monitor delivery
+  // time. Repository-unique PR numbers break equal-timestamp ties stably.
   const [latest] = await reader
     .select({ id: prs.id })
     .from(prs)
@@ -72,14 +105,19 @@ export async function recordVerifiedInstallation(id: string, observation: Instal
       .where(eq(installations.repositoryId, identity.repositoryId));
     if (
       existing &&
-      existing.verifiedAt >= context.pr.mergedAt! &&
+      existing.sourceAuthoredPrId === id &&
       Object.entries(observation).every(
         ([key, value]) =>
           JSON.stringify(existing[key as keyof typeof existing]) === JSON.stringify(value),
       )
     )
       return existing;
-    const value = { repositoryId: identity.repositoryId, ...observation, verifiedAt: new Date() };
+    const value = {
+      repositoryId: identity.repositoryId,
+      ...observation,
+      sourceAuthoredPrId: id,
+      verifiedAt: new Date(),
+    };
     const [stored] = await tx
       .insert(installations)
       .values(value)

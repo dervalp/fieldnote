@@ -14,6 +14,8 @@ import { renderInstallation, verifyInstallation } from '../domain/fieldnote-skil
 import { parseInstallationLock, sha256 } from '../domain/fieldnote-skills/lock';
 import {
   normalizeFeedback,
+  parseAuthoredPrOutcome,
+  type AuthoredPrOutcome,
   monitorDecision,
   type Feedback,
   type MonitorInput,
@@ -26,7 +28,7 @@ import { writePrRepair, repairCommitMessage } from './repair-authored-pr';
 import { errorStatus } from './normalize';
 
 type Context = NonNullable<Awaited<ReturnType<typeof loadAuthoredPrMonitor>>>;
-type Snapshot = Omit<MonitorInput, 'repairs'> & { headSha: string };
+type Snapshot = Omit<MonitorInput, 'repairs' | 'outcome'> & AuthoredPrOutcome;
 async function authorize(context: Context) {
   const run = await loadAuthoringRun(context.pr.authoringRunId);
   if (
@@ -219,8 +221,12 @@ export async function observeAuthoredPr(context: Context): Promise<Snapshot> {
     const { data: pr } = await client.rest.pulls.get(identity);
     const outcome = pr.merged ? 'merged' : pr.state === 'closed' ? 'closed' : 'open';
     const snapshot: Snapshot = {
-      outcome,
-      headSha: pr.head.sha,
+      ...parseAuthoredPrOutcome({
+        outcome,
+        headSha: pr.head.sha,
+        mergedAt: outcome === 'merged' ? pr.merged_at : null,
+        closedAt: outcome === 'open' ? null : pr.closed_at,
+      }),
       failures: [],
       reviews: [],
       pending: false,

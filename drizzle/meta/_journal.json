@@ -162,6 +162,13 @@
       "when": 1789628425347,
       "tag": "0022_grey_calypso",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1789640519467,
+      "tag": "0023_installation_observation_source",
+      "breakpoints": true
     }
   ]
 }

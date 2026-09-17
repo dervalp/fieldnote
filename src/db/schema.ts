@@ -1038,12 +1038,16 @@ export const repositoryFieldnoteInstallations = pgTable(
     commitSha: text('commit_sha').notNull(),
     reasons: text('reasons').array().notNull(),
     verifiedAt: timestamp('verified_at', { withTimezone: true }).notNull(),
+    sourceAuthoredPrId: text('source_authored_pr_id').references(() => authoredPullRequests.id, {
+      onDelete: 'set null',
+    }),
   },
   (t) => [
     check(
       'repository_fieldnote_installations_state',
       sql`${t.state} IN ('current','outdated','partial','drifted')`,
     ),
+    index('repository_fieldnote_installations_source_pr').on(t.sourceAuthoredPrId),
   ],
 );
 

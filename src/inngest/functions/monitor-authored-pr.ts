@@ -28,8 +28,11 @@ export const monitorAuthoredPrFunction = inngest.createFunction(
       try {
         const context = await loadAuthoredPrMonitor(authoredPrId);
         if (!context) return null;
-        const snapshot = await observeAuthoredPr(context);
-        await recordPrOutcome(authoredPrId, snapshot);
+        const observed = await observeAuthoredPr(context);
+        const stored = await recordPrOutcome(authoredPrId, observed);
+        if (!stored) return null;
+        // Persisted merges outrank stale open/closed provider snapshots.
+        const snapshot = { ...observed, outcome: stored.outcome };
         if (context.humanRequired && snapshot.outcome === 'open') return { kind: 'wait' as const };
         // An unfinished reservation is resumed, never allocated another ordinal.
         const reserved = context.repairs.find((repair) =>

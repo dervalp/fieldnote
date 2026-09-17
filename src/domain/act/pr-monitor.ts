@@ -1,3 +1,35 @@
+import { z } from 'zod';
+
+const timestamp = z.iso
+  .datetime({ offset: true })
+  .transform((value) => new Date(value).toISOString());
+const outcomeSchema = z.discriminatedUnion('outcome', [
+  z.object({
+    outcome: z.literal('open'),
+    headSha: z.string().min(1),
+    mergedAt: z.null(),
+    closedAt: z.null(),
+  }),
+  z.object({
+    outcome: z.literal('closed'),
+    headSha: z.string().min(1),
+    mergedAt: z.null(),
+    closedAt: timestamp,
+  }),
+  z.object({
+    outcome: z.literal('merged'),
+    headSha: z.string().min(1),
+    mergedAt: timestamp,
+    closedAt: timestamp,
+  }),
+]);
+export type AuthoredPrOutcome = z.infer<typeof outcomeSchema>;
+export function parseAuthoredPrOutcome(input: unknown): AuthoredPrOutcome {
+  const parsed = outcomeSchema.safeParse(input);
+  if (!parsed.success) throw new Error('Invalid authored pull request outcome');
+  return parsed.data;
+}
+
 export interface Feedback {
   kind: 'ci' | 'review';
   reference: string;
