@@ -16,13 +16,12 @@ import {
 } from '../domain/fieldnote-skills/types';
 import { profileValues } from '../authoring/setup-author';
 import { requiredFactsForProfile, unresolved } from '../domain/fieldnote-skills/profile-facts';
+import {
+  configurationProblems,
+  requiredConfiguration,
+} from '../domain/fieldnote-skills/configuration';
 
 const lockPath = '.fieldnote/skills.lock.json';
-const requiredConfiguration = [
-  '.fieldnote/profile.md',
-  '.fieldnote/definition-of-done.md',
-  '.fieldnote/concerns/shared.md',
-];
 const limits = { files: 400, fileBytes: 256 * 1024, totalBytes: 4 * 1024 * 1024, entries: 15_000 };
 const messages = {
   merge_not_visible: 'Merged installation is not yet visible on the default branch',
@@ -49,7 +48,8 @@ interface ExpectedInstallation {
 }
 function configurationPath(path: string): boolean {
   return (
-    requiredConfiguration.includes(path) || /^\.fieldnote\/concerns\/[a-zA-Z0-9_-]+\.md$/.test(path)
+    requiredConfiguration.some((required) => required === path) ||
+    /^\.fieldnote\/concerns\/[a-zA-Z0-9_-]+\.md$/.test(path)
   );
 }
 function boundedLock(content: string): InstallationLock {
@@ -121,6 +121,7 @@ export function verifyFieldnoteInstallation(
     return partial('Confirmed agent targets are incomplete or invalid.');
   const configuration = [...new Set([...requiredConfiguration, ...expected.configurationPaths])];
   if (
+    configurationProblems(snapshot.files).length ||
     configuration.some(
       (path) =>
         !configurationPath(path) ||

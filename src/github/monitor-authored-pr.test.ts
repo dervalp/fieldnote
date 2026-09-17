@@ -1,5 +1,6 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { renderInstallation } from '../domain/fieldnote-skills/render';
+import { supportingConfigurationDefaults } from '../domain/fieldnote-skills/configuration';
 import { sha256 } from '../domain/fieldnote-skills/lock';
 import { AuthoringAccessRevokedError } from '../domain/act/authorization';
 const deps = vi.hoisted(() => ({
@@ -54,7 +55,10 @@ const release = {
   ],
 };
 const agents = [{ agent: 'codex' as const, supported: true, skillsRoot: '.agents/skills' }];
-const configuration = [{ path: '.fieldnote/profile.md', content: '# Profile  \n' }];
+const configuration = [
+  { path: '.fieldnote/profile.md', content: '# Profile  \n' },
+  ...supportingConfigurationDefaults,
+];
 const files = renderInstallation({ release, setupRunId: 'execute', agents, configuration }).files;
 const trigger = {
   kind: 'ci' as const,
@@ -297,7 +301,10 @@ function publishedRepair() {
     release,
     setupRunId: 'execute',
     agents,
-    configuration: [{ path: '.fieldnote/profile.md', content: '# Profile\n' }],
+    configuration: [
+      { path: '.fieldnote/profile.md', content: '# Profile\n' },
+      ...supportingConfigurationDefaults,
+    ],
   }).files;
   api.pulls.get.mockResolvedValue({
     data: { state: 'open', merged: false, head: { sha: next, ref: pr.branch } },

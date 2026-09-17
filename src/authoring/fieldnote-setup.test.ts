@@ -120,13 +120,13 @@ test('records the human confirmation and resumes with persisted notes and pinned
 });
 
 test.each([
-  ['provider token', () => `ghp_${'a'.repeat(36)}`],
+  ['provider token', (): string => `ghp_${'a'.repeat(36)}`],
   [
     'private key',
-    () => '-----BEGIN RSA PRIVATE KEY-----\nsynthetic\n-----END RSA PRIVATE KEY-----',
+    (): string => '-----BEGIN RSA PRIVATE KEY-----\nsynthetic\n-----END RSA PRIVATE KEY-----',
   ],
-  ['assignment', () => 'API_KEY=synthetic-secret'],
-  ['name/value', () => '- name: DB_PASSWORD\n  value: synthetic-secret'],
+  ['assignment', (): string => 'API_KEY=synthetic-secret'],
+  ['name/value', (): string => '- name: DB_PASSWORD\n  value: synthetic-secret'],
   [
     'nested object',
     () => JSON.stringify({ database: { password: { value: 'synthetic-secret' } } }),

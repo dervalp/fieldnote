@@ -1,6 +1,7 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { sha256 } from '../../domain/fieldnote-skills/lock';
 import { authoredPrClient } from '../../github/testing/authored-pr-client';
+import { supportingConfigurationDefaults } from '../../domain/fieldnote-skills/configuration';
 
 const deps = vi.hoisted(() => ({
   loadRun: vi.fn(),
@@ -92,6 +93,11 @@ beforeEach(() => {
     },
     files: [
       { path: '.fieldnote/profile.md', body: 'Complete profile', hash: sha256('Complete profile') },
+      ...supportingConfigurationDefaults.map(({ path, content }) => ({
+        path,
+        body: content,
+        hash: sha256(content),
+      })),
     ],
   };
   deps.loadRun.mockImplementation(async () => structuredClone(run));
@@ -163,6 +169,12 @@ test('validates the deterministic installation, records PR before completion and
   await invoke(cache);
   await invoke();
   expect(deps.write).toHaveBeenCalledTimes(1);
+});
+test('persisted profile-only author output cannot reach any GitHub mutation', async () => {
+  plan.files = plan.files.filter((file) => file.path === '.fieldnote/profile.md');
+  await expect(invoke()).rejects.toThrow('Setup rendering failed');
+  expect(deps.write).not.toHaveBeenCalled();
+  expect(deps.record).not.toHaveBeenCalled();
 });
 test('rebases unrelated movement onto the refreshed default head', async () => {
   deps.head.mockResolvedValue(nextSha);

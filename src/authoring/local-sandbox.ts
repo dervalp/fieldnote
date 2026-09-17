@@ -1,5 +1,6 @@
 import type { AuthoringSandbox } from './sandbox';
 import { validateAuthoringInput } from './sandbox';
+import { supportingConfigurationDefaults } from '../domain/fieldnote-skills/configuration';
 import {
   profileValues,
   requiredFactsForProfile,
@@ -87,7 +88,15 @@ export function localAuthoringSandbox(): AuthoringSandbox {
               evidence: ['This required fact needs human confirmation.'],
             },
         confirmedFacts,
-        generatedFiles: ready ? [{ path: '.fieldnote/profile.md', content: profile }] : [],
+        generatedFiles: ready
+          ? [
+              { path: '.fieldnote/profile.md', content: profile },
+              ...supportingConfigurationDefaults.map((file) => ({
+                path: file.path,
+                content: input.files.get(`evidence/${file.path}`) ?? file.content,
+              })),
+            ]
+          : [],
       };
       return {
         sandboxId: 'local-authoring',

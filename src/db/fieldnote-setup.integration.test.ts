@@ -10,6 +10,7 @@ import { authoredPrClient } from '../github/testing/authored-pr-client';
 import { writeAuthoredPullRequest } from '../github/write-authored-pr';
 import { writePrRepair } from '../github/repair-authored-pr';
 import { renderInstallation } from '../domain/fieldnote-skills/render';
+import { supportingConfigurationDefaults } from '../domain/fieldnote-skills/configuration';
 import { sha256 } from '../domain/fieldnote-skills/lock';
 
 const context = vi.hoisted(() => ({
@@ -560,7 +561,10 @@ test.each(['lost response', 'database rollback', 'unpublished'])(
         release,
         setupRunId: execute.id,
         agents,
-        configuration: [{ path: '.fieldnote/profile.md', content }],
+        configuration: [
+          { path: '.fieldnote/profile.md', content },
+          ...supportingConfigurationDefaults,
+        ],
       }).files;
     const original = render('# Profile  \n');
     const replacement = render('# Profile\n');
@@ -652,6 +656,12 @@ test.each(['lost response', 'database rollback', 'unpublished'])(
           body: '# Profile  \n',
           hash: sha256('# Profile  \n'),
         },
+        ...supportingConfigurationDefaults.map(({ path, content }) => ({
+          ...plan.files[0],
+          path,
+          body: content,
+          hash: sha256(content),
+        })),
       ],
     });
     vi.spyOn(releases, 'readSkillsRelease').mockResolvedValue(release);

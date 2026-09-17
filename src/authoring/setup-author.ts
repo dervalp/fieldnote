@@ -7,6 +7,10 @@ import {
   type SetupRepositorySnapshot,
 } from '../domain/fieldnote-skills/types';
 import { setupAdapters } from '../domain/fieldnote-skills/adapters';
+import {
+  assertCompleteConfiguration,
+  requiredConfiguration,
+} from '../domain/fieldnote-skills/configuration';
 import { validateAuthoringInput, validateGeneratedPath, type AuthoringSandbox } from './sandbox';
 import {
   confirmedProfileFactsSchema,
@@ -75,7 +79,7 @@ Preserve existing explicit profile values and existing concern files. Only fill 
 Reuse confirmedFacts from previous turns; include all resolved facts in the structured result.
 Use the exact profile format: ## Section and - **key** — value. MergePolicy uses ## Merge policy.
 Use (none) only for an explicit decision or observed absence, never to hide unknown facts.
-Ready requires all requiredFacts resolved and a complete .fieldnote/profile.md, no TODO or unknowns.
+Ready requires all requiredFacts resolved and all of ${requiredConfiguration.join(', ')} present, nonempty, and without TODO, TBD, or unknown values.
 Return only the closed structured result. generatedFiles is empty until ready and contains configuration
 only: .fieldnote/profile.md, .fieldnote/definition-of-done.md, .fieldnote/concerns/<name>.md.
 The host renders the lock and installs skills separately. Never propose other paths or perform writes.`;
@@ -120,6 +124,9 @@ export function parseAuthoringOutput(output: unknown): SetupAuthorOutput {
     throw new Error('Awaiting input requires one question and no generated files.');
   if (result.state === 'ready') {
     if (result.nextQuestion !== null) throw new Error('Ready cannot contain a question.');
+    assertCompleteConfiguration(
+      new Map(result.generatedFiles.map((file) => [file.path, file.content])),
+    );
     const profile = result.generatedFiles.find(
       (file) => file.path === '.fieldnote/profile.md',
     )?.content;

@@ -9,6 +9,9 @@ import {
 } from './e2b-sandbox';
 import type { AuthoringSandbox } from './sandbox';
 import { authoringEnv } from '../lib/env';
+import { renderInstallation } from '../domain/fieldnote-skills/render';
+import { sha256 } from '../domain/fieldnote-skills/lock';
+import { verifyFieldnoteInstallation } from '../github/verify-fieldnote-installation';
 
 const input: SetupAuthorInput = {
   snapshot: {
@@ -93,6 +96,61 @@ const readyInput = {
 };
 
 describe('setup author boundary', () => {
+  test('accepted local author output renders an installation accepted by post-merge verification', async () => {
+    const result = await authorSetupProfile(localAuthoringSandbox(), readyInput);
+    const content = 'Pinned generic setup skill';
+    const release = {
+      release: 'skills-v0.1.0',
+      revision: input.setupSkill.revision,
+      releaseLockHash: sha256('release'),
+      skills: [
+        {
+          name: 'fieldnote-setup-profile',
+          version: '1',
+          files: [{ path: 'SKILL.md', content, hash: sha256(content) }],
+        },
+      ],
+    };
+    const rendered = renderInstallation({
+      release,
+      setupRunId: 'execute',
+      agents: confirmed,
+      configuration: result.files,
+    });
+    expect(
+      verifyFieldnoteInstallation(
+        { commitSha: input.snapshot.sha, complete: true, files: rendered.files },
+        release,
+        {
+          setupRunId: 'execute',
+          agents: confirmed,
+          configurationPaths: result.files.map((file) => file.path),
+          latest: release.release,
+        },
+      ),
+    ).toMatchObject({ state: 'current', reasons: [] });
+  });
+  test.each(['missing', 'empty', 'unresolved'])(
+    'structured ready output rejects %s supporting configuration',
+    async (invalid) => {
+      const response = await localAuthoringSandbox().run({
+        files: new Map([['evidence/.fieldnote/profile.md', profile]]),
+        prompt: JSON.stringify({ confirmedAgents: confirmed }),
+        mode: 'write-generated',
+      });
+      const output = setupAuthorOutputSchema.parse(response.output);
+      const path = '.fieldnote/concerns/shared.md';
+      output.generatedFiles = output.generatedFiles.filter((file) => file.path !== path);
+      if (invalid !== 'missing')
+        output.generatedFiles.push({
+          path,
+          content: invalid === 'empty' ? ' ' : '# Shared concerns\nTODO',
+        });
+      await expect(authorSetupProfile(resultSandbox(output), readyInput)).rejects.toThrow(
+        'Required Fieldnote configuration',
+      );
+    },
+  );
   test('the local author reuses structured facts without having to rediscover them in notes', async () => {
     const result = await authorSetupProfile(localAuthoringSandbox(), {
       ...input,
@@ -371,7 +429,11 @@ describe('setup author boundary', () => {
     expect(first).toEqual(second);
     expect(first.state).toBe('ready');
     expect(first.nextQuestion).toBeNull();
-    expect(first.files.map((file) => file.path)).toEqual(['.fieldnote/profile.md']);
+    expect(first.files.map((file) => file.path)).toEqual([
+      '.fieldnote/profile.md',
+      '.fieldnote/definition-of-done.md',
+      '.fieldnote/concerns/shared.md',
+    ]);
     expect(first.files[0].content).toBe(profile);
     expect(first.files[0].hash).toMatch(/^sha256:[a-f0-9]{64}$/);
   });
@@ -413,6 +475,7 @@ describe('setup author boundary', () => {
     changed.confirmedFacts.find((fact) => fact.key === 'Commands.check')!.value = 'npm test';
     changed.generatedFiles = [
       { path: '.fieldnote/profile.md', content: profile.replace('pnpm test', 'npm test') },
+      ...changed.generatedFiles.filter((file) => file.path !== '.fieldnote/profile.md'),
     ];
     await expect(authorSetupProfile(resultSandbox(changed), readyInput)).rejects.toThrow(
       'Cannot replace an explicit profile value.',
@@ -499,7 +562,9 @@ describe('production sandbox policy (no credentials)', () => {
         ).toEqual([]);
       } else {
         const result = await promise;
-        expect([...result.files]).toEqual([['.fieldnote/profile.md', profile]]);
+        expect([...result.files]).toEqual(
+          output.generatedFiles.map((file) => [file.path, file.content]),
+        );
         expect(uploads.get('/workspace/.fieldnote/profile.md')).toBe(profile);
       }
       expect(destroyed).toBe(true);

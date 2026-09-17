@@ -1,13 +1,23 @@
 import type { AgentId } from '../ai-involvement/types';
 import { setupAdapters } from './adapters';
 import {
+  assertCompleteConfiguration,
+  configurationProblems,
+  requiredConfiguration,
+} from './configuration';
+import {
   assertSafeRelativePath,
   type InstallationLock,
   parseInstallationLock,
   renderInstallationLock,
   sha256,
 } from './lock';
-import type { ConfirmedAgent, InstallationObservation, RenderedInstallation, SkillsRelease } from './types';
+import type {
+  ConfirmedAgent,
+  InstallationObservation,
+  RenderedInstallation,
+  SkillsRelease,
+} from './types';
 
 const lockPath = '.fieldnote/skills.lock.json';
 const profilePath = '.fieldnote/profile.md';
@@ -48,15 +58,14 @@ function isUnresolvedProfile(content: string): boolean {
 }
 
 function supportedAgents(agents: ConfirmedAgent[]): Array<{ agent: AgentId; skillsRoot: string }> {
-  const supported = agents
-    .flatMap((agent) => {
-      if (!agent.supported) return [];
-      const adapter = setupAdapters[agent.agent as keyof typeof setupAdapters];
-      if (!adapter) return [];
-      if (agent.skillsRoot !== null && agent.skillsRoot !== adapter.skillsRoot)
-        throw new Error(`Agent ${agent.agent} has a noncanonical skills root.`);
-      return [{ agent: agent.agent, skillsRoot: adapter.skillsRoot }];
-    });
+  const supported = agents.flatMap((agent) => {
+    if (!agent.supported) return [];
+    const adapter = setupAdapters[agent.agent as keyof typeof setupAdapters];
+    if (!adapter) return [];
+    if (agent.skillsRoot !== null && agent.skillsRoot !== adapter.skillsRoot)
+      throw new Error(`Agent ${agent.agent} has a noncanonical skills root.`);
+    return [{ agent: agent.agent, skillsRoot: adapter.skillsRoot }];
+  });
 
   if (new Set(supported.map((agent) => agent.agent)).size !== supported.length)
     throw new Error('Duplicate supported agent.');
@@ -70,7 +79,8 @@ function releaseCompletenessReasons(lock: InstallationLock, latest: SkillsReleas
   if (lock.release !== latest.release) return [];
 
   const reasons: string[] = [];
-  if (lock.revision !== latest.revision) reasons.push('Lock revision does not match the validated release.');
+  if (lock.revision !== latest.revision)
+    reasons.push('Lock revision does not match the validated release.');
   if (lock.releaseLockHash !== latest.releaseLockHash)
     reasons.push('Lock release hash does not match the validated release.');
 
@@ -99,7 +109,8 @@ function releaseCompletenessReasons(lock: InstallationLock, latest: SkillsReleas
     }
   }
   for (const skill of lock.skills) {
-    if (!latestSkillNames.has(skill.name)) reasons.push(`Lock declares unknown skill ${skill.name}.`);
+    if (!latestSkillNames.has(skill.name))
+      reasons.push(`Lock declares unknown skill ${skill.name}.`);
   }
   return reasons;
 }
@@ -107,21 +118,28 @@ function releaseCompletenessReasons(lock: InstallationLock, latest: SkillsReleas
 function validateRelease(release: SkillsRelease): void {
   const names = new Set<string>();
   for (const skill of release.skills) {
-    if (!/^[a-z0-9][a-z0-9-]*$/.test(skill.name) || skill.version.length === 0 || names.has(skill.name))
+    if (
+      !/^[a-z0-9][a-z0-9-]*$/.test(skill.name) ||
+      skill.version.length === 0 ||
+      names.has(skill.name)
+    )
       throw new Error('Invalid skills release.');
     names.add(skill.name);
 
     const files = new Set<string>();
     for (const file of skill.files) {
       assertSafeRelativePath(file.path);
-      if (files.has(file.path) || sha256(file.content) !== file.hash) throw new Error('Invalid skills release.');
+      if (files.has(file.path) || sha256(file.content) !== file.hash)
+        throw new Error('Invalid skills release.');
       files.add(file.path);
     }
     if (files.size === 0) throw new Error('Invalid skills release.');
   }
 }
 
-function validateConfiguration(configuration: InstallationConfiguration[]): InstallationConfiguration[] {
+function validateConfiguration(
+  configuration: InstallationConfiguration[],
+): InstallationConfiguration[] {
   const files = new Set<string>();
   let profile: string | undefined;
   for (const file of configuration) {
@@ -133,6 +151,7 @@ function validateConfiguration(configuration: InstallationConfiguration[]): Inst
   }
   if (profile === undefined || isUnresolvedProfile(profile))
     throw new Error('Profile contains unresolved required values.');
+  assertCompleteConfiguration(new Map(configuration.map((file) => [file.path, file.content])));
   return [...configuration].sort((left, right) => lexicographically(left.path, right.path));
 }
 
@@ -151,8 +170,12 @@ export function renderInstallation(input: RenderInstallationInput): RenderedInst
   }
 
   for (const agent of agents) {
-    for (const skill of [...input.release.skills].sort((left, right) => lexicographically(left.name, right.name))) {
-      for (const file of [...skill.files].sort((left, right) => lexicographically(left.path, right.path))) {
+    for (const skill of [...input.release.skills].sort((left, right) =>
+      lexicographically(left.name, right.name),
+    )) {
+      for (const file of [...skill.files].sort((left, right) =>
+        lexicographically(left.path, right.path),
+      )) {
         const path = `${agent.skillsRoot}/${skill.name}/${file.path}`;
         addFile(files, path, file.content);
         lockedFiles.push({ path, sourceHash: file.hash, hash: sha256(file.content) });
@@ -212,12 +235,18 @@ export function verifyInstallation(
   try {
     lock = parseInstallationLock(lockContent);
   } catch {
-    return observation(snapshot, null, lockHash, 'partial', ['Invalid .fieldnote/skills.lock.json.']);
+    return observation(snapshot, null, lockHash, 'partial', [
+      'Invalid .fieldnote/skills.lock.json.',
+    ]);
   }
 
   const missing: string[] = [];
   const drifted: string[] = [];
   const incomplete = releaseCompletenessReasons(lock, latest);
+  missing.push(...configurationProblems(snapshot.files));
+  for (const path of requiredConfiguration)
+    if (!lock.files.some((file) => file.path === path))
+      missing.push(`Lock does not declare ${path}.`);
   for (const file of lock.files) {
     const content = snapshot.files.get(file.path);
     if (content === undefined) {
@@ -237,7 +266,17 @@ export function verifyInstallation(
   }
 
   if (incomplete.length > 0 || missing.length > 0)
-    return observation(snapshot, lock, lockHash, 'partial', [...incomplete, ...missing, ...drifted]);
+    return observation(snapshot, lock, lockHash, 'partial', [
+      ...incomplete,
+      ...missing,
+      ...drifted,
+    ]);
   if (drifted.length > 0) return observation(snapshot, lock, lockHash, 'drifted', drifted);
-  return observation(snapshot, lock, lockHash, lock.release === latest.release ? 'current' : 'outdated', []);
+  return observation(
+    snapshot,
+    lock,
+    lockHash,
+    lock.release === latest.release ? 'current' : 'outdated',
+    [],
+  );
 }

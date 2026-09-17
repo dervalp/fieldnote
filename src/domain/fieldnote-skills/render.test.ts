@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest';
 import { parseInstallationLock } from './lock';
 import type { SkillsRelease } from './types';
 import { renderInstallation, verifyInstallation } from './render';
+import { supportingConfigurationDefaults } from './configuration';
 
 const sha256 = (value: string): `sha256:${string}` =>
   `sha256:${createHash('sha256').update(value).digest('hex')}`;
@@ -37,11 +38,19 @@ const render = (overrides: Partial<Parameters<typeof renderInstallation>[0]> = {
       { agent: 'codex', supported: true, skillsRoot: '.agents/skills' },
       { agent: 'claude-code', supported: true, skillsRoot: '.claude/skills' },
     ],
-    configuration: [{ path: '.fieldnote/profile.md', content: completeProfile }],
+    configuration: [
+      { path: '.fieldnote/profile.md', content: completeProfile },
+      ...supportingConfigurationDefaults,
+    ],
     ...overrides,
   });
 
 describe('renderInstallation', () => {
+  test('rejects a profile-only installation before it can be published', () => {
+    expect(() =>
+      render({ configuration: [{ path: '.fieldnote/profile.md', content: completeProfile }] }),
+    ).toThrow('Required Fieldnote configuration');
+  });
   test('copies every generic release file byte-for-byte to every supported target', () => {
     const rendered = render();
 
@@ -115,7 +124,9 @@ describe('renderInstallation', () => {
   });
 
   test('rejects configuration outside Fieldnote and duplicate destination paths', () => {
-    expect(() => render({ configuration: [{ path: 'profile.md', content: completeProfile }] })).toThrow();
+    expect(() =>
+      render({ configuration: [{ path: 'profile.md', content: completeProfile }] }),
+    ).toThrow();
     expect(() =>
       render({
         configuration: [
@@ -152,7 +163,11 @@ describe('renderInstallation', () => {
 
   test('does not render a profile with unresolved required values', () => {
     expect(() =>
-      render({ configuration: [{ path: '.fieldnote/profile.md', content: '# Profile\n\nTODO: test command' }] }),
+      render({
+        configuration: [
+          { path: '.fieldnote/profile.md', content: '# Profile\n\nTODO: test command' },
+        ],
+      }),
     ).toThrow();
   });
 });
@@ -221,8 +236,7 @@ describe('verifyInstallation', () => {
       skills: lock.skills.filter((skill) => skill.name === 'fieldnote-testing'),
       files: lock.files.filter(
         (file) =>
-          file.path === '.fieldnote/profile.md' ||
-          file.path.includes('/fieldnote-testing/'),
+          file.path === '.fieldnote/profile.md' || file.path.includes('/fieldnote-testing/'),
       ),
     };
     files.set('.fieldnote/skills.lock.json', JSON.stringify(subset));
