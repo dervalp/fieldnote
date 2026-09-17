@@ -5,6 +5,10 @@ import { planRepositoryFunction } from '../../../inngest/functions/plan-reposito
 import { planFieldnoteSetupFunction } from '../../../inngest/functions/plan-fieldnote-setup';
 import { executeFieldnoteSetupFunction } from '../../../inngest/functions/execute-fieldnote-setup';
 import { reconcileAuthoring } from '../../../inngest/functions/reconcile-authoring';
+import {
+  monitorAuthoredPrFunction,
+  repairAuthoredPrFunction,
+} from '../../../inngest/functions/monitor-authored-pr';
 import { sendInvitationFunction } from '../../../inngest/functions/send-invitation';
 import { reconcileInvitations } from '../../../inngest/functions/reconcile-invitations';
 import {
@@ -32,6 +36,8 @@ export const { GET, POST, PUT } = serve({
     planFieldnoteSetupFunction,
     executeFieldnoteSetupFunction,
     reconcileAuthoring,
+    monitorAuthoredPrFunction,
+    repairAuthoredPrFunction,
     sendInvitationFunction,
     reconcileInvitations,
     syncRepositoryFunction,

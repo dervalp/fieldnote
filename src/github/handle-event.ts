@@ -27,9 +27,14 @@ export async function handleGithubEvent(event: StoredEvent): Promise<'processed'
     return 'processed';
   }
   if (
-    !['pull_request', 'pull_request_review', 'check_run', 'check_suite', 'workflow_run'].includes(
-      event.eventName,
-    ) ||
+    ![
+      'pull_request',
+      'pull_request_review',
+      'pull_request_review_comment',
+      'check_run',
+      'check_suite',
+      'workflow_run',
+    ].includes(event.eventName) ||
     !event.repositoryId
   )
     return 'unsupported';
@@ -46,7 +51,9 @@ export async function handleGithubEvent(event: StoredEvent): Promise<'processed'
   }
   if (!repo || !repo.active || !repo.trackingStartedAt) return 'unsupported';
   const numbers = new Set<number>();
-  if (event.eventName === 'pull_request' || event.eventName === 'pull_request_review')
+  if (
+    ['pull_request', 'pull_request_review', 'pull_request_review_comment'].includes(event.eventName)
+  )
     numbers.add(
       z.object({ number: z.number().int().positive() }).parse(event.payload.pull_request).number,
     );
@@ -69,6 +76,8 @@ export async function handleGithubEvent(event: StoredEvent): Promise<'processed'
     }
   }
   for (const number of numbers) {
+    // Authored-PR monitoring is dispatched by sync-pull-request only after
+    // hydration persists. This handler consumes an already persisted raw event.
     const data = await queueForegroundHydration({
       repositoryId: repo.id,
       number,

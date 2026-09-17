@@ -1,4 +1,5 @@
 import { inngest } from '../client';
+import { listMonitoredPrs } from '../../db/queries/authored-pr-monitor';
 import { dispatchAuthoringPlan, dispatchSetupExecute } from '../dispatch-authoring';
 import { listUndispatchedPlans } from '../../db/queries/authoring-runs';
 import {
@@ -34,6 +35,18 @@ export const reconcileAuthoring = inngest.createFunction(
           /* Retry unacknowledged events on the next tick. */
         }
       });
-    return { count: ids.length + executions.length };
+    const monitored = await step.run('find-authored-prs', listMonitoredPrs);
+    for (const pr of monitored)
+      await step.run(`monitor-${pr.id}`, async () => {
+        try {
+          await inngest.send({
+            name: 'repository/authored-pr.monitor.requested',
+            data: { authoredPrId: pr.id },
+          });
+        } catch {
+          /* Retry on next tick. */
+        }
+      });
+    return { count: ids.length + executions.length + monitored.length };
   },
 );

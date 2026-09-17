@@ -1,0 +1,147 @@
+import { randomUUID } from 'node:crypto';
+import { and, asc, eq, inArray } from 'drizzle-orm';
+import { db } from '../index';
+import {
+  authoredPullRequests as prs,
+  authoredPullRequestRepairs as repairs,
+  authoringNotes as notes,
+} from '../schema';
+import type { Feedback, HumanReason } from '../../domain/act/pr-monitor';
+
+export async function findAuthoredPr(repositoryId: string, number: number) {
+  return (
+    (
+      await db()
+        .select()
+        .from(prs)
+        .where(and(eq(prs.repositoryId, repositoryId), eq(prs.number, number)))
+    )[0] ?? null
+  );
+}
+export async function listMonitoredPrs() {
+  // Merged rows remain eligible until Task 12 observes the default branch;
+  // repeated verify requests are intentionally safe and recover send failures.
+  return db()
+    .select({ id: prs.id })
+    .from(prs)
+    .where(inArray(prs.outcome, ['open', 'merged']));
+}
+export async function loadAuthoredPrMonitor(id: string) {
+  const [pr] = await db().select().from(prs).where(eq(prs.id, id));
+  if (!pr) return null;
+  const attempts = await db()
+    .select()
+    .from(repairs)
+    .where(eq(repairs.authoredPullRequestId, id))
+    .orderBy(asc(repairs.ordinal));
+  const [stopped] = await db()
+    .select({ id: notes.id })
+    .from(notes)
+    .where(eq(notes.id, `monitor:${id}:human`));
+  return { pr, repairs: attempts, humanRequired: Boolean(stopped) };
+}
+export async function reservePrRepair(id: string, headSha: string, trigger: Feedback) {
+  return db().transaction(async (tx) => {
+    const [pr] = await tx.select().from(prs).where(eq(prs.id, id)).for('update');
+    if (
+      !pr ||
+      pr.outcome !== 'open' ||
+      pr.headSha !== headSha ||
+      trigger.disposition !== 'actionable'
+    )
+      return null;
+    const previous = await tx
+      .select()
+      .from(repairs)
+      .where(eq(repairs.authoredPullRequestId, id))
+      .orderBy(asc(repairs.ordinal));
+    const active = previous.find((row) => ['queued', 'running'].includes(row.state));
+    if (active) return active;
+    const reference = JSON.stringify(trigger);
+    if (
+      previous.length >= 3 ||
+      previous.some(
+        (row) =>
+          row.state === 'complete' &&
+          row.baseHeadSha === headSha &&
+          row.triggerReference === reference,
+      )
+    )
+      return null;
+    return (
+      await tx
+        .insert(repairs)
+        .values({
+          id: randomUUID(),
+          authoredPullRequestId: id,
+          ordinal: previous.length + 1,
+          triggerKind: trigger.kind,
+          triggerReference: reference,
+          state: 'queued',
+          baseHeadSha: headSha,
+        })
+        .returning()
+    )[0];
+  });
+}
+export async function finishPrRepair(
+  id: string,
+  result: { headSha: string } | { errorCode: HumanReason },
+) {
+  await db().transaction(async (tx) => {
+    const [repair] = await tx.select().from(repairs).where(eq(repairs.id, id));
+    if (!repair) return;
+    // Use the PR lock everywhere before touching attempts, including finalization.
+    await tx.select().from(prs).where(eq(prs.id, repair.authoredPullRequestId)).for('update');
+    const [updated] = await tx
+      .update(repairs)
+      .set({
+        state: 'headSha' in result ? 'complete' : 'failed',
+        resultHeadSha: 'headSha' in result ? result.headSha : null,
+        errorCode: 'errorCode' in result ? result.errorCode : null,
+        completedAt: new Date(),
+      })
+      .where(and(eq(repairs.id, id), inArray(repairs.state, ['queued', 'running'])))
+      .returning();
+    if (updated && 'headSha' in result)
+      await tx
+        .update(prs)
+        .set({ headSha: result.headSha })
+        .where(
+          and(
+            eq(prs.id, repair.authoredPullRequestId),
+            eq(prs.headSha, repair.baseHeadSha),
+            eq(prs.outcome, 'open'),
+          ),
+        );
+  });
+}
+export async function recordPrOutcome(
+  id: string,
+  snapshot: { outcome: 'open' | 'merged' | 'closed'; headSha: string },
+) {
+  // Open snapshots never adopt an unknown head: repair's compare-and-set owns it.
+  if (snapshot.outcome === 'open') return;
+  await db()
+    .update(prs)
+    .set({
+      outcome: snapshot.outcome,
+      closedAt: new Date(),
+      ...(snapshot.outcome === 'merged' ? { mergedAt: new Date() } : {}),
+    })
+    .where(eq(prs.id, id));
+}
+export async function recordMonitorHumanRequired(id: string, reason: HumanReason) {
+  const [pr] = await db().select().from(prs).where(eq(prs.id, id));
+  if (!pr) return;
+  await db()
+    .insert(notes)
+    .values({
+      id: `monitor:${id}:human`,
+      authoringRunId: pr.authoringRunId,
+      speaker: 'agent',
+      kind: 'remark',
+      body: `Setup pull request needs human action: ${reason}.`,
+    })
+    .onConflictDoNothing();
+}

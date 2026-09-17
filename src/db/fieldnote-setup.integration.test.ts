@@ -25,6 +25,52 @@ const repositories: string[] = [];
 const sha = 'a'.repeat(40);
 const agents = [{ agent: 'codex' as const, supported: true, skillsRoot: '.agents/skills' }];
 
+test('concurrent repair reservations reuse one ordinal, cap at three, and terminal outcomes never install', async () => {
+  const q = await import('./queries/fieldnote-setup');
+  const monitor = await import('./queries/authored-pr-monitor');
+  const value = await plan();
+  await proposal(value.id);
+  const execute = await q.readySetupAndQueueExecute(value.id);
+  const pr = await q.recordAuthoredPullRequest({
+    authoringRunId: execute.id,
+    repositoryId: value.repositoryId,
+    number: 42,
+    branch: 'fieldnote/setup',
+    headSha: sha,
+    url: 'https://github.test/pr/42',
+    outcome: 'open',
+    openedAt: new Date(),
+  });
+  const trigger = {
+    kind: 'ci' as const,
+    reference: 'check:1',
+    disposition: 'actionable' as const,
+    path: '.fieldnote/profile.md',
+    instruction: 'format' as const,
+  };
+  for (let ordinal = 1; ordinal <= 3; ordinal++) {
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => monitor.reservePrRepair(pr.id, sha, trigger)),
+    );
+    expect(new Set(results.map((row) => row?.id)).size).toBe(1);
+    expect(results[0]?.ordinal).toBe(ordinal);
+    await monitor.finishPrRepair(results[0]!.id, { errorCode: 'repair_failed' });
+  }
+  expect(
+    await monitor.reservePrRepair(pr.id, sha, { ...trigger, reference: 'check:4' }),
+  ).toBeNull();
+  expect((await monitor.loadAuthoredPrMonitor(pr.id))?.repairs).toHaveLength(3);
+  await monitor.recordPrOutcome(pr.id, { outcome: 'closed', headSha: sha });
+  expect(await monitor.reservePrRepair(pr.id, sha, trigger)).toBeNull();
+  expect((await monitor.listMonitoredPrs()).map((row) => row.id)).not.toContain(pr.id);
+  expect(
+    await db()
+      .select()
+      .from(schema.repositoryFieldnoteInstallations)
+      .where(eq(schema.repositoryFieldnoteInstallations.repositoryId, value.repositoryId)),
+  ).toEqual([]);
+});
+
 test('conflicting execution reopens once and concurrent ready-again calls reuse the same execution', async () => {
   const q = await import('./queries/fieldnote-setup');
   const value = await plan();

@@ -19,6 +19,8 @@ export interface AuthoredPullRequestInput {
   authorize: () => Promise<void>;
 }
 export type SetupWriteErrorCode =
+  | 'repair_pending'
+  | 'repair_obsolete'
   | 'setup_conflict'
   | 'invalid_installation'
   | 'access_revoked'
@@ -28,6 +30,8 @@ export class SetupWriteError extends Error {
   constructor(public readonly code: SetupWriteErrorCode) {
     super(
       {
+        repair_pending: 'Setup repair is waiting for checks.',
+        repair_obsolete: 'Setup repair was already finalized.',
         setup_conflict: 'Setup inputs changed. Refresh the setup conversation.',
         invalid_installation: 'Setup installation is invalid.',
         access_revoked: 'Setup write access is unavailable.',

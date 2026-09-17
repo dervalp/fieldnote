@@ -86,7 +86,7 @@ test('pull request event for a revoked repository requests no hydration', async 
   expect(send).not.toHaveBeenCalled();
 });
 
-for (const eventName of ['pull_request_review', 'pull_request']) {
+for (const eventName of ['pull_request_review', 'pull_request', 'pull_request_review_comment']) {
   test(`${eventName} review transition hydrates a tracked PR`, async () => {
     select.mockReturnValue(
       query([
@@ -112,6 +112,7 @@ for (const eventName of ['pull_request_review', 'pull_request']) {
         data: expect.objectContaining({ repositoryId: 'repository:1', number: 7 }),
       }),
     );
+    expect(send.mock.calls.map(([event]) => event.name)).toEqual(['github/pr.sync.requested']);
   });
   test(`${eventName} review transition cannot hydrate an untracked PR`, async () => {
     select.mockReturnValue(

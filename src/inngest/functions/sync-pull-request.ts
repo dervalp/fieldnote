@@ -7,6 +7,7 @@ import {
   runForegroundHydration,
 } from '../../db/queries/foreground-hydration';
 import { recomputeExecutedDetections } from '../../db/queries/ai-involvement';
+import { findAuthoredPr } from '../../db/queries/authored-pr-monitor';
 export const syncPullRequestFunction = inngest.createFunction(
   {
     id: 'sync-pull-request',
@@ -35,6 +36,15 @@ export const syncPullRequestFunction = inngest.createFunction(
           throw new RetryAfterError(error.message, new Date(error.retryAt));
         throw error;
       }
+    });
+    await step.run('dispatch-authored-pr-monitor', async () => {
+      if (typeof result !== 'string') return;
+      const authored = await findAuthoredPr(data.repositoryId, data.number);
+      if (authored)
+        await inngest.send({
+          name: 'repository/authored-pr.monitor.requested',
+          data: { authoredPrId: authored.id },
+        });
     });
     // Only the webhook path sets sourceEventId (see handle-event.ts); the import
     // path invokes this per pull request and must not repeat the whole-repository

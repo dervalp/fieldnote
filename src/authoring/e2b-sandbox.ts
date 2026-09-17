@@ -8,6 +8,7 @@ import {
   setupAuthorOutputSchema,
 } from './setup-author';
 import { validateAuthoringInput, validateGeneratedPath, type AuthoringSandbox } from './sandbox';
+import { parseRepairOutput, repairOutputSchema, repairSystemContract } from './repair-setup';
 
 export interface AuthoringE2BSdk {
   create(options: SandboxOpts): Promise<{
@@ -119,6 +120,7 @@ try {
 export function e2bAuthoringSandbox(
   credentials: { apiKey: string; anthropicApiKey: string; model: string },
   sdk: AuthoringE2BSdk = Sandbox,
+  purpose: 'setup' | 'repair' = 'setup',
 ): AuthoringSandbox {
   return {
     async run(input) {
@@ -161,7 +163,7 @@ export function e2bAuthoringSandbox(
           JSON.stringify({
             model: credentials.model,
             prompt: input.prompt,
-            system: `${authoringSystemContract}\nOutput a JSON object matching this schema, without markdown fences:\n${JSON.stringify(z.toJSONSchema(setupAuthorOutputSchema))}`,
+            system: `${purpose === 'repair' ? repairSystemContract : authoringSystemContract}\nOutput a JSON object matching this schema, without markdown fences:\n${JSON.stringify(z.toJSONSchema(purpose === 'repair' ? repairOutputSchema : setupAuthorOutputSchema))}`,
           }),
         );
         const options = authoringAgentOptions(credentials.anthropicApiKey, credentials.model, '');
@@ -176,7 +178,10 @@ export function e2bAuthoringSandbox(
         );
         if (result.exitCode !== 0 || Buffer.byteLength(result.stdout) > 2 * 1024 * 1024)
           throw new Error('Invalid runner result');
-        const output = parseAuthoringOutput(JSON.parse(result.stdout));
+        const output =
+          purpose === 'repair'
+            ? parseRepairOutput(JSON.parse(result.stdout))
+            : parseAuthoringOutput(JSON.parse(result.stdout));
         if (input.mode === 'read-only' && output.generatedFiles.length)
           throw new Error('Read-only generation');
         const files = new Map<string, string>();
