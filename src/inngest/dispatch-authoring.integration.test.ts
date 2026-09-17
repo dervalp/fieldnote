@@ -12,7 +12,10 @@ import {
 } from '../db/schema';
 import { listUndispatchedPlans } from '../db/queries/authoring-runs';
 import { floorAuthorVersion } from '../domain/act/remedies';
-import { dispatchAuthoringPlan } from './dispatch-authoring';
+import { dispatchAuthoringPlan, dispatchSetupExecute } from './dispatch-authoring';
+import { eq } from 'drizzle-orm';
+import { fieldnoteSetupProposals } from '../db/schema';
+import { listUndispatchedSetupExecutes } from '../db/queries/fieldnote-setup';
 
 // These browser-only dependencies are not used by the trusted dispatcher.
 vi.mock('../auth/session', () => ({ currentUser: async () => ({ id: 'unused' }) }));
@@ -117,4 +120,46 @@ test('a queued, undispatched execute run is not dispatched as a plan', async () 
   await dispatchAuthoringPlan(run.id, send);
   expect(send).not.toHaveBeenCalled();
   expect(await listUndispatchedPlans()).not.toContain(run.id);
+});
+
+test('setup executions dispatch durably with a fresh event identity after a proposal refresh', async () => {
+  const repositoryId = await seedRepository();
+  const value = await seedRun(repositoryId, 'queued', 'execute');
+  const [execution] = await db().select().from(authoringRuns).where(eq(authoringRuns.id, value.id));
+  await db()
+    .update(authoringRuns)
+    .set({ workflow: 'fieldnote-setup' })
+    .where(eq(authoringRuns.id, value.id));
+  await db()
+    .insert(fieldnoteSetupProposals)
+    .values({
+      authoringRunId: execution.planRunId!,
+      repositorySha: 'a'.repeat(40),
+      skillsRelease: 'skills-v0.1.0',
+      skillsRevision: 'b'.repeat(40),
+      releaseLockHash: `sha256:${'c'.repeat(64)}`,
+      detectedAgents: [],
+      state: 'ready',
+    });
+  const send = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(undefined);
+  await expect(dispatchSetupExecute(value.id, send)).rejects.toThrow('offline');
+  expect(await listUndispatchedSetupExecutes()).toContain(value.id);
+  await dispatchSetupExecute(value.id, send);
+  await dispatchSetupExecute(value.id, send);
+  expect(send).toHaveBeenCalledTimes(2);
+  expect(send.mock.calls[0][0]).toEqual(send.mock.calls[1][0]);
+  expect(send.mock.calls[1][0]).toMatchObject({
+    name: 'repository/fieldnote.setup.execute.requested',
+    data: { runId: value.id },
+  });
+  await db()
+    .update(authoringRuns)
+    .set({ dispatchedAt: null })
+    .where(eq(authoringRuns.id, value.id));
+  await db()
+    .update(fieldnoteSetupProposals)
+    .set({ updatedAt: new Date('2030-01-01') })
+    .where(eq(fieldnoteSetupProposals.authoringRunId, execution.planRunId!));
+  await dispatchSetupExecute(value.id, send);
+  expect(send.mock.calls[2][0].id).not.toBe(send.mock.calls[1][0].id);
 });

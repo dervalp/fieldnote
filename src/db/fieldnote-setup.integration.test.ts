@@ -23,6 +23,100 @@ const repositories: string[] = [];
 const sha = 'a'.repeat(40);
 const agents = [{ agent: 'codex' as const, supported: true, skillsRoot: '.agents/skills' }];
 
+test('conflicting execution reopens once and concurrent ready-again calls reuse the same execution', async () => {
+  const q = await import('./queries/fieldnote-setup');
+  const value = await plan();
+  await proposal(value.id);
+  const execute = await q.readySetupAndQueueExecute(value.id);
+  await db()
+    .update(schema.authoringRuns)
+    .set({ state: 'running', startedAt: new Date(), dispatchedAt: new Date() })
+    .where(eq(schema.authoringRuns.id, execute.id));
+  const snapshot = {
+    sha: 'b'.repeat(40),
+    complete: true,
+    paths: ['AGENTS.md'],
+    documents: [{ path: 'AGENTS.md', blobSha: 'c'.repeat(40), text: 'private raw source' }],
+    candidates: [],
+  };
+  await Promise.all([
+    q.reopenSetupPlan(execute.id, snapshot, 'setup_conflict'),
+    q.reopenSetupPlan(execute.id, snapshot, 'setup_conflict'),
+  ]);
+  const reopened = await q.loadSetupPlan(value.id);
+  expect(reopened?.run.state).toBe('running');
+  expect(reopened?.run.sha).toBe(snapshot.sha);
+  expect(reopened?.proposal?.state).toBe('awaiting-input');
+  expect(reopened?.notes.filter((note) => note.kind === 'question')).toHaveLength(1);
+  expect(reopened?.notes.find((note) => note.kind === 'question')?.body).toMatch(/^\[agents\]/);
+  expect(JSON.stringify(reopened)).not.toContain('private raw source');
+  expect((await q.getSetupSummary(value.repositoryId, 'skills-v0.1.0')).progress?.state).toBe(
+    'awaiting-input',
+  );
+  const requeued = await Promise.all([
+    q.readySetupAndQueueExecute(value.id),
+    q.readySetupAndQueueExecute(value.id),
+  ]);
+  expect(requeued.map((row) => row.id)).toEqual([execute.id, execute.id]);
+  expect(requeued[0]).toMatchObject({
+    state: 'queued',
+    errorCode: null,
+    completedAt: null,
+    startedAt: null,
+    dispatchedAt: null,
+    sha: snapshot.sha,
+  });
+  const active = await db()
+    .select()
+    .from(schema.authoringRuns)
+    .where(
+      and(
+        eq(schema.authoringRuns.repositoryId, value.repositoryId),
+        inArray(schema.authoringRuns.state, ['queued', 'running']),
+      ),
+    );
+  expect(active.map((row) => row.id)).toEqual([execute.id]);
+});
+
+test('execute completion requires its recorded PR and recording retries update the same PR head', async () => {
+  const q = await import('./queries/fieldnote-setup');
+  const value = await plan();
+  await proposal(value.id);
+  const execute = await q.readySetupAndQueueExecute(value.id);
+  await db()
+    .update(schema.authoringRuns)
+    .set({ state: 'running' })
+    .where(eq(schema.authoringRuns.id, execute.id));
+  await expect(q.completeSetupExecute(execute.id)).rejects.toThrow(
+    'Setup pull request is not recorded',
+  );
+  const input = {
+    authoringRunId: execute.id,
+    repositoryId: value.repositoryId,
+    number: 42,
+    branch: 'fieldnote/setup-skills-v0.1.0',
+    headSha: sha,
+    url: 'https://github.test/pr/42',
+    outcome: 'open' as const,
+    openedAt: new Date(),
+  };
+  const first = await q.recordAuthoredPullRequest(input);
+  const next = await q.recordAuthoredPullRequest({ ...input, headSha: 'b'.repeat(40) });
+  expect(next).toMatchObject({ id: first.id, headSha: 'b'.repeat(40) });
+  await q.completeSetupExecute(execute.id);
+  expect(
+    (
+      await db().select().from(schema.authoringRuns).where(eq(schema.authoringRuns.id, execute.id))
+    )[0].state,
+  ).toBe('complete');
+  expect(
+    await db()
+      .select()
+      .from(schema.repositoryFieldnoteInstallations)
+      .where(eq(schema.repositoryFieldnoteInstallations.repositoryId, value.repositoryId)),
+  ).toEqual([]);
+});
+
 beforeAll(async () => {
   await migrate(db(), { migrationsFolder: 'drizzle' });
   await db().insert(schema.users).values({ id: owner, login: 'setup', credentials: 'fixture' });

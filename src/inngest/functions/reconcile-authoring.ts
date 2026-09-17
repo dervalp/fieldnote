@@ -1,7 +1,10 @@
 import { inngest } from '../client';
-import { dispatchAuthoringPlan } from '../dispatch-authoring';
+import { dispatchAuthoringPlan, dispatchSetupExecute } from '../dispatch-authoring';
 import { listUndispatchedPlans } from '../../db/queries/authoring-runs';
-import { listUndispatchedSetupPlans } from '../../db/queries/fieldnote-setup';
+import {
+  listUndispatchedSetupPlans,
+  listUndispatchedSetupExecutes,
+} from '../../db/queries/fieldnote-setup';
 
 export const reconcileAuthoring = inngest.createFunction(
   { id: 'reconcile-authoring', triggers: [{ cron: '* * * * *' }] },
@@ -19,6 +22,18 @@ export const reconcileAuthoring = inngest.createFunction(
           /* Retry unacknowledged events on the next tick. */
         }
       });
-    return { count: ids.length };
+    const executions = await step.run(
+      'find-undispatched-setup-executes',
+      listUndispatchedSetupExecutes,
+    );
+    for (const runId of executions)
+      await step.run(`dispatch-execute-${runId}`, async () => {
+        try {
+          await dispatchSetupExecute(runId);
+        } catch {
+          /* Retry unacknowledged events on the next tick. */
+        }
+      });
+    return { count: ids.length + executions.length };
   },
 );

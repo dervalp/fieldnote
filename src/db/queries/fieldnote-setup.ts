@@ -86,6 +86,9 @@ export async function getSetupSummary(
           : 'verifying';
     } else if (execution?.outcome === 'open') state = 'open';
     else if (execution?.outcome === 'closed') state = 'closed';
+    else if (plan.proposalState === 'awaiting-input' && plan.state === 'running')
+      state = 'awaiting-input';
+    else if (plan.proposalState === 'exploring' && plan.state === 'running') state = 'exploring';
     else if (plan.state === 'failed' || execution?.state === 'failed') state = 'failed';
     else if (execution || plan.proposalState === 'ready') state = 'preparing';
     else if (plan.proposalState === 'awaiting-input') state = 'awaiting-input';
@@ -106,6 +109,112 @@ export async function getSetupSummary(
 }
 
 export type SetupReleaseIdentity = Pick<SkillsRelease, 'release' | 'revision' | 'releaseLockHash'>;
+export async function reopenSetupPlan(
+  runId: string,
+  snapshot: SetupRepositorySnapshot,
+  code: 'setup_conflict',
+): Promise<void> {
+  if (!/^[a-f0-9]{40}$/i.test(snapshot.sha) || code !== 'setup_conflict')
+    throw new Error('Invalid setup refresh');
+  await db().transaction(async (tx) => {
+    const [identity] = await tx.select().from(runs).where(eq(runs.id, runId));
+    if (
+      !identity?.planRunId ||
+      identity.kind !== 'execute' ||
+      identity.workflow !== 'fieldnote-setup'
+    )
+      throw new Error('Not a setup execution');
+    const plan = await lockPlan(tx, identity.planRunId);
+    const [execute] = await tx.select().from(runs).where(eq(runs.id, runId)).for('update');
+    const [proposal] = await tx
+      .select()
+      .from(proposals)
+      .where(eq(proposals.authoringRunId, plan.id))
+      .for('update');
+    if (!['running', 'queued'].includes(execute.state) || proposal?.state !== 'ready') return;
+    const [pr] = await tx.select().from(pullRequests).where(eq(pullRequests.authoringRunId, runId));
+    if (pr) throw new Error('Setup pull request is already recorded');
+    // Free the repository active-run slot before reactivating the plan.
+    const now = new Date();
+    await tx
+      .update(runs)
+      .set({ state: 'failed', errorCode: code, completedAt: now })
+      .where(eq(runs.id, runId));
+    await tx
+      .update(runs)
+      .set({ state: 'running', sha: snapshot.sha, completedAt: null, errorCode: null })
+      .where(eq(runs.id, plan.id));
+    await tx
+      .update(proposals)
+      .set({
+        state: 'awaiting-input',
+        repositorySha: snapshot.sha,
+        detectedAgents: snapshot.candidates,
+        updatedAt: now,
+      })
+      .where(eq(proposals.authoringRunId, plan.id));
+    const [last] = await tx
+      .select({ createdAt: notes.createdAt })
+      .from(notes)
+      .where(eq(notes.authoringRunId, plan.id))
+      .orderBy(desc(notes.createdAt))
+      .limit(1);
+    await tx.insert(notes).values({
+      id: randomUUID(),
+      authoringRunId: plan.id,
+      speaker: 'agent',
+      kind: 'question',
+        body: '[agents] Repository evidence or an installation destination changed. Which coding agents should receive this installation? Confirm the agent selections and describe any repository facts or local changes to preserve. Fieldnote will explore the refreshed snapshot before preparing the pull request.',
+      createdAt: new Date(Math.max(Date.now(), (last?.createdAt.getTime() ?? 0) + 1)),
+    });
+  });
+}
+export async function completeSetupExecute(runId: string): Promise<void> {
+  await db().transaction(async (tx) => {
+    const [identity] = await tx.select().from(runs).where(eq(runs.id, runId));
+    if (
+      !identity?.planRunId ||
+      identity.workflow !== 'fieldnote-setup' ||
+      identity.kind !== 'execute'
+    )
+      throw new Error('Not a setup execution');
+    await lockPlan(tx, identity.planRunId);
+    const [run] = await tx.select().from(runs).where(eq(runs.id, runId)).for('update');
+    if (run.state === 'complete') return;
+    const [pr] = await tx
+      .select()
+      .from(pullRequests)
+      .where(
+        and(
+          eq(pullRequests.authoringRunId, runId),
+          eq(pullRequests.repositoryId, run.repositoryId),
+        ),
+      );
+    if (!pr) throw new Error('Setup pull request is not recorded');
+    if (run.state !== 'running') throw new Error('Setup execution is not running');
+    await tx
+      .update(runs)
+      .set({ state: 'complete', completedAt: new Date(), errorCode: null })
+      .where(eq(runs.id, runId));
+  });
+}
+export async function listUndispatchedSetupExecutes(): Promise<string[]> {
+  return (
+    await db()
+      .select({ id: runs.id })
+      .from(runs)
+      .where(
+        and(
+          eq(runs.workflow, 'fieldnote-setup'),
+          eq(runs.kind, 'execute'),
+          eq(runs.state, 'queued'),
+          isNull(runs.dispatchedAt),
+        ),
+      )
+      .orderBy(asc(runs.createdAt))
+      .limit(100)
+  ).map((run) => run.id);
+}
 type Transaction = Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0];
 
 export async function requestSetupPlan(repositoryId: string) {
@@ -330,8 +439,20 @@ export async function readySetupAndQueueExecute(planRunId: string) {
 
 async function readySetupInTransaction(tx: Transaction, planRunId: string) {
   const plan = await lockPlan(tx, planRunId);
-  const [existing] = await tx.select().from(runs).where(eq(runs.planRunId, planRunId));
-  if (existing) return existing;
+  const [existing] = await tx
+    .select()
+    .from(runs)
+    .where(eq(runs.planRunId, planRunId))
+    .for('update');
+  if (
+    existing &&
+    !(
+      plan.state === 'running' &&
+      existing.state === 'failed' &&
+      existing.errorCode === 'setup_conflict'
+    )
+  )
+    return existing;
   const [proposal] = await tx
     .select()
     .from(proposals)
@@ -356,6 +477,22 @@ async function readySetupInTransaction(tx: Transaction, planRunId: string) {
     .set({ state: 'ready', updatedAt: now })
     .where(eq(proposals.authoringRunId, planRunId));
   await tx.update(runs).set({ state: 'complete', completedAt: now }).where(eq(runs.id, planRunId));
+  if (existing) {
+    const [requeued] = await tx
+      .update(runs)
+      .set({
+        state: 'queued',
+        sha: plan.sha,
+        model: plan.model,
+        errorCode: null,
+        completedAt: null,
+        startedAt: null,
+        dispatchedAt: null,
+      })
+      .where(eq(runs.id, existing.id))
+      .returning();
+    return requeued;
+  }
   const [execute] = await tx
     .insert(runs)
     .values({
@@ -399,7 +536,13 @@ export async function recordAuthoredPullRequest(
   ) {
     throw new Error('Execute run already has a different pull request');
   }
-  return existing;
+  const [updated] = await db()
+    .update(pullRequests)
+    .set({ headSha: input.headSha, url: input.url })
+    .where(and(eq(pullRequests.id, existing.id), eq(pullRequests.branch, input.branch)))
+    .returning();
+  if (!updated) throw new Error('Execute run already has a different pull request branch');
+  return updated;
 }
 
 // Only a verified default-branch scan calls this. PR opening and PR outcome

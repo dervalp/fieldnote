@@ -231,7 +231,14 @@ export async function completeAuthoringRun(
 export async function failAuthoringRun(runId: string, code = 'plan_failed'): Promise<void> {
   // An unrecognised code is rewritten, so a provider or driver message can
   // never reach a column a view renders.
-  const safe = ['plan_failed', 'access_revoked', 'grade_missing', 'nothing_to_fix'].includes(code)
+  const safe = [
+    'plan_failed',
+    'access_revoked',
+    'grade_missing',
+    'nothing_to_fix',
+    'setup_failed',
+    'setup_conflict',
+  ].includes(code)
     ? code
     : 'plan_failed';
   await db()
