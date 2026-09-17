@@ -155,6 +155,13 @@ describe('setup author boundary', () => {
       'services:\n  db:\n    environment:\n      POSTGRES_PASSWORD: literal-db-credential',
     ],
     ['json', '{"database":{"password":"literal-json-credential"}}'],
+    ['nested json object', '{"database":{"password":{"value":"literal"}}}'],
+    ['nested json array', '{"database":{"password":["literal"]}}'],
+    ['nested json mixed containers', '{"database":{"password":{"layers":[{"value":"literal"}]}}}'],
+    [
+      'nested env value container',
+      '{"env":[{"name":"DB_PASSWORD","value":{"layers":["literal"]}}]}',
+    ],
     ['dotenv', 'export DATABASE_PASSWORD=literal-dotenv-credential'],
     ['yaml block', 'client_secret: |-\n  literal-block-credential'],
     ['yaml continued scalar', 'password:\n  literal-continued-credential'],
@@ -191,7 +198,7 @@ describe('setup author boundary', () => {
           prompt: '{}',
           mode: 'read-only',
         }),
-      ).rejects.toThrow('Authoring input contains credential material.');
+      ).rejects.toThrow(/^Authoring input contains credential material\.$/);
       expect(created).toBe(false);
     },
   );
@@ -248,6 +255,9 @@ describe('setup author boundary', () => {
     '{"password":"${DB_PASSWORD}","description":"Password rotation is required"}',
     'environment: {PASSWORD: "${DB_PASSWORD}", PORT: 5432}',
     'DATABASE_URL=postgres://user:${DB_PASSWORD}@localhost/app',
+    '{"database":{"password":{"layers":[{"value":"${DB_PASSWORD}"}]}}}',
+    '{"env":[{"name":"DB_PASSWORD","value":{"layers":["${DB_PASSWORD}"]}}]}',
+    '{"database":{"connection":{"layers":[{"value":"ordinary-value"}]}},"env":[{"name":"APP_NAME","value":{"value":"fieldnote"}}]}',
   ])('preserves structured credential references without false positives: %s', async (text) => {
     const result = await authorSetupProfile(resultSandbox(waiting), {
       ...input,

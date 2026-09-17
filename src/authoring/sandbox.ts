@@ -79,26 +79,24 @@ function assertCredentialFree(content: string): void {
       /* YAML/dotenv/prose below. */
     }
     if (parsed !== undefined && depth < 20) {
-      const visit = (value: unknown): void => {
+      const visit = (value: unknown, credentialContext = false): void => {
+        if (credentialContext && literalCredential(value)) reject();
         if (typeof value === 'string') {
           if (value !== text) inspect(value, depth + 1);
           return;
         }
         if (Array.isArray(value)) {
-          for (const item of value) visit(item);
+          for (const item of value) visit(item, credentialContext);
           return;
         }
         if (!value || typeof value !== 'object') return;
         const record = value as Record<string, unknown>;
-        if (
-          typeof record.name === 'string' &&
-          credentialField(record.name) &&
-          literalCredential(record.value)
-        )
-          reject();
+        const namedCredential = typeof record.name === 'string' && credentialField(record.name);
         for (const [key, item] of Object.entries(record)) {
-          if (credentialField(key) && literalCredential(item)) reject();
-          visit(item);
+          visit(
+            item,
+            credentialContext || credentialField(key) || (key === 'value' && namedCredential),
+          );
         }
       };
       visit(parsed);
