@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { AuthoringAccessRevokedError } from '../../domain/act/authorization';
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db } from '../index';
 import {
@@ -23,6 +24,7 @@ export type Remedy = typeof authoringRemedies.$inferSelect;
 
 export async function requestPlan(
   repositoryId: string,
+  workflow: AuthoringRun['workflow'] = 'readiness-remediation',
 ): Promise<{ id: string; state: AuthoringRun['state'] }> {
   const repository = await requireRepository(repositoryId);
   const workspace = await requireWorkspace();
@@ -35,13 +37,16 @@ export async function requestPlan(
   // cannot complete must not quietly read as "unavailable".
   const [enabled, grade] = await Promise.all([
     actEnabled(repositoryId),
-    latestGrade(repositoryId, AGENT_READINESS),
+    workflow === 'readiness-remediation' ? latestGrade(repositoryId, AGENT_READINESS) : null,
   ]);
   const permissions = enabled ? await fetchGrantedPermissions(repositoryId) : nothingGranted;
   const availability = actAvailability({
     enabled,
     permissions,
-    failingCheckCount: grade?.checks.filter((check) => check.status === 'fail').length ?? 0,
+    failingCheckCount:
+      workflow === 'fieldnote-setup'
+        ? 1
+        : (grade?.checks.filter((check) => check.status === 'fail').length ?? 0),
   });
   if (!availability.available) throw new Error('Act unavailable');
 
@@ -82,7 +87,13 @@ export async function requestPlan(
     const [latest] = await tx
       .select()
       .from(runs)
-      .where(and(eq(runs.repositoryId, repositoryId), eq(runs.kind, 'plan')))
+      .where(
+        and(
+          eq(runs.repositoryId, repositoryId),
+          eq(runs.kind, 'plan'),
+          eq(runs.workflow, workflow),
+        ),
+      )
       .orderBy(desc(runs.createdAt), desc(runs.id))
       .limit(1);
     const [inserted] = await tx
@@ -91,11 +102,12 @@ export async function requestPlan(
         id: randomUUID(),
         repositoryId,
         kind: 'plan',
+        workflow,
         requestedBy: user.id,
         requestedWorkspaceId: workspace.id,
         retryOf: latest?.state === 'failed' ? latest.id : null,
         state: 'queued',
-        authorVersion: floorAuthorVersion,
+        authorVersion: workflow === 'fieldnote-setup' ? 'fieldnote-setup-v1' : floorAuthorVersion,
       })
       .onConflictDoNothing()
       .returning();
@@ -116,6 +128,9 @@ export async function requestPlan(
           )
       )[0];
     if (!active) throw new Error('Plan request unavailable');
+    if (active.kind !== 'plan' || active.workflow !== workflow) {
+      throw new Error('Another authoring workflow is already active');
+    }
     return { id: active.id, state: active.state };
   });
 }
@@ -166,7 +181,7 @@ export async function validateAuthoringRun(run: AuthoringRun): Promise<void> {
         eq(installations.active, true),
       ),
     );
-  if (!available || process.env.DEMO_MODE === 'true') throw new Error('Plan access revoked');
+  if (!available || process.env.DEMO_MODE === 'true') throw new AuthoringAccessRevokedError();
 }
 
 export async function beginAuthoring(runId: string): Promise<AuthoringRun | null> {
@@ -199,6 +214,9 @@ export async function completeAuthoringRun(
   if (!remedies.length) throw new Error('Plan proposed nothing');
   const run = await loadAuthoringRun(runId);
   if (!run || run.state !== 'running') return;
+  if (run.kind !== 'plan' || run.workflow !== 'readiness-remediation') {
+    throw new Error('Not a readiness plan');
+  }
   await db().transaction(async (tx) => {
     await tx
       .insert(authoringRemedies)
@@ -214,7 +232,14 @@ export async function completeAuthoringRun(
 export async function failAuthoringRun(runId: string, code = 'plan_failed'): Promise<void> {
   // An unrecognised code is rewritten, so a provider or driver message can
   // never reach a column a view renders.
-  const safe = ['plan_failed', 'access_revoked', 'grade_missing', 'nothing_to_fix'].includes(code)
+  const safe = [
+    'plan_failed',
+    'access_revoked',
+    'grade_missing',
+    'nothing_to_fix',
+    'setup_failed',
+    'setup_conflict',
+  ].includes(code)
     ? code
     : 'plan_failed';
   await db()
@@ -228,7 +253,14 @@ export async function listUndispatchedPlans(): Promise<string[]> {
     await db()
       .select({ id: runs.id })
       .from(runs)
-      .where(and(eq(runs.state, 'queued'), eq(runs.kind, 'plan'), isNull(runs.dispatchedAt)))
+      .where(
+        and(
+          eq(runs.state, 'queued'),
+          eq(runs.kind, 'plan'),
+          eq(runs.workflow, 'readiness-remediation'),
+          isNull(runs.dispatchedAt),
+        ),
+      )
       .orderBy(asc(runs.createdAt))
       .limit(100)
   ).map((run) => run.id);
@@ -241,7 +273,13 @@ export async function latestPlan(repositoryId: string): Promise<AuthoringRun | n
   const [run] = await db()
     .select()
     .from(runs)
-    .where(and(eq(runs.repositoryId, repositoryId), eq(runs.kind, 'plan')))
+    .where(
+      and(
+        eq(runs.repositoryId, repositoryId),
+        eq(runs.kind, 'plan'),
+        eq(runs.workflow, 'readiness-remediation'),
+      ),
+    )
     .orderBy(desc(runs.createdAt), desc(runs.id))
     .limit(1);
   return run ?? null;
@@ -255,7 +293,14 @@ export async function getPlan(
   const [run] = await db()
     .select()
     .from(runs)
-    .where(and(eq(runs.repositoryId, repositoryId), eq(runs.id, runId), eq(runs.kind, 'plan')));
+    .where(
+      and(
+        eq(runs.repositoryId, repositoryId),
+        eq(runs.id, runId),
+        eq(runs.kind, 'plan'),
+        eq(runs.workflow, 'readiness-remediation'),
+      ),
+    );
   if (!run) return null;
   const remedies = await db()
     .select()

@@ -1,6 +1,6 @@
 // Trusted server persistence primitives. Browser-facing actions must authorize callers first.
 import { randomUUID } from 'node:crypto';
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, isNotNull, sql } from 'drizzle-orm';
 import { db } from '../index';
 import {
   installations,
@@ -16,6 +16,24 @@ import {
 } from '../../domain/import/types';
 
 const importingMessage = 'Importing PR and CI history. GitHub requests may retry automatically.';
+
+// Shared with the Node sync CLI: checking tracking needs only the database.
+export async function assertTrackedRepository(repositoryId: string): Promise<void> {
+  const [record] = await db()
+    .select({ id: repositories.id })
+    .from(repositories)
+    .innerJoin(installations, eq(installations.id, repositories.installationId))
+    .where(
+      and(
+        eq(repositories.id, repositoryId),
+        eq(repositories.active, true),
+        eq(repositories.isDemo, false),
+        isNotNull(repositories.trackingStartedAt),
+        eq(installations.active, true),
+      ),
+    );
+  if (!record) throw new Error(`Repository is not tracked: ${repositoryId}`);
+}
 
 type Run = typeof runs.$inferSelect;
 type Tx = Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0];

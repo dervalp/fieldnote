@@ -11,6 +11,7 @@ import {
   index,
   foreignKey,
   unique,
+  customType,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
@@ -23,6 +24,9 @@ import type {
   ChangedFile,
 } from '../domain/pull-request/types';
 import type { ReviewEvent } from '../domain/dashboard/types';
+import { agentCandidateSchema, confirmedAgentSchema } from '../domain/fieldnote-skills/types';
+import { confirmedProfileFactsSchema } from '../domain/fieldnote-skills/profile-facts';
+import type { z } from 'zod';
 import type {
   AgentMarker,
   AgentId,
@@ -33,6 +37,14 @@ import type {
 const id = () => text('id').primaryKey();
 const created = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
 const updated = () => timestamp('updated_at', { withTimezone: true }).notNull().defaultNow();
+// Validate persisted agent records in both directions, including reads of rows
+// written outside the application. PostgreSQL drivers may decode JSON eagerly.
+const validatedJsonb = <T>(schema: z.ZodType<T>) =>
+  customType<{ data: T; driverData: string }>({
+    dataType: () => 'jsonb',
+    toDriver: (value) => JSON.stringify(schema.parse(value)),
+    fromDriver: (value) => schema.parse(typeof value === 'string' ? JSON.parse(value) : value),
+  });
 export const installations = pgTable('github_installations', {
   id: id(),
   githubInstallationId: text('github_installation_id').notNull().unique(),
@@ -839,9 +851,8 @@ export const authoringRuns = pgTable(
     repositoryId: text('repository_id')
       .notNull()
       .references(() => repositories.id),
-    // Only 'plan' is written in this slice; 'execute' is accepted by the
-    // constraint so the one-active-run index means the right thing when
-    // execute runs arrive, without a later backfill.
+    workflow: text('workflow').$type<'readiness-remediation' | 'fieldnote-setup'>().notNull(),
+    planRunId: text('plan_run_id').references((): AnyPgColumn => authoringRuns.id),
     kind: text('kind').$type<'plan' | 'execute'>().notNull(),
     requestedBy: text('requested_by')
       .notNull()
@@ -867,6 +878,17 @@ export const authoringRuns = pgTable(
   (t) => [
     check('authoring_runs_state', sql`${t.state} IN ('queued','running','complete','failed')`),
     check('authoring_runs_kind', sql`${t.kind} IN ('plan','execute')`),
+    check(
+      'authoring_runs_workflow',
+      sql`${t.workflow} IN ('readiness-remediation','fieldnote-setup')`,
+    ),
+    check(
+      'authoring_runs_plan_link',
+      sql`(${t.kind} = 'plan' AND ${t.planRunId} IS NULL) OR (${t.kind} = 'execute' AND ${t.planRunId} IS NOT NULL AND ${t.planRunId} <> ${t.id})`,
+    ),
+    uniqueIndex('authoring_runs_one_execute_per_plan')
+      .on(t.planRunId)
+      .where(sql`${t.kind} = 'execute'`),
     // A plan's result is child rows, so "has at least one remedy" cannot be a
     // check constraint. completeAuthoringRun() enforces that; this enforces
     // what it can.
@@ -878,6 +900,154 @@ export const authoringRuns = pgTable(
       .on(t.repositoryId)
       .where(sql`${t.state} IN ('queued','running')`),
     index('authoring_runs_latest').on(t.repositoryId, t.createdAt.desc()),
+  ],
+);
+
+export const authoringNotes = pgTable(
+  'authoring_notes',
+  {
+    id: id(),
+    authoringRunId: text('authoring_run_id')
+      .notNull()
+      .references(() => authoringRuns.id),
+    speaker: text('speaker').$type<'agent' | 'human'>().notNull(),
+    kind: text('kind').$type<'finding' | 'question' | 'answer' | 'remark'>().notNull(),
+    body: text('body').notNull(),
+    createdAt: created(),
+  },
+  (t) => [
+    check('authoring_notes_speaker', sql`${t.speaker} IN ('agent','human')`),
+    check('authoring_notes_kind', sql`${t.kind} IN ('finding','question','answer','remark')`),
+    index('authoring_notes_order').on(t.authoringRunId, t.createdAt, t.id),
+  ],
+);
+
+export const fieldnoteSetupProposals = pgTable(
+  'fieldnote_setup_proposals',
+  {
+    authoringRunId: text('authoring_run_id')
+      .primaryKey()
+      .references(() => authoringRuns.id),
+    repositorySha: text('repository_sha').notNull(),
+    skillsRelease: text('skills_release').notNull(),
+    skillsRevision: text('skills_revision').notNull(),
+    releaseLockHash: text('release_lock_hash').notNull(),
+    detectedAgents: validatedJsonb(agentCandidateSchema.array())('detected_agents').notNull(),
+    confirmedAgents: validatedJsonb(confirmedAgentSchema.array())('confirmed_agents'),
+    confirmedFacts: validatedJsonb(confirmedProfileFactsSchema)('confirmed_facts')
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    state: text('state').$type<'exploring' | 'awaiting-input' | 'ready'>().notNull(),
+    createdAt: created(),
+    updatedAt: updated(),
+  },
+  (t) => [
+    check(
+      'fieldnote_setup_proposals_state',
+      sql`${t.state} IN ('exploring','awaiting-input','ready')`,
+    ),
+  ],
+);
+
+export const fieldnoteSetupFiles = pgTable(
+  'fieldnote_setup_files',
+  {
+    id: id(),
+    proposalRunId: text('proposal_run_id')
+      .notNull()
+      .references(() => fieldnoteSetupProposals.authoringRunId),
+    path: text('path').notNull(),
+    kind: text('kind').$type<'profile' | 'definition-of-done' | 'concern'>().notNull(),
+    body: text('body').notNull(),
+    hash: text('hash').notNull(),
+  },
+  (t) => [
+    uniqueIndex('fieldnote_setup_files_path').on(t.proposalRunId, t.path),
+    check(
+      'fieldnote_setup_files_kind',
+      sql`${t.kind} IN ('profile','definition-of-done','concern')`,
+    ),
+  ],
+);
+
+export const authoredPullRequests = pgTable(
+  'authored_pull_requests',
+  {
+    id: id(),
+    authoringRunId: text('authoring_run_id')
+      .notNull()
+      .unique()
+      .references(() => authoringRuns.id),
+    repositoryId: text('repository_id')
+      .notNull()
+      .references(() => repositories.id),
+    number: integer('number').notNull(),
+    branch: text('branch').notNull(),
+    headSha: text('head_sha').notNull(),
+    url: text('url').notNull(),
+    outcome: text('outcome').$type<'open' | 'merged' | 'closed'>().notNull(),
+    openedAt: timestamp('opened_at', { withTimezone: true }).notNull(),
+    mergedAt: timestamp('merged_at', { withTimezone: true }),
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('authored_pull_requests_number').on(t.repositoryId, t.number),
+    check('authored_pull_requests_number_positive', sql`${t.number} > 0`),
+    check('authored_pull_requests_outcome', sql`${t.outcome} IN ('open','merged','closed')`),
+  ],
+);
+
+export const authoredPullRequestRepairs = pgTable(
+  'authored_pull_request_repairs',
+  {
+    id: id(),
+    authoredPullRequestId: text('authored_pull_request_id')
+      .notNull()
+      .references(() => authoredPullRequests.id),
+    ordinal: integer('ordinal').notNull(),
+    triggerKind: text('trigger_kind').notNull(),
+    triggerReference: text('trigger_reference').notNull(),
+    state: text('state').$type<'queued' | 'running' | 'complete' | 'failed'>().notNull(),
+    baseHeadSha: text('base_head_sha').notNull(),
+    resultHeadSha: text('result_head_sha'),
+    errorCode: text('error_code'),
+    createdAt: created(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('authored_pull_request_repairs_order').on(t.authoredPullRequestId, t.ordinal),
+    check('authored_pull_request_repairs_ordinal', sql`${t.ordinal} BETWEEN 1 AND 3`),
+    check(
+      'authored_pull_request_repairs_state',
+      sql`${t.state} IN ('queued','running','complete','failed')`,
+    ),
+  ],
+);
+
+export const repositoryFieldnoteInstallations = pgTable(
+  'repository_fieldnote_installations',
+  {
+    repositoryId: text('repository_id')
+      .primaryKey()
+      .references(() => repositories.id),
+    state: text('state').$type<'current' | 'outdated' | 'partial' | 'drifted'>().notNull(),
+    release: text('release').notNull(),
+    revision: text('revision').notNull(),
+    lockHash: text('lock_hash').notNull(),
+    agents: validatedJsonb(confirmedAgentSchema.array())('agents').notNull(),
+    commitSha: text('commit_sha').notNull(),
+    reasons: text('reasons').array().notNull(),
+    verifiedAt: timestamp('verified_at', { withTimezone: true }).notNull(),
+    sourceAuthoredPrId: text('source_authored_pr_id').references(() => authoredPullRequests.id, {
+      onDelete: 'set null',
+    }),
+  },
+  (t) => [
+    check(
+      'repository_fieldnote_installations_state',
+      sql`${t.state} IN ('current','outdated','partial','drifted')`,
+    ),
+    index('repository_fieldnote_installations_source_pr').on(t.sourceAuthoredPrId),
   ],
 );
 

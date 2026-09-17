@@ -77,6 +77,7 @@ function queued(repositoryId: string) {
     id,
     repositoryId,
     kind: 'plan' as const,
+    workflow: 'readiness-remediation' as const,
     requestedBy: owner,
     requestedWorkspaceId: workspace,
     state: 'queued' as const,

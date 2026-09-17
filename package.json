@@ -31,10 +31,11 @@
     "smoke:webhook": "tsx scripts/smoke-webhook.ts"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.273",
     "@fieldnote/design-system": "workspace:*",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
-    "e2b": "2.49.1",
+    "e2b": "2.50.0",
     "inngest": "^4.20.0",
     "next": "^16.3.4",
     "octokit": "^5.0.5",

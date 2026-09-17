@@ -5,6 +5,29 @@ import { requestPlan } from '../../../../../db/queries/authoring-runs';
 import { dispatchAuthoringPlan } from '../../../../../inngest/dispatch-authoring';
 import { writeGradeSchedule } from '../../../../../db/queries/grade-schedules';
 import { writePublicGrade } from '../../../../../db/queries/public-grade-settings';
+import { requireRepository } from '../../../../../workspaces/access';
+import { requestSetupPlan } from '../../../../../db/queries/fieldnote-setup';
+import { answerSetupPlan } from '../../../../../authoring/fieldnote-setup';
+
+export async function requestFieldnoteSetup(repositoryId: string): Promise<{ runId: string }> {
+  await requireRepository(repositoryId);
+  const run = await requestSetupPlan(repositoryId);
+  try {
+    await dispatchAuthoringPlan(run.id);
+  } catch {
+    /* Reconciliation recovers the queued plan. */
+  }
+  return { runId: run.id };
+}
+
+export async function answerFieldnoteSetup(
+  repositoryId: string,
+  runId: string,
+  formData: FormData,
+): Promise<void> {
+  await requireRepository(repositoryId);
+  await answerSetupPlan(repositoryId, runId, formData);
+}
 export async function runGrade(repositoryId: string, graderId: string): Promise<{ runId: string }> {
   // requestGrade resolves the grader through the registry, which throws on an
   // unknown id, and checks workspace membership, repository connection and

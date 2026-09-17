@@ -1,7 +1,6 @@
 import { dispatchImport } from '../inngest/dispatch-import';
-import { requestRepositoryImport } from '../db/queries/repository-imports';
+import { assertTrackedRepository, requestRepositoryImport } from '../db/queries/repository-imports';
 import type { ImportSnapshot } from '../domain/import/types';
-import { repositoryClient, assertTrackedRepository } from './repositories';
 export async function syncRepository(repositoryId: string): Promise<ImportSnapshot> {
   await assertTrackedRepository(repositoryId);
   const run = await requestRepositoryImport(repositoryId, 'refresh');
@@ -9,6 +8,7 @@ export async function syncRepository(repositoryId: string): Promise<ImportSnapsh
   return run;
 }
 export async function latestPullRequests(repositoryId: string) {
+  const { repositoryClient } = await import('./repositories');
   const { repo, client } = await repositoryClient(repositoryId);
   const { data } = await client.rest.pulls.list({
     owner: repo.owner,

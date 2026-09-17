@@ -7,7 +7,10 @@ import { publicGradeSettings } from '../../../../../db/queries/public-grade-sett
 import { ShareToggle } from '../../../../../components/grading/share-toggle';
 import { AGENT_READINESS } from '../../../../../domain/grading/graders/agent-readiness';
 import { installedGraders } from '../../../../../db/queries/graders';
-import { gradeCardProps, graderCardIdentity } from '../../../../../components/grading/grade-presentation';
+import {
+  gradeCardProps,
+  graderCardIdentity,
+} from '../../../../../components/grading/grade-presentation';
 import { GradeControls } from '../../../../../components/grading/report';
 import { GradeReport } from '../../../../../components/grading/report-view';
 import { pageRouteId } from '../../../../../lib/page-route-id';
@@ -20,6 +23,9 @@ import { latestPlan } from '../../../../../db/queries/authoring-runs';
 import { ActEntry } from '../../../../../components/act/act-entry';
 import { gradeSchedules } from '../../../../../db/queries/grade-schedules';
 import { ScheduleToggle } from '../../../../../components/grading/schedule-toggle';
+import { FieldnoteSetupEntry } from '../../../../../components/act/fieldnote-setup-entry';
+import { getSetupSummary } from '../../../../../db/queries/fieldnote-setup';
+import { latestSkillsReleaseTag } from '../../../../../fieldnote-skills/github-release';
 export const dynamic = 'force-dynamic';
 
 // A row of cards, one per installed grader, whether or not it has ever run —
@@ -91,6 +97,12 @@ export default async function Grading({
   const summaryFor = (graderId: string) => summaries.find((entry) => entry.graderId === graderId);
   const summary = summaryFor(selectedGrader.id);
   const isReadiness = selectedGrader.id === AGENT_READINESS;
+  const setup = isReadiness
+    ? await getSetupSummary(
+        repoId,
+        repo.isDemo ? null : await latestSkillsReleaseTag().catch(() => null),
+      )
+    : null;
   // An unscored current run outranks an older completed one: it is the
   // repository's current state, not a step backward in its history. The
   // scored report nobody threw away is still one click away, in the history
@@ -213,14 +225,26 @@ export default async function Grading({
           completed grade, not whatever the card is showing: an unscored
           current run has no bearing on failingCheckCount below, which is
           sourced only from the readiness grader's own completed summary. */}
-      {isReadiness && summary?.latest && enabled && message && <p className="muted">{message}</p>}
-      {isReadiness && summary?.latest && (
-        <ActEntry
+      {setup && (
+        <FieldnoteSetupEntry
           repositoryId={repoId}
-          availability={availability}
-          latest={plan ? { id: plan.id, state: plan.state } : null}
+          {...setup}
+          canStart={
+            !repo.isDemo &&
+            actAvailability({ enabled, permissions, failingCheckCount: 1 }).available
+          }
         />
       )}
+      {isReadiness && summary?.latest && enabled && message && <p className="muted">{message}</p>}
+      {isReadiness &&
+        (setup?.installation.kind === 'current' || setup?.installation.kind === 'outdated') &&
+        summary?.latest && (
+          <ActEntry
+            repositoryId={repoId}
+            availability={availability}
+            latest={plan ? { id: plan.id, state: plan.state } : null}
+          />
+        )}
       <div className="grading-layout">
         <div>
           {history.length > 0 && (

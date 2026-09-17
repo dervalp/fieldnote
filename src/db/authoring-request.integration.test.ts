@@ -36,6 +36,7 @@ vi.mock('../github/installation-permissions', () => ({
 }));
 
 import { requestPlan } from './queries/authoring-runs';
+import { requestSetupPlan } from './queries/fieldnote-setup';
 
 const failing = {
   id: 'grade',
@@ -171,4 +172,34 @@ test('lets a permission check that cannot complete fail loudly rather than readi
   const repositoryId = await seed();
   github.permissions.mockRejectedValue(new Error('Installation permissions unavailable'));
   await expect(requestPlan(repositoryId)).rejects.toThrow('Installation permissions unavailable');
+});
+
+test('concurrent setup requests share one run without depending on a readiness grade', async () => {
+  const repositoryId = await seed();
+  grade.latest.mockResolvedValue(null);
+  const [a, b] = await Promise.all([
+    requestSetupPlan(repositoryId),
+    requestSetupPlan(repositoryId),
+  ]);
+  expect(a.id).toBe(b.id);
+  const [stored] = await db().select().from(authoringRuns).where(eq(authoringRuns.id, a.id));
+  expect(stored).toMatchObject({
+    kind: 'plan',
+    workflow: 'fieldnote-setup',
+    state: 'queued',
+    authorVersion: 'fieldnote-setup-v1',
+  });
+  await expect(requestPlan(repositoryId)).rejects.toThrow();
+});
+
+test('setup refuses a competing readiness workflow', async () => {
+  const repositoryId = await seed();
+  await requestPlan(repositoryId);
+  await expect(requestSetupPlan(repositoryId)).rejects.toThrow('Another authoring workflow');
+});
+
+test('setup requires opt-in and granted write permissions', async () => {
+  await expect(requestSetupPlan(await seed(false))).rejects.toThrow('Act unavailable');
+  github.permissions.mockResolvedValue({ contents: 'read', pullRequests: 'read' });
+  await expect(requestSetupPlan(await seed())).rejects.toThrow('Act unavailable');
 });

@@ -6,8 +6,13 @@ const mocks = vi.hoisted(() => ({
   runForegroundHydration: vi.fn(),
   finishForegroundHydration: vi.fn(),
   recomputeExecutedDetections: vi.fn(),
+  findAuthoredPr: vi.fn(),
+  send: vi.fn(),
 }));
-vi.mock('../client', () => ({ inngest: { createFunction: mocks.createFunction } }));
+vi.mock('../client', () => ({
+  inngest: { createFunction: mocks.createFunction, send: mocks.send },
+}));
+vi.mock('../../db/queries/authored-pr-monitor', () => ({ findAuthoredPr: mocks.findAuthoredPr }));
 vi.mock('../../db/queries/foreground-hydration', () => mocks);
 vi.mock('../../db/queries/ai-involvement', () => mocks);
 import './sync-pull-request';
@@ -16,6 +21,34 @@ const data = { repositoryId: 'repo', number: 1, hydrationId: 'work', sourceEvent
 const step = { run: async (_name: string, fn: () => unknown) => fn() };
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.findAuthoredPr.mockResolvedValue(null);
+});
+test('authored monitor dispatch follows persisted hydration and uses hydrated repository and number', async () => {
+  const order: string[] = [];
+  mocks.runForegroundHydration.mockImplementationOnce(async () => {
+    order.push('hydrated');
+    return 'hydrated-id';
+  });
+  mocks.findAuthoredPr.mockImplementationOnce(async (repositoryId, number) => {
+    expect([repositoryId, number]).toEqual(['repo', 1]);
+    order.push('lookup');
+    return { id: 'authored' };
+  });
+  mocks.send.mockImplementationOnce(async () => {
+    order.push('monitor');
+  });
+  await handler({ event: { data }, runId: 'execution', step });
+  expect(order).toEqual(['hydrated', 'lookup', 'monitor']);
+  expect(mocks.send).toHaveBeenCalledWith({
+    name: 'repository/authored-pr.monitor.requested',
+    data: { authoredPrId: 'authored' },
+  });
+});
+test('an unclaimed or previously failed hydration cannot dispatch authored monitoring', async () => {
+  mocks.runForegroundHydration.mockResolvedValueOnce(undefined);
+  mocks.findAuthoredPr.mockResolvedValueOnce({ id: 'authored' });
+  await handler({ event: { data }, runId: 'execution', step });
+  expect(mocks.send).not.toHaveBeenCalled();
 });
 test('foreground worker forwards a stable execution identity and honors sanitized retry deadlines', async () => {
   const error = new GithubCollectionRetryError([

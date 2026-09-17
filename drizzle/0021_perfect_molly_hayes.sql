@@ -1,0 +1,1 @@
+ALTER TABLE "authoring_runs" ALTER COLUMN "workflow" DROP DEFAULT;

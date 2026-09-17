@@ -1,0 +1,3 @@
+ALTER TABLE "repository_fieldnote_installations" ADD COLUMN "source_authored_pr_id" text;--> statement-breakpoint
+ALTER TABLE "repository_fieldnote_installations" ADD CONSTRAINT "repository_fieldnote_installations_source_authored_pr_id_authored_pull_requests_id_fk" FOREIGN KEY ("source_authored_pr_id") REFERENCES "public"."authored_pull_requests"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "repository_fieldnote_installations_source_pr" ON "repository_fieldnote_installations" USING btree ("source_authored_pr_id");
