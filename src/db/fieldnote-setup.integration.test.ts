@@ -12,19 +12,21 @@ import { writePrRepair } from '../github/repair-authored-pr';
 import { renderInstallation } from '../domain/fieldnote-skills/render';
 import { supportingConfigurationDefaults } from '../domain/fieldnote-skills/configuration';
 import { sha256 } from '../domain/fieldnote-skills/lock';
+import { gitBlobHash } from '../domain/fieldnote-skills/drift';
+import { requiredProfileFacts } from '../domain/fieldnote-skills/profile-facts';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 const context = vi.hoisted(() => ({
   repositoryId: '',
   send: vi.fn(),
-  configs: [] as Array<{ onFailure?: (input: unknown) => Promise<unknown> }>,
+  configs: [] as Array<{ id: string; onFailure?: (input: unknown) => Promise<unknown> }>,
 }));
 vi.mock('../inngest/client', () => ({
   inngest: {
     send: context.send,
     createFunction: (
-      config: { onFailure?: (input: unknown) => Promise<unknown> },
+      config: { id: string; onFailure?: (input: unknown) => Promise<unknown> },
       handler: unknown,
     ) => {
       context.configs.push(config);
@@ -33,7 +35,7 @@ vi.mock('../inngest/client', () => ({
   },
 }));
 vi.mock('../auth/session', () => ({ currentUser: async () => ({ id: 'unused' }) }));
-vi.mock('../lib/env', () => ({ env: () => ({ DEMO_MODE: 'false' }) }));
+vi.mock('../lib/env', () => ({ env: () => ({ DEMO_MODE: 'false' }), authoringEnv: () => null }));
 vi.mock('../workspaces/access', () => ({
   requireRepository: async (repositoryId: string) => {
     if (repositoryId !== context.repositoryId) throw new Error('not found');
@@ -58,6 +60,198 @@ const closedOutcome = {
   mergedAt: null,
   closedAt: '2026-01-01T10:00:00.000Z',
 };
+
+test.each(['fresh-plan', 'legacy-ready'] as const)(
+  '%s pauses pre-existing managed drift durably until explicit approval, resumes answers, and publishes via the real writer',
+  async (start) => {
+    const q = await import('./queries/fieldnote-setup');
+    const runs = await import('./queries/authoring-runs');
+    const author = await import('../authoring/fieldnote-setup');
+    const releases = await import('../fieldnote-skills/github-release');
+    const collector = await import('../github/collect-fieldnote-setup');
+    const heads = await import('../github/collect-files');
+    const repositoriesProvider = await import('../github/repositories');
+    const permissions = await import('../github/installation-permissions');
+    const { planFieldnoteSetupFunction } =
+      await import('../inngest/functions/plan-fieldnote-setup');
+    const { executeFieldnoteSetupFunction } =
+      await import('../inngest/functions/execute-fieldnote-setup');
+    const value = await plan();
+    await db()
+      .update(schema.repositories)
+      .set({ actEnabled: true })
+      .where(eq(schema.repositories.id, value.repositoryId));
+    await db()
+      .insert(schema.workspaceRepositories)
+      .values({ workspaceId: workspace, repositoryId: value.repositoryId, connectedBy: owner });
+    const content = '# Immutable generic setup';
+    const release = {
+      release: 'skills-v0.1.0',
+      revision: 'c'.repeat(40),
+      releaseLockHash: sha256('release-lock'),
+      skills: [
+        {
+          name: 'fieldnote-setup-profile',
+          version: '1',
+          files: [{ path: 'SKILL.md', content, hash: sha256(content) }],
+        },
+      ],
+    };
+    const profile = requiredProfileFacts
+      .map((key) => {
+        const [section, name] = key.split('.');
+        return `## ${section === 'MergePolicy' ? 'Merge policy' : section}\n- **${name}** — (none)`;
+      })
+      .join('\n');
+    const configuration = [
+      { path: '.fieldnote/profile.md', content: profile },
+      ...supportingConfigurationDefaults,
+    ];
+    const previous = renderInstallation({ release, agents, setupRunId: 'previous', configuration });
+    const path = '.agents/skills/fieldnote-setup-profile/SKILL.md';
+    const observed = new Map(previous.files);
+    observed.set(path, '# Intentional local change');
+    const snapshot = {
+      sha,
+      complete: true,
+      paths: [...observed.keys()],
+      candidates: [
+        {
+          agent: 'codex' as const,
+          label: 'Codex',
+          supported: true,
+          confirmed: false,
+          evidence: [],
+        },
+      ],
+      documents: [...observed].map(([path, text]) => ({ path, text, blobSha: gitBlobHash(text) })),
+      managedFiles: [
+        { path, blobSha: gitBlobHash(observed.get(path)!), mode: '100644', type: 'blob' },
+      ],
+    };
+    const github = authoredPrClient(sha);
+    github.trees.set(
+      'initial-tree',
+      [...observed].map(([path, content]) => ({
+        path,
+        sha: gitBlobHash(content),
+        mode: '100644',
+        type: 'blob',
+      })),
+    );
+    const [repo] = await db()
+      .select()
+      .from(schema.repositories)
+      .where(eq(schema.repositories.id, value.repositoryId));
+    const [installation] = await db()
+      .select()
+      .from(schema.installations)
+      .where(eq(schema.installations.id, value.repositoryId));
+    vi.spyOn(releases, 'readSkillsRelease').mockResolvedValue(release);
+    vi.spyOn(releases, 'latestSkillsRelease').mockResolvedValue(release);
+    const collect = vi.spyOn(collector, 'collectFieldnoteSetup').mockResolvedValue(snapshot);
+    vi.spyOn(heads, 'resolveHeadSha').mockResolvedValue(sha);
+    vi.spyOn(permissions, 'fetchGrantedPermissions').mockResolvedValue({
+      contents: 'write',
+      pullRequests: 'write',
+    });
+    vi.spyOn(repositoriesProvider, 'repositoryClient').mockResolvedValue({
+      repo,
+      installation,
+      client: github.client,
+    });
+    const step = { run: async (_name: string, work: () => Promise<unknown>) => work() };
+    const executeHandler = executeFieldnoteSetupFunction as unknown as (
+      input: unknown,
+    ) => Promise<unknown>;
+    const execute = async (runId: string) => {
+      const current = await q.loadSetupPlan(value.id);
+      await executeHandler({
+        event: { data: { runId, proposalUpdatedAt: current!.proposal!.updatedAt.toISOString() } },
+        step,
+      });
+    };
+    const answer = async (body: string, questionId?: string) => {
+      const current = await q.loadSetupPlan(value.id);
+      const form = new FormData();
+      form.set('answer', body);
+      form.set('questionId', questionId ?? current!.notes.at(-1)!.id);
+      await author.answerSetupPlan(value.repositoryId, value.id, form);
+    };
+    let originalExecution: string | undefined;
+    try {
+      if (start === 'fresh-plan') {
+        const planHandler = planFieldnoteSetupFunction as unknown as (
+          input: unknown,
+        ) => Promise<unknown>;
+        await planHandler({ event: { data: { runId: value.id } }, step });
+        await answer('Yes');
+      } else {
+        // Historical ready proposals may predate the host approval guard.
+        await q.saveSetupSnapshot(value.id, release, snapshot);
+        await q.saveSetupResult(
+          value.id,
+          {
+            state: 'ready',
+            nextQuestion: null,
+            findings: [],
+            confirmedAgents: agents,
+            confirmedFacts: [],
+            sandboxId: 'legacy',
+            model: 'legacy',
+            files: configuration.map((file) => ({
+              ...file,
+              hash: sha256(file.content),
+              kind:
+                file.path === '.fieldnote/profile.md'
+                  ? 'profile'
+                  : file.path === '.fieldnote/definition-of-done.md'
+                    ? 'definition-of-done'
+                    : 'concern',
+            })),
+          },
+          null,
+        );
+        originalExecution = (await q.readySetupAndQueueExecute(value.id)).id;
+        await execute(originalExecution);
+      }
+      for (const declined of [undefined, 'No', 'Yes']) {
+        if (declined) await answer(declined);
+        const pending = await q.loadSetupPlan(value.id);
+        expect(pending?.proposal?.state).toBe('awaiting-input');
+        expect(pending?.notes.at(-1)?.body).toContain(`[managed-drift]`);
+        expect(pending?.notes.at(-1)?.body).toContain(`Modified managed file: ${path}`);
+        expect(github.api.git.createBlob).not.toHaveBeenCalled();
+        expect(github.api.pulls.create).not.toHaveBeenCalled();
+      }
+      const questionId = (await q.loadSetupPlan(value.id))!.notes.at(-1)!.id;
+      collect.mockRejectedValueOnce(new Error('synthetic interruption after durable answer'));
+      await expect(answer('Replace managed skills', questionId)).rejects.toThrow(
+        'Submit the same answer to retry',
+      );
+      expect((await q.loadSetupPlan(value.id))?.proposal?.state).toBe('exploring');
+      expect(github.api.git.createBlob).not.toHaveBeenCalled();
+      await answer('Replace managed skills', questionId);
+      const approved = await q.loadSetupPlan(value.id);
+      expect(approved?.notes.filter((note) => note.body === 'Replace managed skills')).toHaveLength(
+        1,
+      );
+      expect(approved?.proposal?.state).toBe('ready');
+      const queued = await q.readySetupAndQueueExecute(value.id);
+      if (originalExecution) expect(queued.id).toBe(originalExecution);
+      await execute(queued.id);
+      expect(github.api.pulls.create).toHaveBeenCalledTimes(1);
+      expect((await runs.loadAuthoringRun(queued.id))?.state).toBe('complete');
+      expect((await q.getSetupSummary(value.repositoryId, release.release)).progress).toMatchObject(
+        { state: 'open' },
+      );
+      const published = github.trees.get(github.commits.get(github.prs[0].head.sha)!.tree.sha)!;
+      expect(published.find((file) => file.path === path)?.sha).toBe(gitBlobHash(content));
+    } finally {
+      vi.restoreAllMocks();
+    }
+  },
+);
 
 test.each([
   ['ambiguous', 'Review the feedback and resolve it in the pull request.'],
@@ -743,7 +937,9 @@ test.each(['lost response', 'database rollback', 'unpublished'])(
         ).rejects.toMatchObject({ code: 'github_unavailable' });
         expect(github.refs.get(`heads/${pr.branch}`)).not.toBe(sha);
       }
-      const onFailure = context.configs.find((config) => config.onFailure)!.onFailure!;
+      const onFailure = context.configs.find(
+        (config) => config.id === 'repair-authored-pr',
+      )!.onFailure!;
       const event = {
         event: { data: { event: { data: { authoredPrId: pr.id, repairId: repair.id } } } },
       };
@@ -1001,6 +1197,9 @@ beforeAll(async () => {
   await migrate(db(), { migrationsFolder: 'drizzle' });
   await db().insert(schema.users).values({ id: owner, login: 'setup', credentials: 'fixture' });
   await db().insert(schema.workspaces).values({ id: workspace, name: 'Setup' });
+  await db()
+    .insert(schema.workspaceMemberships)
+    .values({ workspaceId: workspace, userId: owner, role: 'owner' });
 });
 
 afterAll(async () => {
@@ -1044,9 +1243,15 @@ afterAll(async () => {
     await db()
       .delete(schema.authoringRuns)
       .where(inArray(schema.authoringRuns.repositoryId, repositories));
+    await db()
+      .delete(schema.workspaceRepositories)
+      .where(eq(schema.workspaceRepositories.workspaceId, workspace));
     await db().delete(schema.repositories).where(inArray(schema.repositories.id, repositories));
     await db().delete(schema.installations).where(inArray(schema.installations.id, repositories));
   }
+  await db()
+    .delete(schema.workspaceMemberships)
+    .where(eq(schema.workspaceMemberships.workspaceId, workspace));
   await db().delete(schema.workspaces).where(eq(schema.workspaces.id, workspace));
   await db().delete(schema.users).where(eq(schema.users.id, owner));
   await closeDb();

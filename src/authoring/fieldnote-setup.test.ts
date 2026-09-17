@@ -19,7 +19,10 @@ vi.mock('../github/collect-fieldnote-setup', () => ({ collectFieldnoteSetup: dep
 vi.mock('./setup-author', () => ({ authorSetupProfile: deps.author }));
 vi.mock('./e2b-sandbox', () => ({ e2bAuthoringSandbox: vi.fn() }));
 vi.mock('../lib/env', () => ({ authoringEnv: () => null }));
-import { answerSetupPlan } from './fieldnote-setup';
+import { answerSetupPlan, authorPinnedSetup } from './fieldnote-setup';
+import { renderInstallation } from '../domain/fieldnote-skills/render';
+import { sha256 } from '../domain/fieldnote-skills/lock';
+import { supportingConfigurationDefaults } from '../domain/fieldnote-skills/configuration';
 
 const sha = 'a'.repeat(40),
   revision = 'b'.repeat(40),
@@ -117,6 +120,63 @@ test('records the human confirmation and resumes with persisted notes and pinned
     expect.objectContaining({ state: 'awaiting-input' }),
     'answer',
   );
+});
+
+test('pre-existing managed skill drift requires a deterministic human replacement question before ready authoring', async () => {
+  const content = '# Generic setup';
+  const release = {
+    release: 'skills-v0.1.0',
+    revision,
+    releaseLockHash: sha256('lock'),
+    skills: [
+      {
+        name: 'fieldnote-setup-profile',
+        version: '1',
+        files: [{ path: 'SKILL.md', content, hash: sha256(content) }],
+      },
+    ],
+  };
+  const confirmed = [{ agent: 'codex' as const, supported: true, skillsRoot: '.agents/skills' }];
+  const rendered = renderInstallation({
+    release,
+    setupRunId: 'previous',
+    agents: confirmed,
+    configuration: [
+      { path: '.fieldnote/profile.md', content: 'Complete profile' },
+      ...supportingConfigurationDefaults,
+    ],
+  });
+  deps.read.mockResolvedValue(release);
+  deps.author.mockResolvedValue({
+    state: 'ready',
+    nextQuestion: null,
+    files: [],
+    confirmedAgents: confirmed,
+  });
+  const drifted = new Map(rendered.files);
+  drifted.set('.agents/skills/fieldnote-setup-profile/SKILL.md', '# Deliberate local modification');
+  const result = await authorPinnedSetup(
+    release,
+    {
+      sha,
+      complete: true,
+      paths: [...drifted.keys()],
+      candidates: [],
+      documents: [...drifted].map(([path, text]) => ({ path, text, blobSha: 'changed' })),
+    },
+    [],
+    confirmed,
+    [],
+  );
+  expect(result).toMatchObject({
+    state: 'awaiting-input',
+    nextQuestion: { key: 'managed-drift' },
+    files: [],
+  });
+  expect(result.nextQuestion?.evidence.join('\n')).toContain(
+    '.agents/skills/fieldnote-setup-profile/SKILL.md',
+  );
+  expect(deps.author).not.toHaveBeenCalled();
 });
 
 test.each([

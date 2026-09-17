@@ -112,6 +112,19 @@ test('collects only setup evidence at the pinned commit and derives unconfirmed 
   expect(mocks.getCommit).toHaveBeenCalledWith(expect.objectContaining({ commit_sha: 'abc' }));
 });
 
+test('captures bounded managed Git blob identities for non-document files without uploading their bytes', async () => {
+  const path = '.agents/skills/fieldnote-testing/scripts/check.py';
+  mocks.getTree.mockResolvedValue({
+    data: { truncated: false, tree: [blob(path, 'a'.repeat(40))] },
+  });
+  const snapshot = await collectFieldnoteSetup('fixture-repo', 'abc');
+  expect(snapshot).toMatchObject({
+    managedFiles: [{ path, blobSha: 'a'.repeat(40), mode: '100644', type: 'blob' }],
+  });
+  expect(snapshot.documents).toEqual([]);
+  expect(mocks.getBlob).not.toHaveBeenCalled();
+});
+
 test('walks a truncated immutable tree breadth first', async () => {
   mocks.getTree
     .mockResolvedValueOnce({ data: { truncated: true, tree: [blob('partial.md')] } })

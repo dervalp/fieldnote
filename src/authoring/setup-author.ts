@@ -7,6 +7,7 @@ import {
   type SetupRepositorySnapshot,
 } from '../domain/fieldnote-skills/types';
 import { setupAdapters } from '../domain/fieldnote-skills/adapters';
+import type { ManagedDriftQuestion } from '../domain/fieldnote-skills/drift';
 import {
   assertCompleteConfiguration,
   requiredConfiguration,
@@ -61,7 +62,8 @@ export interface SetupAuthorInput {
   confirmedAgents: ConfirmedAgent[];
   confirmedFacts: ConfirmedProfileFact[];
 }
-export type SetupAuthorResult = Omit<SetupAuthorOutput, 'generatedFiles'> & {
+export type SetupAuthorResult = Omit<SetupAuthorOutput, 'generatedFiles' | 'nextQuestion'> & {
+  nextQuestion: SetupAuthorOutput['nextQuestion'] | ManagedDriftQuestion;
   confirmedAgents: ConfirmedAgent[];
   files: GeneratedFile[];
   sandboxId: string;

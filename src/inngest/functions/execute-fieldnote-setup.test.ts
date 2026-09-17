@@ -2,6 +2,13 @@ import { beforeEach, expect, test, vi } from 'vitest';
 import { sha256 } from '../../domain/fieldnote-skills/lock';
 import { authoredPrClient } from '../../github/testing/authored-pr-client';
 import { supportingConfigurationDefaults } from '../../domain/fieldnote-skills/configuration';
+import { renderInstallation } from '../../domain/fieldnote-skills/render';
+import {
+  gitBlobHash,
+  managedDriftQuestion,
+  questionNote,
+  type SetupNote,
+} from '../../domain/fieldnote-skills/drift';
 
 const deps = vi.hoisted(() => ({
   loadRun: vi.fn(),
@@ -67,6 +74,7 @@ let plan: {
   run: Record<string, unknown>;
   proposal: Record<string, unknown>;
   files: Array<{ path: string; body: string; hash: string }>;
+  notes: SetupNote[];
 };
 beforeEach(() => {
   vi.resetAllMocks();
@@ -99,6 +107,7 @@ beforeEach(() => {
         hash: sha256(content),
       })),
     ],
+    notes: [],
   };
   deps.loadRun.mockImplementation(async () => structuredClone(run));
   deps.loadPlan.mockImplementation(async () => structuredClone(plan));
@@ -175,6 +184,62 @@ test('persisted profile-only author output cannot reach any GitHub mutation', as
   await expect(invoke()).rejects.toThrow('Setup rendering failed');
   expect(deps.write).not.toHaveBeenCalled();
   expect(deps.record).not.toHaveBeenCalled();
+});
+test('pre-existing generic drift cannot reach the real writer until an evidence-bound human approval', async () => {
+  const previous = renderInstallation({
+    release,
+    setupRunId: 'previous',
+    agents: [{ agent: 'codex', supported: true, skillsRoot: '.agents/skills' }],
+    configuration: plan.files.map(({ path, body }) => ({ path, content: body })),
+  });
+  const path = '.agents/skills/fieldnote-setup-profile/SKILL.md';
+  const files = new Map(previous.files);
+  files.set(path, 'Human modified generic skill');
+  const snapshot = {
+    sha,
+    complete: true,
+    paths: [...files.keys()],
+    candidates: [],
+    documents: [...files].map(([path, text]) => ({ path, text, blobSha: gitBlobHash(text) })),
+    managedFiles: [{ path, blobSha: gitBlobHash(files.get(path)!), mode: '100644', type: 'blob' }],
+  };
+  deps.collect.mockResolvedValue(snapshot);
+  const model = authoredPrClient(sha);
+  model.trees.set(
+    'initial-tree',
+    [...files].map(([path, content]) => ({
+      path,
+      sha: gitBlobHash(content),
+      type: 'blob',
+      mode: '100644',
+    })),
+  );
+  deps.client.mockResolvedValue({ repo: { owner: 'octo', name: 'repo' }, client: model.client });
+  deps.write.mockImplementation(
+    (
+      await vi.importActual<typeof import('../../github/write-authored-pr')>(
+        '../../github/write-authored-pr',
+      )
+    ).writeAuthoredPullRequest,
+  );
+  await invoke();
+  expect(model.api.git.createBlob).not.toHaveBeenCalled();
+  expect(model.api.pulls.create).not.toHaveBeenCalled();
+  const question = managedDriftQuestion(snapshot, release, release)!;
+  expect(deps.reopen).toHaveBeenCalledWith('execute', snapshot, 'setup_conflict', question);
+  plan.notes = [
+    { speaker: 'agent', kind: 'question', body: questionNote(question) },
+    { speaker: 'human', kind: 'answer', body: 'No' },
+  ];
+  await invoke();
+  expect(model.api.git.createBlob).not.toHaveBeenCalled();
+  // A refresh cached by a worker before the guard was introduced is not approval.
+  await invoke(new Map([['refresh', { sha, evidenceCount: snapshot.documents.length }]]));
+  expect(model.api.git.createBlob).not.toHaveBeenCalled();
+  plan.notes[1].body = 'Replace managed skills';
+  await invoke();
+  expect(model.api.pulls.create).toHaveBeenCalledTimes(1);
+  expect(deps.record).toHaveBeenCalledTimes(1);
 });
 test('rebases unrelated movement onto the refreshed default head', async () => {
   deps.head.mockResolvedValue(nextSha);

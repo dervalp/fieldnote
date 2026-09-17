@@ -57,6 +57,8 @@ export interface SetupRepositorySnapshot {
   complete: boolean;
   paths: string[];
   documents: Array<{ path: string; blobSha: string; text: string }>;
+  /** Exact Git identities, including non-document managed files; no source upload required. */
+  managedFiles?: Array<{ path: string; blobSha: string; mode: string; type: string }>;
   candidates: AgentCandidate[];
 }
 

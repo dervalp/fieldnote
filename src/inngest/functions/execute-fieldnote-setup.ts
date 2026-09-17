@@ -22,6 +22,9 @@ import { renderInstallation, verifyInstallation } from '../../domain/fieldnote-s
 import { sha256 } from '../../domain/fieldnote-skills/lock';
 import { repositoryClient } from '../../github/repositories';
 import { SetupWriteError, writeAuthoredPullRequest } from '../../github/write-authored-pr';
+import { inspectSetupDrift } from '../../fieldnote-skills/setup-drift';
+import { hasManagedDriftApproval } from '../../domain/fieldnote-skills/drift';
+import type { SetupRepositorySnapshot } from '../../domain/fieldnote-skills/types';
 
 async function activeSetup(runId: string, proposalUpdatedAt: string) {
   const run = await loadAuthoringRun(runId);
@@ -93,6 +96,20 @@ async function rendered(context: NonNullable<Awaited<ReturnType<typeof validated
   return result;
 }
 
+async function driftApproved(
+  context: NonNullable<Awaited<ReturnType<typeof validated>>>,
+  snapshot: SetupRepositorySnapshot,
+) {
+  const question = await inspectSetupDrift(snapshot, {
+    release: context.proposal.skillsRelease,
+    revision: context.proposal.skillsRevision,
+    releaseLockHash: context.proposal.releaseLockHash as `sha256:${string}`,
+  });
+  if (!question || hasManagedDriftApproval(context.plan.notes, question)) return true;
+  await reopenSetupPlan(context.run.id, snapshot, 'setup_conflict', question);
+  return false;
+}
+
 export const executeFieldnoteSetupFunction = inngest.createFunction(
   {
     id: 'execute-fieldnote-setup',
@@ -127,11 +144,13 @@ export const executeFieldnoteSetupFunction = inngest.createFunction(
           JSON.stringify([
             value.paths,
             value.documents.map(({ path, blobSha }) => ({ path, blobSha })),
+            value.managedFiles,
           ]);
         if (!snapshot.complete || !original.complete || evidence(snapshot) !== evidence(original)) {
           if (await load()) await reopenSetupPlan(runId, snapshot, 'setup_conflict');
           return null;
         }
+        if (!(await driftApproved(context, snapshot))) return null;
         return { sha, evidenceCount: snapshot.documents.length };
       } catch (error) {
         if (error instanceof NonRetriableError) throw error;
@@ -153,6 +172,14 @@ export const executeFieldnoteSetupFunction = inngest.createFunction(
       const context = await load();
       if (!context) return false;
       try {
+        // Also protect resumed workers whose refresh step was cached before this check existed.
+        if (
+          !(await driftApproved(
+            context,
+            await collectFieldnoteSetup(context.run.repositoryId, refresh.sha),
+          ))
+        )
+          return false;
         // Rebuild inside this step: durable step output carries only the lock
         // digest, never upstream skills or repository source.
         const installation = await rendered(context);

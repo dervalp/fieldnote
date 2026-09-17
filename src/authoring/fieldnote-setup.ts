@@ -15,7 +15,9 @@ import {
   type SetupRepositorySnapshot,
 } from '../domain/fieldnote-skills/types';
 import { setupAdapters } from '../domain/fieldnote-skills/adapters';
-import { authorSetupProfile, type SetupAuthorInput } from './setup-author';
+import { authorSetupProfile, type SetupAuthorInput, type SetupAuthorResult } from './setup-author';
+import { inspectSetupDrift } from '../fieldnote-skills/setup-drift';
+import { hasManagedDriftApproval } from '../domain/fieldnote-skills/drift';
 import { localAuthoringSandbox } from './local-sandbox';
 import { e2bAuthoringSandbox } from './e2b-sandbox';
 import { authoringEnv } from '../lib/env';
@@ -27,7 +29,7 @@ export async function authorPinnedSetup(
   notes: SetupAuthorInput['notes'],
   confirmedAgents: ConfirmedAgent[],
   confirmedFacts: SetupAuthorInput['confirmedFacts'],
-) {
+): Promise<SetupAuthorResult> {
   const release = await readSkillsRelease(identity.release);
   if (
     release.revision !== identity.revision ||
@@ -38,6 +40,20 @@ export async function authorPinnedSetup(
     .find((skill) => skill.name === 'fieldnote-setup-profile')
     ?.files.find((file) => file.path === 'SKILL.md')?.content;
   if (!content) throw new Error('Setup skill missing');
+  if (confirmedAgents.some((agent) => agent.supported)) {
+    const question = await inspectSetupDrift(snapshot, identity);
+    if (question && !hasManagedDriftApproval(notes, question))
+      return {
+        state: 'awaiting-input',
+        nextQuestion: question,
+        findings: [],
+        confirmedFacts,
+        confirmedAgents,
+        files: [],
+        sandboxId: 'host-drift-check',
+        model: 'deterministic-drift-check',
+      };
+  }
   const config = authoringEnv();
   const sandbox = config
     ? e2bAuthoringSandbox({

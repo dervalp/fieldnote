@@ -193,8 +193,21 @@ export async function collectFieldnoteSetup(
     let reservedBytes = 0;
     const paths = new Set<string>();
     const candidates: Candidate[] = [];
+    const managedFiles: NonNullable<SetupRepositorySnapshot['managedFiles']> = [];
     const consider = (entry: GitTreeEntry, prefix: string) => {
       const path = prefix + (entry.path ?? '');
+      if (/^\.(?:agents|claude)\/skills\//.test(path) && entry.type !== 'tree') {
+        if (
+          managedFiles.length >= limits.documents ||
+          path.length > 240 ||
+          /[\x00-\x1f\x7f]/.test(path) ||
+          !/^[a-f0-9]{40}$/.test(entry.sha ?? '') ||
+          !entry.mode ||
+          !entry.type
+        )
+          complete = false;
+        else managedFiles.push({ path, blobSha: entry.sha!, mode: entry.mode, type: entry.type });
+      }
       if (!isFile(entry) || !isRelevant(path)) return;
       paths.add(path);
       if (
@@ -304,6 +317,7 @@ export async function collectFieldnoteSetup(
       complete,
       paths: sortedPaths,
       documents,
+      managedFiles: managedFiles.sort((left, right) => left.path.localeCompare(right.path, 'en')),
       candidates: detectAgentCandidates({ paths: sortedPaths, detections }),
     };
   } catch (error) {

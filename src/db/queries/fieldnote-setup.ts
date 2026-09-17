@@ -23,10 +23,19 @@ import { classifyInstallation } from '../../domain/fieldnote-skills/classify';
 import { installationCoversPullRequest } from './fieldnote-installations';
 import { assertCredentialFree } from '../../authoring/sandbox';
 import { monitorStopReason, type HumanReason } from '../../domain/act/pr-monitor';
+import { questionNote, type ManagedDriftQuestion } from '../../domain/fieldnote-skills/drift';
 
 export interface SetupProgress {
   runId: string;
-  state: 'exploring' | 'awaiting-input' | 'preparing' | 'open' | 'stopped' | 'verifying' | 'failed' | 'closed';
+  state:
+    | 'exploring'
+    | 'awaiting-input'
+    | 'preparing'
+    | 'open'
+    | 'stopped'
+    | 'verifying'
+    | 'failed'
+    | 'closed';
   pullRequestUrl: string | null;
   monitorReason?: HumanReason;
 }
@@ -76,7 +85,13 @@ export async function getSetupSummary(
         and(eq(pullRequests.authoringRunId, runs.id), eq(pullRequests.repositoryId, repositoryId)),
       )
       .leftJoin(installations, eq(installations.repositoryId, runs.repositoryId))
-      .leftJoin(notes, and(eq(notes.authoringRunId, runs.id), eq(notes.id, sql`'monitor:' || ${pullRequests.id} || ':human'`)))
+      .leftJoin(
+        notes,
+        and(
+          eq(notes.authoringRunId, runs.id),
+          eq(notes.id, sql`'monitor:' || ${pullRequests.id} || ':human'`),
+        ),
+      )
       .where(
         and(
           eq(runs.planRunId, plan.id),
@@ -97,10 +112,15 @@ export async function getSetupSummary(
     else if (execution || plan.proposalState === 'ready') state = 'preparing';
     else if (plan.proposalState === 'awaiting-input') state = 'awaiting-input';
     else state = 'exploring';
-    if (state) progress = {
-      runId: plan.id, state, pullRequestUrl: execution?.url ?? null,
-      ...(state === 'stopped' && execution?.monitorStop ? { monitorReason: monitorStopReason(execution.monitorStop) } : {}),
-    };
+    if (state)
+      progress = {
+        runId: plan.id,
+        state,
+        pullRequestUrl: execution?.url ?? null,
+        ...(state === 'stopped' && execution?.monitorStop
+          ? { monitorReason: monitorStopReason(execution.monitorStop) }
+          : {}),
+      };
   }
   const active = progress && progress.state !== 'failed' && progress.state !== 'closed';
   const installation = classifyInstallation({
@@ -120,6 +140,7 @@ export async function reopenSetupPlan(
   runId: string,
   snapshot: SetupRepositorySnapshot,
   code: 'setup_conflict',
+  question?: ManagedDriftQuestion,
 ): Promise<void> {
   if (!/^[a-f0-9]{40}$/i.test(snapshot.sha) || code !== 'setup_conflict')
     throw new Error('Invalid setup refresh');
@@ -171,7 +192,9 @@ export async function reopenSetupPlan(
       authoringRunId: plan.id,
       speaker: 'agent',
       kind: 'question',
-        body: '[agents] Repository evidence or an installation destination changed. Which coding agents should receive this installation? Confirm the agent selections and describe any repository facts or local changes to preserve. Fieldnote will explore the refreshed snapshot before preparing the pull request.',
+      body: question
+        ? questionNote(question)
+        : '[agents] Repository evidence or an installation destination changed. Which coding agents should receive this installation? Confirm the agent selections and describe any repository facts or local changes to preserve. Fieldnote will explore the refreshed snapshot before preparing the pull request.',
       createdAt: new Date(Math.max(Date.now(), (last?.createdAt.getTime() ?? 0) + 1)),
     });
   });
@@ -376,7 +399,7 @@ export async function saveSetupResult(
         authoringRunId: runId,
         speaker: 'agent',
         kind: 'question',
-        body: `[${result.nextQuestion.key}] ${result.nextQuestion.text}\n\n${result.nextQuestion.evidence.join('\n')}`,
+        body: questionNote(result.nextQuestion),
         createdAt: new Date(timestamp++),
       });
     if (additions.length) await tx.insert(notes).values(additions);
