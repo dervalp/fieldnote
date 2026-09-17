@@ -59,6 +59,8 @@ export interface SetupRepositorySnapshot {
   documents: Array<{ path: string; blobSha: string; text: string }>;
   /** Exact Git identities, including non-document managed files; no source upload required. */
   managedFiles?: Array<{ path: string; blobSha: string; mode: string; type: string }>;
+  /** Retained even when a lock's contents cannot safely be collected. */
+  installationLock?: { blobSha: string; mode: string; type: string } | null;
   candidates: AgentCandidate[];
 }
 

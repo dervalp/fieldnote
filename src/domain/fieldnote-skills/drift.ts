@@ -9,16 +9,17 @@ export const gitBlobHash = (content: string) =>
     .digest('hex');
 export function existingInstallationLock(snapshot: SetupRepositorySnapshot) {
   const content = snapshot.documents.find((file) => file.path === lockPath)?.text;
-  if (content === undefined) {
-    if (snapshot.paths.includes(lockPath))
-      throw new Error('Existing installation evidence is incomplete.');
+  if (!snapshot.complete) throw new Error('Existing installation evidence is incomplete.');
+  if (content === undefined || Buffer.byteLength(content) > 256 * 1024) return null;
+  try {
+    const lock = parseInstallationLock(content);
+    return lock.files.length <= 400 &&
+      lock.files.every((file) => file.path.length <= 240 && !/[\x00-\x1f\x7f]/.test(file.path))
+      ? { lock, content }
+      : null;
+  } catch {
     return null;
   }
-  if (!snapshot.complete || Buffer.byteLength(content) > 256 * 1024)
-    throw new Error('Existing installation evidence is incomplete.');
-  const lock = parseInstallationLock(content);
-  if (lock.files.length > 400) throw new Error('Existing installation evidence exceeds bounds.');
-  return { lock, content };
 }
 
 export interface ManagedDriftQuestion {
@@ -58,18 +59,19 @@ export function hasManagedDriftApproval(
 /** Git blob identities prove exact bytes without exporting generic source into durable output. */
 export function managedDriftQuestion(
   snapshot: SetupRepositorySnapshot,
-  installed: SkillsRelease,
+  installed: SkillsRelease | null,
   target: Pick<SkillsRelease, 'release' | 'revision' | 'releaseLockHash'>,
 ): ManagedDriftQuestion | null {
   const existing = existingInstallationLock(snapshot);
-  if (!existing) return null;
-  const { lock, content } = existing;
   if (
-    installed.release !== lock.release ||
-    installed.revision !== lock.revision ||
-    installed.releaseLockHash !== lock.releaseLockHash
+    !existing ||
+    !installed ||
+    installed.release !== existing.lock.release ||
+    installed.revision !== existing.lock.revision ||
+    installed.releaseLockHash !== existing.lock.releaseLockHash
   )
-    throw new Error('Existing installation release identity cannot be verified.');
+    return partialDriftQuestion(snapshot, target);
+  const { lock, content } = existing;
   const reasons: string[] = [];
   const declared = new Map(lock.files.map((file) => [file.path, file]));
   const expected = new Map<string, ReleaseFile>(
@@ -122,16 +124,82 @@ export function managedDriftQuestion(
   )
     reasons.push('Installation lock skill inventory does not match the installed release.');
   if (!reasons.length) return null;
+  return approvalQuestion(
+    target,
+    lockIdentity(snapshot, content),
+    observed,
+    reasons,
+    `Managed skills differ from the installed ${installed.release}.`,
+  );
+}
+
+function partialDriftQuestion(
+  snapshot: SetupRepositorySnapshot,
+  target: Pick<SkillsRelease, 'release' | 'revision' | 'releaseLockHash'>,
+): ManagedDriftQuestion | null {
+  const content = snapshot.documents.find((file) => file.path === lockPath)?.text;
+  const present =
+    content !== undefined ||
+    snapshot.paths.includes(lockPath) ||
+    Boolean(snapshot.installationLock);
+  const managed =
+    snapshot.managedFiles ??
+    snapshot.documents
+      .filter((file) => /^\.(?:agents|claude)\/skills\//.test(file.path))
+      .map((file) => ({
+        path: file.path,
+        blobSha: gitBlobHash(file.text),
+        mode: '100644',
+        type: 'blob',
+      }));
+  if (!present && !managed.length) return null;
+  if (
+    managed.length > 400 ||
+    managed.some((file) => file.path.length > 240 || /[\x00-\x1f\x7f]/.test(file.path))
+  )
+    throw new Error('Existing installation evidence exceeds bounds.');
+  const observed = [...managed]
+    .sort((a, b) => a.path.localeCompare(b.path, 'en'))
+    .map(({ path, blobSha, mode, type }) => [path, blobSha, mode, type]);
+  const identity = lockIdentity(snapshot, content);
+  return approvalQuestion(
+    target,
+    identity,
+    observed,
+    [
+      present
+        ? `Installation lock is malformed or cannot be verified: ${lockPath}.`
+        : `Missing installation lock: ${lockPath}.`,
+      `Observed installation lock identity: ${identity}.`,
+      ...observed.map(
+        ([path, hash, mode, type]) =>
+          `Existing managed file: ${path}. Git identity ${hash} (${mode} ${type}).`,
+      ),
+    ],
+    'Existing managed skills have an incomplete or unverifiable installation lock.',
+  );
+}
+
+function lockIdentity(snapshot: SetupRepositorySnapshot, content: string | undefined): string {
+  const metadata = snapshot.installationLock;
+  if (metadata) return `Git ${metadata.blobSha} (${metadata.mode} ${metadata.type})`;
+  if (content !== undefined) return sha256(content);
+  return snapshot.paths.includes(lockPath) ? `unavailable at ${snapshot.sha}` : 'missing';
+}
+
+function approvalQuestion(
+  target: Pick<SkillsRelease, 'release' | 'revision' | 'releaseLockHash'>,
+  identity: string,
+  observed: string[][],
+  reasons: string[],
+  description: string,
+): ManagedDriftQuestion {
   const fingerprint = sha256(
-    JSON.stringify([
-      [target.release, target.revision, target.releaseLockHash],
-      sha256(content),
-      observed,
-    ]),
+    JSON.stringify([[target.release, target.revision, target.releaseLockHash], identity, observed]),
   );
   return {
     key: 'managed-drift',
-    text: `Managed skills differ from the installed ${installed.release}. Replace these copies with the pinned ${target.release}? Reply exactly "Replace managed skills" to approve, or decline to keep setup paused.`,
+    text: `${description} Replace these copies with the pinned ${target.release}? Reply exactly "Replace managed skills" to approve, or decline to keep setup paused.`,
     evidence: [
       `Managed-copy approval fingerprint: ${fingerprint}`,
       ...reasons.slice(0, 38),

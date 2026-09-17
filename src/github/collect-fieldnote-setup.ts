@@ -164,6 +164,7 @@ function isRelevant(path: string): boolean {
 }
 
 type Candidate = { path: string; sha: string };
+const installationLockPath = '.fieldnote/skills.lock.json';
 
 /**
  * Collects a bounded, immutable setup snapshot. Repository content is evidence
@@ -194,8 +195,23 @@ export async function collectFieldnoteSetup(
     const paths = new Set<string>();
     const candidates: Candidate[] = [];
     const managedFiles: NonNullable<SetupRepositorySnapshot['managedFiles']> = [];
+    let installationLock: SetupRepositorySnapshot['installationLock'] = null;
+    const missingDocument = (path: string) => {
+      // Git identity is sufficient to ask for explicit replacement of an unreadable lock.
+      if (path !== installationLockPath || !installationLock) complete = false;
+    };
     const consider = (entry: GitTreeEntry, prefix: string) => {
       const path = prefix + (entry.path ?? '');
+      if (path === installationLockPath) {
+        paths.add(path);
+        if (
+          !/^[a-f0-9]{40}$/.test(entry.sha ?? '') ||
+          !/^[0-7]{6}$/.test(entry.mode ?? '') ||
+          !['blob', 'tree', 'commit'].includes(entry.type ?? '')
+        )
+          complete = false;
+        else installationLock = { blobSha: entry.sha!, mode: entry.mode!, type: entry.type! };
+      }
       if (/^\.(?:agents|claude)\/skills\//.test(path) && entry.type !== 'tree') {
         if (
           managedFiles.length >= limits.documents ||
@@ -219,7 +235,7 @@ export async function collectFieldnoteSetup(
         candidates.length >= limits.documents ||
         reservedBytes + entry.size > limits.totalBytes
       ) {
-        complete = false;
+        missingDocument(path);
         return;
       }
       reservedBytes += entry.size;
@@ -269,11 +285,16 @@ export async function collectFieldnoteSetup(
         batch.map((candidate) =>
           withDeadline((signal) =>
             client.rest.git.getBlob({ ...identity, file_sha: candidate.sha, request: { signal } }),
-          ),
+          ).catch((error: unknown) => {
+            if (candidate.path === installationLockPath && installationLock) return null;
+            throw error;
+          }),
         ),
       );
       for (let offset = 0; offset < blobs.length; offset++) {
-        const { data } = blobs[offset];
+        const result = blobs[offset];
+        if (!result) continue;
+        const { data } = result;
         const encoded = data.content.replace(/\s/g, '');
         if (
           data.encoding !== 'base64' ||
@@ -284,7 +305,7 @@ export async function collectFieldnoteSetup(
           encoded.length > Math.ceil(limits.fileBytes / 3) * 4 ||
           !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)
         ) {
-          complete = false;
+          missingDocument(batch[offset].path);
           continue;
         }
         const bytes = Buffer.from(encoded, 'base64');
@@ -293,7 +314,7 @@ export async function collectFieldnoteSetup(
           totalBytes + bytes.length > limits.totalBytes ||
           bytes.includes(0)
         ) {
-          complete = false;
+          missingDocument(batch[offset].path);
           continue;
         }
         try {
@@ -301,7 +322,7 @@ export async function collectFieldnoteSetup(
           totalBytes += bytes.length;
           documents.push({ path: batch[offset].path, blobSha: batch[offset].sha, text });
         } catch {
-          complete = false;
+          missingDocument(batch[offset].path);
         }
       }
       if (totalBytes >= limits.totalBytes && index + 4 < candidates.length) {
@@ -318,6 +339,7 @@ export async function collectFieldnoteSetup(
       paths: sortedPaths,
       documents,
       managedFiles: managedFiles.sort((left, right) => left.path.localeCompare(right.path, 'en')),
+      installationLock,
       candidates: detectAgentCandidates({ paths: sortedPaths, detections }),
     };
   } catch (error) {

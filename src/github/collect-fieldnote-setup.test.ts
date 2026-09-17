@@ -14,8 +14,18 @@ vi.mock('../db/queries/ai-involvement', () => ({
 }));
 
 import { collectFieldnoteSetup, FieldnoteSetupCollectionError } from './collect-fieldnote-setup';
+import {
+  managedDriftQuestion,
+  questionNote,
+  hasManagedDriftApproval,
+} from '../domain/fieldnote-skills/drift';
+import { sha256 } from '../domain/fieldnote-skills/lock';
 
-const blob = (path: string, sha = path, size = 4) => ({
+const blob = (
+  path: string,
+  sha = path === '.fieldnote/skills.lock.json' ? 'a'.repeat(40) : path,
+  size = 4,
+) => ({
   path,
   sha,
   size,
@@ -124,6 +134,52 @@ test('captures bounded managed Git blob identities for non-document files withou
   expect(snapshot.documents).toEqual([]);
   expect(mocks.getBlob).not.toHaveBeenCalled();
 });
+
+test.each(['oversized', 'unavailable', 'non-text'] as const)(
+  'retains the %s installation lock Git identity for bounded repair approval',
+  async (kind) => {
+    const lockPath = '.fieldnote/skills.lock.json';
+    const lockSha = 'a'.repeat(40);
+    mocks.getTree.mockResolvedValue({
+      data: {
+        truncated: false,
+        tree: [
+          blob(lockPath, lockSha, kind === 'oversized' ? 262_145 : 4),
+          blob('.agents/skills/fieldnote-test/scripts/check.py', 'b'.repeat(40)),
+        ],
+      },
+    });
+    if (kind === 'unavailable')
+      mocks.getBlob.mockRejectedValue(new Error('private provider diagnostic'));
+    if (kind === 'non-text') mocks.getBlob.mockResolvedValue(encoded(Buffer.from([0xff])));
+    const snapshot = await collectFieldnoteSetup('fixture-repo', 'c'.repeat(40));
+    expect(snapshot).toMatchObject({
+      complete: true,
+      documents: [],
+      installationLock: { blobSha: lockSha, mode: '100644', type: 'blob' },
+    });
+    const target = {
+      release: 'skills-v0.1.0',
+      revision: 'd'.repeat(40),
+      releaseLockHash: sha256('lock'),
+    };
+    const question = managedDriftQuestion(snapshot, null, target)!;
+    expect(question.evidence.join('\n')).toContain(lockSha);
+    expect(JSON.stringify(question)).not.toContain('private provider diagnostic');
+    const notes = [
+      { speaker: 'agent' as const, kind: 'question' as const, body: questionNote(question) },
+      { speaker: 'human' as const, kind: 'answer' as const, body: 'Replace managed skills' },
+    ];
+    for (const change of [{ blobSha: 'e'.repeat(40) }, { mode: '100755' }]) {
+      const changed = managedDriftQuestion(
+        { ...snapshot, installationLock: { ...snapshot.installationLock!, ...change } },
+        null,
+        target,
+      )!;
+      expect(hasManagedDriftApproval(notes, changed)).toBe(false);
+    }
+  },
+);
 
 test('walks a truncated immutable tree breadth first', async () => {
   mocks.getTree

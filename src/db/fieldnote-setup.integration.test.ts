@@ -9,6 +9,7 @@ import * as schema from './schema';
 import { authoredPrClient } from '../github/testing/authored-pr-client';
 import { writeAuthoredPullRequest } from '../github/write-authored-pr';
 import { writePrRepair } from '../github/repair-authored-pr';
+import { verifyFieldnoteInstallation } from '../github/verify-fieldnote-installation';
 import { renderInstallation } from '../domain/fieldnote-skills/render';
 import { supportingConfigurationDefaults } from '../domain/fieldnote-skills/configuration';
 import { sha256 } from '../domain/fieldnote-skills/lock';
@@ -61,9 +62,16 @@ const closedOutcome = {
   closedAt: '2026-01-01T10:00:00.000Z',
 };
 
-test.each(['fresh-plan', 'legacy-ready'] as const)(
-  '%s pauses pre-existing managed drift durably until explicit approval, resumes answers, and publishes via the real writer',
-  async (start) => {
+test.each(
+  (['fresh-plan', 'legacy-ready'] as const).flatMap((start) =>
+    (['modified', 'missing', 'malformed', 'oversized'] as const).map((damage) => ({
+      start,
+      damage,
+    })),
+  ),
+)(
+  '$start pauses pre-existing $damage installation durably until explicit approval, resumes answers, and publishes via the real writer',
+  async ({ start, damage }) => {
     const q = await import('./queries/fieldnote-setup');
     const runs = await import('./queries/authoring-runs');
     const author = await import('../authoring/fieldnote-setup');
@@ -111,6 +119,23 @@ test.each(['fresh-plan', 'legacy-ready'] as const)(
     const path = '.agents/skills/fieldnote-setup-profile/SKILL.md';
     const observed = new Map(previous.files);
     observed.set(path, '# Intentional local change');
+    const lockPath = '.fieldnote/skills.lock.json';
+    if (damage === 'missing') observed.delete(lockPath);
+    if (damage === 'malformed') observed.set(lockPath, 'private malformed lock');
+    if (damage === 'oversized') observed.set(lockPath, 'x'.repeat(262_145));
+    const expected = {
+      setupRunId: 'previous',
+      agents,
+      latest: release.release,
+      configurationPaths: configuration.map((file) => file.path),
+    };
+    expect(
+      verifyFieldnoteInstallation(
+        { complete: true, commitSha: sha, files: observed },
+        release,
+        expected,
+      ).state,
+    ).toBe(damage === 'modified' ? 'drifted' : 'partial');
     const snapshot = {
       sha,
       complete: true,
@@ -124,7 +149,12 @@ test.each(['fresh-plan', 'legacy-ready'] as const)(
           evidence: [],
         },
       ],
-      documents: [...observed].map(([path, text]) => ({ path, text, blobSha: gitBlobHash(text) })),
+      documents: [...observed]
+        .filter(([path]) => damage !== 'oversized' || path !== lockPath)
+        .map(([path, text]) => ({ path, text, blobSha: gitBlobHash(text) })),
+      installationLock: observed.has(lockPath)
+        ? { blobSha: gitBlobHash(observed.get(lockPath)!), mode: '100644', type: 'blob' }
+        : null,
       managedFiles: [
         { path, blobSha: gitBlobHash(observed.get(path)!), mode: '100644', type: 'blob' },
       ],
@@ -220,7 +250,10 @@ test.each(['fresh-plan', 'legacy-ready'] as const)(
         const pending = await q.loadSetupPlan(value.id);
         expect(pending?.proposal?.state).toBe('awaiting-input');
         expect(pending?.notes.at(-1)?.body).toContain(`[managed-drift]`);
-        expect(pending?.notes.at(-1)?.body).toContain(`Modified managed file: ${path}`);
+        expect(pending?.notes.at(-1)?.body).toContain(
+          `${damage === 'modified' ? 'Modified' : 'Existing'} managed file: ${path}`,
+        );
+        expect(JSON.stringify(pending?.notes)).not.toContain('private malformed lock');
         expect(github.api.git.createBlob).not.toHaveBeenCalled();
         expect(github.api.pulls.create).not.toHaveBeenCalled();
       }
@@ -247,6 +280,19 @@ test.each(['fresh-plan', 'legacy-ready'] as const)(
       );
       const published = github.trees.get(github.commits.get(github.prs[0].head.sha)!.tree.sha)!;
       expect(published.find((file) => file.path === path)?.sha).toBe(gitBlobHash(content));
+      const bytesByHash = new Map([...observed.values()].map((text) => [gitBlobHash(text), text]));
+      for (const [input] of github.api.git.createBlob.mock.calls)
+        bytesByHash.set(gitBlobHash(input.content), input.content);
+      const publishedFiles = new Map(
+        published.map((file) => [file.path, bytesByHash.get(file.sha)!]),
+      );
+      expect(
+        verifyFieldnoteInstallation(
+          { complete: true, commitSha: github.prs[0].head.sha, files: publishedFiles },
+          release,
+          { ...expected, setupRunId: queued.id },
+        ).state,
+      ).toBe('current');
     } finally {
       vi.restoreAllMocks();
     }

@@ -122,62 +122,76 @@ test('records the human confirmation and resumes with persisted notes and pinned
   );
 });
 
-test('pre-existing managed skill drift requires a deterministic human replacement question before ready authoring', async () => {
-  const content = '# Generic setup';
-  const release = {
-    release: 'skills-v0.1.0',
-    revision,
-    releaseLockHash: sha256('lock'),
-    skills: [
+test.each(['modified', 'missing', 'malformed', 'unverifiable'] as const)(
+  'pre-existing %s installation requires a deterministic human replacement question before ready authoring',
+  async (kind) => {
+    const content = '# Generic setup';
+    const release = {
+      release: 'skills-v0.1.0',
+      revision,
+      releaseLockHash: sha256('lock'),
+      skills: [
+        {
+          name: 'fieldnote-setup-profile',
+          version: '1',
+          files: [{ path: 'SKILL.md', content, hash: sha256(content) }],
+        },
+      ],
+    };
+    const confirmed = [{ agent: 'codex' as const, supported: true, skillsRoot: '.agents/skills' }];
+    const rendered = renderInstallation({
+      release,
+      setupRunId: 'previous',
+      agents: confirmed,
+      configuration: [
+        { path: '.fieldnote/profile.md', content: 'Complete profile' },
+        ...supportingConfigurationDefaults,
+      ],
+    });
+    deps.read.mockResolvedValue(release);
+    deps.author.mockResolvedValue({
+      state: 'ready',
+      nextQuestion: null,
+      files: [],
+      confirmedAgents: confirmed,
+    });
+    const drifted = new Map(rendered.files);
+    drifted.set(
+      '.agents/skills/fieldnote-setup-profile/SKILL.md',
+      '# Deliberate local modification',
+    );
+    if (kind === 'missing') drifted.delete('.fieldnote/skills.lock.json');
+    if (kind === 'malformed') drifted.set('.fieldnote/skills.lock.json', 'private malformed lock');
+    if (kind === 'unverifiable')
+      deps.read
+        .mockResolvedValueOnce(release)
+        .mockRejectedValueOnce(new Error('private upstream diagnostic'));
+    const result = await authorPinnedSetup(
+      release,
       {
-        name: 'fieldnote-setup-profile',
-        version: '1',
-        files: [{ path: 'SKILL.md', content, hash: sha256(content) }],
+        sha,
+        complete: true,
+        paths: [...drifted.keys()],
+        candidates: [],
+        documents: [...drifted].map(([path, text]) => ({ path, text, blobSha: 'changed' })),
       },
-    ],
-  };
-  const confirmed = [{ agent: 'codex' as const, supported: true, skillsRoot: '.agents/skills' }];
-  const rendered = renderInstallation({
-    release,
-    setupRunId: 'previous',
-    agents: confirmed,
-    configuration: [
-      { path: '.fieldnote/profile.md', content: 'Complete profile' },
-      ...supportingConfigurationDefaults,
-    ],
-  });
-  deps.read.mockResolvedValue(release);
-  deps.author.mockResolvedValue({
-    state: 'ready',
-    nextQuestion: null,
-    files: [],
-    confirmedAgents: confirmed,
-  });
-  const drifted = new Map(rendered.files);
-  drifted.set('.agents/skills/fieldnote-setup-profile/SKILL.md', '# Deliberate local modification');
-  const result = await authorPinnedSetup(
-    release,
-    {
-      sha,
-      complete: true,
-      paths: [...drifted.keys()],
-      candidates: [],
-      documents: [...drifted].map(([path, text]) => ({ path, text, blobSha: 'changed' })),
-    },
-    [],
-    confirmed,
-    [],
-  );
-  expect(result).toMatchObject({
-    state: 'awaiting-input',
-    nextQuestion: { key: 'managed-drift' },
-    files: [],
-  });
-  expect(result.nextQuestion?.evidence.join('\n')).toContain(
-    '.agents/skills/fieldnote-setup-profile/SKILL.md',
-  );
-  expect(deps.author).not.toHaveBeenCalled();
-});
+      [],
+      confirmed,
+      [],
+    );
+    expect(result).toMatchObject({
+      state: 'awaiting-input',
+      nextQuestion: { key: 'managed-drift' },
+      files: [],
+    });
+    expect(result.nextQuestion?.evidence.join('\n')).toContain(
+      '.agents/skills/fieldnote-setup-profile/SKILL.md',
+    );
+    expect(deps.author).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain('private malformed lock');
+    expect(JSON.stringify(result)).not.toContain('private upstream diagnostic');
+  },
+);
 
 test.each([
   ['provider token', (): string => `ghp_${'a'.repeat(36)}`],

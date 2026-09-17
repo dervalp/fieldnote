@@ -145,6 +145,7 @@ export const executeFieldnoteSetupFunction = inngest.createFunction(
             value.paths,
             value.documents.map(({ path, blobSha }) => ({ path, blobSha })),
             value.managedFiles,
+            value.installationLock,
           ]);
         if (!snapshot.complete || !original.complete || evidence(snapshot) !== evidence(original)) {
           if (await load()) await reopenSetupPlan(runId, snapshot, 'setup_conflict');

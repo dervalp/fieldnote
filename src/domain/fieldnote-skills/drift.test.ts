@@ -3,6 +3,7 @@ import { renderInstallation } from './render';
 import { parseInstallationLock, renderInstallationLock, sha256 } from './lock';
 import { supportingConfigurationDefaults } from './configuration';
 import { gitBlobHash, managedDriftQuestion, hasManagedDriftApproval, questionNote } from './drift';
+import { verifyFieldnoteInstallation } from '../../github/verify-fieldnote-installation';
 
 const content = 'print("safe check")';
 const release = {
@@ -41,6 +42,106 @@ const snapshot = {
   ],
   managedFiles: [{ path, blobSha: gitBlobHash(content), mode: '100644', type: 'blob' }],
 };
+test.each(['missing', 'malformed', 'unverifiable', 'invalid-declaration'] as const)(
+  '%s lock is repairable partial drift, never fresh setup or a fatal parse error',
+  (kind) => {
+    const files = new Map(installation.files);
+    if (kind === 'missing') files.delete('.fieldnote/skills.lock.json');
+    else if (kind === 'malformed')
+      files.set('.fieldnote/skills.lock.json', 'private malformed lock');
+    else {
+      const lock = parseInstallationLock(files.get('.fieldnote/skills.lock.json')!);
+      if (kind === 'unverifiable') lock.revision = 'c'.repeat(40);
+      else
+        lock.files.push({
+          path: `.agents/skills/fieldnote-testing/${'x'.repeat(241)}`,
+          hash: sha256('x'),
+          sourceHash: sha256('x'),
+        });
+      files.set('.fieldnote/skills.lock.json', renderInstallationLock(lock));
+    }
+    const partial = {
+      ...snapshot,
+      paths: [...files.keys()],
+      documents: [...files]
+        .filter(([path]) => path === '.fieldnote/skills.lock.json')
+        .map(([path, text]) => ({ path, text, blobSha: gitBlobHash(text) })),
+    };
+    expect(
+      verifyFieldnoteInstallation({ complete: true, commitSha: partial.sha, files }, release, {
+        setupRunId: 'old',
+        agents: [{ agent: 'codex', supported: true, skillsRoot: '.agents/skills' }],
+        latest: release.release,
+        configurationPaths: [...files.keys()].filter(
+          (path) => path.endsWith('.md') && path.startsWith('.fieldnote/'),
+        ),
+      }).state,
+    ).toBe('partial');
+    const question = managedDriftQuestion(partial, release, release)!;
+    expect(question).toMatchObject({ key: 'managed-drift' });
+    expect(JSON.stringify(question)).not.toContain('private malformed lock');
+    expect(question.evidence.join('\n')).toContain(path);
+    const note = {
+      speaker: 'agent' as const,
+      kind: 'question' as const,
+      body: questionNote(question),
+    };
+    for (const answer of ['No', 'Yes', 'Maybe'])
+      expect(
+        hasManagedDriftApproval(
+          [note, { speaker: 'human', kind: 'answer', body: answer }],
+          question,
+        ),
+      ).toBe(false);
+    const approved = [
+      note,
+      { speaker: 'human' as const, kind: 'answer' as const, body: 'Replace managed skills' },
+    ];
+    expect(hasManagedDriftApproval(approved, question)).toBe(true);
+    const changedLock = managedDriftQuestion(
+      {
+        ...partial,
+        documents: [
+          {
+            path: '.fieldnote/skills.lock.json',
+            blobSha: 'changed',
+            text: `${partial.documents[0]?.text ?? 'new malformed lock'}\n `,
+          },
+        ],
+      },
+      release,
+      release,
+    )!;
+    expect(hasManagedDriftApproval(approved, changedLock)).toBe(false);
+    for (const change of [
+      { blobSha: gitBlobHash('another local change') },
+      { mode: '100755' },
+      { path: `${path}.moved` },
+    ]) {
+      const changed = managedDriftQuestion(
+        { ...partial, managedFiles: [{ ...snapshot.managedFiles[0], ...change }] },
+        release,
+        release,
+      )!;
+      expect(hasManagedDriftApproval(approved, changed)).toBe(false);
+    }
+    expect(
+      hasManagedDriftApproval(
+        approved,
+        managedDriftQuestion(partial, release, { ...release, release: 'skills-v0.2.0' })!,
+      ),
+    ).toBe(false);
+  },
+);
+test('no lock and no managed copies remains genuinely fresh setup', () => {
+  expect(
+    managedDriftQuestion(
+      { ...snapshot, documents: [], paths: [], managedFiles: [] },
+      release,
+      release,
+    ),
+  ).toBeNull();
+});
 test('unchanged installed generic bytes are not drift during a legitimate release update', () => {
   expect(
     managedDriftQuestion(snapshot, release, { ...release, release: 'skills-v0.2.0' }),
