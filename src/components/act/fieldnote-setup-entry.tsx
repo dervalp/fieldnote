@@ -81,6 +81,9 @@ export function FieldnoteSetupEntry({
           </p>
         ) : (
           <>
+            {installation.kind === 'outdated' && (
+              <p>Fieldnote Skills {version(installation.installed)} installed</p>
+            )}
             {(installation.kind === 'partial' || installation.kind === 'drifted') && (
               <ul>
                 {installation.reasons.map((reason, index) => (

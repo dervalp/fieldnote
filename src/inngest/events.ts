@@ -18,6 +18,7 @@ export const recomputeData = z.object({ prId: z.string().min(1) });
 export const invitationSendData = z.object({ deliveryId: z.string().min(1) });
 export const gradeRequestedData = z.object({ runId: z.string().min(1) });
 export const authoredPrMonitorData = z.object({ authoredPrId: z.string().min(1) });
+export const fieldnoteInstallationVerifyData = authoredPrMonitorData;
 export const authoredPrRepairData = authoredPrMonitorData.extend({ repairId: z.string().min(1) });
 export const authoringPlanRequestedData = z.object({ runId: z.string().min(1) });
 export const fieldnoteSetupPlanRequestedData = z.object({ runId: z.string().min(1) });
@@ -28,7 +29,9 @@ export const fieldnoteSetupExecuteRequestedData = z.object({
 export interface ReliabilityEvents {
   'repository/authored-pr.monitor.requested': z.infer<typeof authoredPrMonitorData>;
   'repository/authored-pr.repair.requested': z.infer<typeof authoredPrRepairData>;
-  'repository/fieldnote.installation.verify.requested': z.infer<typeof authoredPrMonitorData>;
+  'repository/fieldnote.installation.verify.requested': z.infer<
+    typeof fieldnoteInstallationVerifyData
+  >;
   'repository/grade.requested': z.infer<typeof gradeRequestedData>;
   'repository/authoring.plan.requested': z.infer<typeof authoringPlanRequestedData>;
   'repository/fieldnote.setup.plan.requested': z.infer<typeof fieldnoteSetupPlanRequestedData>;

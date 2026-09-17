@@ -65,3 +65,10 @@ test.each([
 test('cannot start setup without opt-in and write permissions', () => {
   expect(render({ canStart: false })).not.toContain('<form');
 });
+test('an update offer retains the verified installed release', () => {
+  const html = render({
+    installation: { kind: 'outdated', installed: 'skills-v0.1.0', latest: 'skills-v0.2.0' },
+  });
+  expect(html).toContain('Fieldnote Skills v0.1.0 installed');
+  expect(html).toContain('Update Fieldnote to v0.2.0');
+});

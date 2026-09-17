@@ -4,6 +4,7 @@ import { scheduleGrades } from '../../../inngest/functions/schedule-grades';
 import { planRepositoryFunction } from '../../../inngest/functions/plan-repository';
 import { planFieldnoteSetupFunction } from '../../../inngest/functions/plan-fieldnote-setup';
 import { executeFieldnoteSetupFunction } from '../../../inngest/functions/execute-fieldnote-setup';
+import { verifyFieldnoteInstallationFunction } from '../../../inngest/functions/verify-fieldnote-installation';
 import { reconcileAuthoring } from '../../../inngest/functions/reconcile-authoring';
 import {
   monitorAuthoredPrFunction,
@@ -35,6 +36,7 @@ export const { GET, POST, PUT } = serve({
     planRepositoryFunction,
     planFieldnoteSetupFunction,
     executeFieldnoteSetupFunction,
+    verifyFieldnoteInstallationFunction,
     reconcileAuthoring,
     monitorAuthoredPrFunction,
     repairAuthoredPrFunction,

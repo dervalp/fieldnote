@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lt, or } from 'drizzle-orm';
 import { db } from '../index';
 import {
   authoredPullRequests as prs,
   authoredPullRequestRepairs as repairs,
   authoringNotes as notes,
+  repositoryFieldnoteInstallations as installations,
 } from '../schema';
 import type { Feedback, HumanReason } from '../../domain/act/pr-monitor';
 
@@ -19,12 +20,20 @@ export async function findAuthoredPr(repositoryId: string, number: number) {
   );
 }
 export async function listMonitoredPrs() {
-  // Merged rows remain eligible until Task 12 observes the default branch;
-  // repeated verify requests are intentionally safe and recover send failures.
+  // Retry merged rows until a complete default-branch scan has been recorded.
   return db()
     .select({ id: prs.id })
     .from(prs)
-    .where(inArray(prs.outcome, ['open', 'merged']));
+    .leftJoin(installations, eq(installations.repositoryId, prs.repositoryId))
+    .where(
+      or(
+        eq(prs.outcome, 'open'),
+        and(
+          eq(prs.outcome, 'merged'),
+          or(isNull(installations.repositoryId), lt(installations.verifiedAt, prs.mergedAt)),
+        ),
+      ),
+    );
 }
 export async function loadAuthoredPrMonitor(id: string) {
   return db().transaction((tx) => lockedMonitorContext(tx, id));
@@ -193,7 +202,7 @@ export async function recordPrOutcome(
       closedAt: new Date(),
       ...(snapshot.outcome === 'merged' ? { mergedAt: new Date() } : {}),
     })
-    .where(eq(prs.id, id));
+    .where(and(eq(prs.id, id), eq(prs.outcome, 'open')));
 }
 export async function recordMonitorHumanRequired(id: string, reason: HumanReason) {
   await db().transaction(async (tx) => {

@@ -236,13 +236,15 @@ export default async function Grading({
         />
       )}
       {isReadiness && summary?.latest && enabled && message && <p className="muted">{message}</p>}
-      {isReadiness && setup?.installation.kind === 'current' && summary?.latest && (
-        <ActEntry
-          repositoryId={repoId}
-          availability={availability}
-          latest={plan ? { id: plan.id, state: plan.state } : null}
-        />
-      )}
+      {isReadiness &&
+        (setup?.installation.kind === 'current' || setup?.installation.kind === 'outdated') &&
+        summary?.latest && (
+          <ActEntry
+            repositoryId={repoId}
+            availability={availability}
+            latest={plan ? { id: plan.id, state: plan.state } : null}
+          />
+        )}
       <div className="grading-layout">
         <div>
           {history.length > 0 && (

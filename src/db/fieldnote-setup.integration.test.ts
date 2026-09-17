@@ -42,6 +42,39 @@ const repositories: string[] = [];
 const sha = 'a'.repeat(40);
 const agents = [{ agent: 'codex' as const, supported: true, skillsRoot: '.agents/skills' }];
 
+test('merged verification persists idempotently and terminal reconciliation keeps merge time stable', async () => {
+  const { pr, monitor } = await repairFixture();
+  const { loadInstallationVerification, recordVerifiedInstallation } =
+    await import('./queries/fieldnote-installations');
+  expect(await loadInstallationVerification(pr.id)).toBeNull();
+  const observation = {
+    state: 'current' as const,
+    release: 'skills-v0.1.0',
+    revision: 'b'.repeat(40),
+    lockHash: sha256('lock'),
+    agents,
+    commitSha: sha,
+    reasons: [],
+  };
+  expect(await recordVerifiedInstallation(pr.id, observation)).toBeNull();
+  await monitor.recordPrOutcome(pr.id, { outcome: 'merged', headSha: sha });
+  const loaded = await loadInstallationVerification(pr.id);
+  expect(loaded?.run.id).toBe(pr.authoringRunId);
+  await Promise.all([
+    recordVerifiedInstallation(pr.id, observation),
+    recordVerifiedInstallation(pr.id, observation),
+  ]);
+  const [stored] = await db()
+    .select()
+    .from(schema.repositoryFieldnoteInstallations)
+    .where(eq(schema.repositoryFieldnoteInstallations.repositoryId, pr.repositoryId));
+  const repeated = await recordVerifiedInstallation(pr.id, observation);
+  expect(repeated?.verifiedAt).toEqual(stored.verifiedAt);
+  await monitor.recordPrOutcome(pr.id, { outcome: 'merged', headSha: sha });
+  expect((await loadInstallationVerification(pr.id))?.pr.mergedAt).toEqual(loaded?.pr.mergedAt);
+  expect((await monitor.listMonitoredPrs()).map((row) => row.id)).not.toContain(pr.id);
+});
+
 test('confirmed missing authoring access has a distinct terminal error', async () => {
   const value = await plan();
   const { loadAuthoringRun, validateAuthoringRun } = await import('./queries/authoring-runs');

@@ -238,7 +238,7 @@ test('the Act entry appears under the readiness card and disappears under a diff
   expect(deliverySelected).not.toContain('Plan the fixes');
 });
 
-test.each(['missing', 'proposed', 'partial', 'drifted', 'outdated'])(
+test.each(['missing', 'proposed', 'partial', 'drifted'])(
   'hides readiness planning for %s setup',
   async (kind) => {
     deps.actEnabled.mockResolvedValue(true);
@@ -276,6 +276,21 @@ test('offers setup before the first readiness grade', async () => {
     latestAvailable: true,
   });
   expect(renderToStaticMarkup(await call())).toContain('Set up Fieldnote');
+});
+test('valid outdated installation offers its update and broader readiness actions', async () => {
+  deps.actEnabled.mockResolvedValue(true);
+  deps.fetchGrantedPermissions.mockResolvedValue({ contents: 'write', pullRequests: 'write' });
+  deps.summaries.mockResolvedValue([
+    { graderId: 'fieldnote/agent-readiness', latest: { ...completed, checks: [failedCheck] } },
+  ]);
+  deps.setup.mockResolvedValue({
+    installation: { kind: 'outdated', installed: 'skills-v0.1.0', latest: 'skills-v0.2.0' },
+    progress: null,
+    latestAvailable: true,
+  });
+  const html = renderToStaticMarkup(await call());
+  expect(html).toContain('Update Fieldnote to v0.2.0');
+  expect(html).toContain('Plan the fixes');
 });
 test('a release outage preserves the stored installation and explains freshness is unknown', async () => {
   deps.release.mockRejectedValue(new Error('unavailable'));
