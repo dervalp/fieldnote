@@ -97,6 +97,25 @@ export async function publishPrRepair(
     context: NonNullable<Awaited<ReturnType<typeof loadAuthoredPrMonitor>>>,
   ) => Promise<{ headSha: string }>,
 ) {
+  const result = await settlePrRepair(prId, repairId, publish);
+  return result && 'headSha' in result ? result : null;
+}
+export async function reconcilePrRepairFailure(
+  prId: string,
+  repairId: string,
+  probe: (
+    context: NonNullable<Awaited<ReturnType<typeof loadAuthoredPrMonitor>>>,
+  ) => Promise<{ headSha: string } | { unpublished: true }>,
+) {
+  return settlePrRepair(prId, repairId, probe);
+}
+async function settlePrRepair(
+  prId: string,
+  repairId: string,
+  probe: (
+    context: NonNullable<Awaited<ReturnType<typeof loadAuthoredPrMonitor>>>,
+  ) => Promise<{ headSha: string } | { unpublished: true }>,
+) {
   return db().transaction(async (tx) => {
     const context = await lockedMonitorContext(tx, prId);
     const attempt = context?.repairs.find((repair) => repair.id === repairId);
@@ -112,17 +131,20 @@ export async function publishPrRepair(
     // Hold the PR lock through the ref mutation and durable completion. A
     // separate onFailure invocation must wait, then observe complete; if it
     // finalized first, the guard above forbids publishing anything.
-    const result = await publish(context);
+    // Failure recovery probes under this same lock: a base-head observation
+    // cannot race publication (including a publication whose DB commit fails).
+    const result = await probe(context);
+    const published = 'headSha' in result;
     await tx
       .update(repairs)
       .set({
-        state: 'complete',
-        resultHeadSha: result.headSha,
-        errorCode: null,
+        state: published ? 'complete' : 'failed',
+        resultHeadSha: published ? result.headSha : null,
+        errorCode: published ? null : 'repair_failed',
         completedAt: new Date(),
       })
       .where(eq(repairs.id, repairId));
-    await tx.update(prs).set({ headSha: result.headSha }).where(eq(prs.id, prId));
+    if (published) await tx.update(prs).set({ headSha: result.headSha }).where(eq(prs.id, prId));
     return result;
   });
 }

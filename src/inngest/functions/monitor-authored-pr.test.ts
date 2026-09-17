@@ -5,6 +5,7 @@ const deps = vi.hoisted(() => ({
   observe: vi.fn(),
   reserve: vi.fn(),
   repair: vi.fn(),
+  recover: vi.fn(),
   finish: vi.fn(),
   outcome: vi.fn(),
   human: vi.fn(),
@@ -31,6 +32,7 @@ vi.mock('../../db/queries/authored-pr-monitor', () => ({
 vi.mock('../../github/monitor-authored-pr', () => ({
   observeAuthoredPr: deps.observe,
   repairAuthoredPr: deps.repair,
+  recoverPublishedPrRepair: deps.recover,
 }));
 import { monitorAuthoredPrFunction, repairAuthoredPrFunction } from './monitor-authored-pr';
 const handler = monitorAuthoredPrFunction as unknown as (input: unknown) => Promise<unknown>;
@@ -151,12 +153,14 @@ test('a persisted human-required stop prevents further repairs while still obser
   await handler(context);
   expect(deps.send).toHaveBeenCalled();
 });
-test('retry exhaustion closes the reserved attempt so recovery can allocate the next bounded round', async () => {
+test('retry exhaustion reconciles publication without calling the author or blindly failing', async () => {
   deps.load.mockResolvedValue({ pr, repairs: [{ id: 'attempt', ordinal: 1, state: 'queued' }] });
   await deps.configs[1]?.onFailure?.({
     event: { data: { event: { data: { authoredPrId: 'pr', repairId: 'attempt' } } } },
   });
-  expect(deps.finish).toHaveBeenCalledWith('attempt', { errorCode: 'repair_failed' });
+  expect(deps.recover).toHaveBeenCalledWith('pr', 'attempt');
+  expect(deps.finish).not.toHaveBeenCalled();
+  expect(deps.repair).not.toHaveBeenCalled();
 });
 test('a delayed failure callback targets the event attempt, never a newer reservation', async () => {
   deps.load.mockResolvedValue({
@@ -166,9 +170,19 @@ test('a delayed failure callback targets the event attempt, never a newer reserv
   await deps.configs[1]?.onFailure?.({
     event: { data: { event: { data: { authoredPrId: 'pr', repairId: 'old-attempt' } } } },
   });
-  expect(deps.finish).toHaveBeenCalledWith('old-attempt', { errorCode: 'repair_failed' });
+  expect(deps.recover).toHaveBeenCalledWith('pr', 'old-attempt');
+  expect(deps.finish).not.toHaveBeenCalled();
 });
-test('pending checks keep the deduplicated delivery alive and resume the same reservation', async () => {
+test('unavailable publication evidence keeps failure recovery retryable', async () => {
+  deps.recover.mockRejectedValue(new SetupWriteError('github_unavailable'));
+  await expect(
+    deps.configs[1]?.onFailure?.({
+      event: { data: { event: { data: { authoredPrId: 'pr', repairId: 'attempt' } } } },
+    }),
+  ).rejects.toMatchObject({ code: 'github_unavailable' });
+  expect(deps.finish).not.toHaveBeenCalled();
+});
+test('pending checks resume the same reservation without consuming another ordinal', async () => {
   deps.repair.mockRejectedValueOnce(new SetupWriteError('repair_pending'));
   await handler(context);
   expect(deps.sleep).toHaveBeenCalledWith('wait-for-checks-0', '1m');
@@ -185,14 +199,23 @@ test('delayed obsolete repair deliveries do not record a human stop', async () =
   expect(deps.finish).not.toHaveBeenCalled();
   expect(deps.human).not.toHaveBeenCalled();
 });
-test('reconciliation retries dispatch the same reserved repair event identity', async () => {
+test('reconciliation redelivers promptly after failure recovery outage without event-ID expiry', async () => {
+  deps.load.mockResolvedValue({ pr, repairs: [{ id: 'repair', ordinal: 1, state: 'queued' }] });
+  deps.recover.mockRejectedValueOnce(new SetupWriteError('github_unavailable'));
+  await expect(
+    deps.configs[1]?.onFailure?.({
+      event: { data: { event: { data: { authoredPrId: 'pr', repairId: 'repair' } } } },
+    }),
+  ).rejects.toMatchObject({ code: 'github_unavailable' });
+  const delivered = new Set(['authored-pr-repair:repair']);
+  deps.send.mockImplementation(async (_name, event) => {
+    if (event.id && delivered.has(event.id)) return;
+    if (event.id) delivered.add(event.id);
+    await repairHandler()({ ...context, event });
+  });
   await handler(context);
-  await handler(context);
-  const repairs = deps.send.mock.calls.filter(
-    ([, event]) => event.name === 'repository/authored-pr.repair.requested',
-  );
-  expect(repairs.map(([, event]) => event.id)).toEqual([
-    'authored-pr-repair:repair',
-    'authored-pr-repair:repair',
-  ]);
+  expect(deps.repair).toHaveBeenCalledWith('pr', 'repair');
+  expect(deps.finish).toHaveBeenCalledWith('repair', { headSha: 'b'.repeat(40) });
+  expect(deps.reserve).not.toHaveBeenCalled();
+  expect(deps.send.mock.calls[0][1]).not.toHaveProperty('id');
 });

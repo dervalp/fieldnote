@@ -8,7 +8,11 @@ import {
   recordPrOutcome,
   recordMonitorHumanRequired,
 } from '../../db/queries/authored-pr-monitor';
-import { observeAuthoredPr, repairAuthoredPr } from '../../github/monitor-authored-pr';
+import {
+  observeAuthoredPr,
+  repairAuthoredPr,
+  recoverPublishedPrRepair,
+} from '../../github/monitor-authored-pr';
 import { SetupWriteError } from '../../github/write-authored-pr';
 
 export const monitorAuthoredPrFunction = inngest.createFunction(
@@ -63,7 +67,8 @@ export const monitorAuthoredPrFunction = inngest.createFunction(
     }
     if (decision?.kind === 'repair' && 'repairId' in decision) {
       await step.sendEvent('dispatch-repair', {
-        id: `authored-pr-repair:${decision.repairId}`,
+        // Reconciliation must redeliver after failure-handler retries exhaust.
+        // The PR-locked publication gate, not event-ID expiry, owns idempotency.
         name: 'repository/authored-pr.repair.requested',
         data: { authoredPrId, repairId: decision.repairId },
       });
@@ -78,8 +83,8 @@ export const repairAuthoredPrFunction = inngest.createFunction(
     retries: 3,
     concurrency: { limit: 1, key: 'event.data.authoredPrId' },
     onFailure: async ({ event }) => {
-      const { repairId } = authoredPrRepairData.parse(event.data.event.data);
-      await finishPrRepair(repairId, { errorCode: 'repair_failed' });
+      const { authoredPrId, repairId } = authoredPrRepairData.parse(event.data.event.data);
+      await recoverPublishedPrRepair(authoredPrId, repairId);
     },
   },
   async ({ event, step }) => {
@@ -113,8 +118,8 @@ export const repairAuthoredPrFunction = inngest.createFunction(
         }
       });
       if (!('pending' in result)) return result;
-      // The event ID is stable, so a deferred attempt must keep its original
-      // delivery alive rather than finish and rely on a deduplicated redispatch.
+      // Keep this delivery on the same ordinal while checks settle. Any later
+      // duplicate must still pass the transaction's attempt-state guard.
       await step.sleep(`wait-for-checks-${poll}`, '1m');
     }
   },

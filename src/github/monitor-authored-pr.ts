@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { AuthoringAccessRevokedError } from '../domain/act/authorization';
-import { loadAuthoredPrMonitor, publishPrRepair } from '../db/queries/authored-pr-monitor';
+import {
+  loadAuthoredPrMonitor,
+  publishPrRepair,
+  reconcilePrRepairFailure,
+} from '../db/queries/authored-pr-monitor';
 import { loadAuthoringRun, validateAuthoringRun } from '../db/queries/authoring-runs';
 import { loadSetupPlan } from '../db/queries/fieldnote-setup';
 import { fetchGrantedPermissions } from './installation-permissions';
@@ -71,6 +75,137 @@ async function managed(context: Context) {
 function providerError(error: unknown): never {
   if (error instanceof SetupWriteError) throw error;
   throw new SetupWriteError(errorStatus(error) === 401 ? 'access_revoked' : 'github_unavailable');
+}
+type Setup = Awaited<ReturnType<typeof managed>>;
+type Repository = Pick<Awaited<ReturnType<typeof repositoryClient>>, 'repo' | 'client'>;
+function managedReader(setup: Setup, { repo, client }: Repository) {
+  const identity = { owner: repo.owner, repo: repo.name };
+  return async (headSha: string) => {
+    const { data: commit } = await client.rest.git.getCommit({ ...identity, commit_sha: headSha });
+    const { data: tree } = await client.rest.git.getTree({
+      ...identity,
+      tree_sha: commit.tree.sha,
+      recursive: '1',
+    });
+    if (
+      tree.truncated ||
+      tree.tree.some((entry) => !entry.path || !entry.mode || !entry.type || !entry.sha)
+    )
+      throw new SetupWriteError('setup_conflict');
+    const files = new Map<string, string>();
+    let bytes = 0;
+    for (const path of setup.installation.files.keys()) {
+      const entry = tree.tree.find((file) => file.path === path);
+      if (!entry?.sha || entry.mode !== '100644' || entry.type !== 'blob')
+        throw new SetupWriteError('setup_conflict');
+      const { data: blob } = await client.rest.git.getBlob({ ...identity, file_sha: entry.sha });
+      if (
+        blob.encoding !== 'base64' ||
+        blob.size === null ||
+        blob.size > 256 * 1024 ||
+        (bytes += blob.size) > 4 * 1024 * 1024
+      )
+        throw new SetupWriteError('invalid_installation');
+      files.set(path, Buffer.from(blob.content, 'base64').toString('utf8'));
+    }
+    const lock = parseInstallationLock(files.get('.fieldnote/skills.lock.json')!);
+    if (
+      lock.setupRunId !== setup.run.id ||
+      verifyInstallation({ commitSha: headSha, files }, setup.release).state !== 'current'
+    )
+      throw new SetupWriteError('invalid_installation');
+    return { files, commit, tree };
+  };
+}
+// Read-only provider proof, safe inside the PR transaction: no model or nested DB calls.
+async function publishedRepairProof(
+  context: Context,
+  repairId: string,
+  setup: Setup,
+  repository: Repository,
+): Promise<{ headSha: string } | { unpublished: true }> {
+  const attempt = context.repairs.find((repair) => repair.id === repairId)!;
+  const { repo, client } = repository;
+  const identity = { owner: repo.owner, repo: repo.name };
+  const currentHead = async () => {
+    const { data: pr } = await client.rest.pulls.get({
+      ...identity,
+      pull_number: context.pr.number,
+    });
+    const { data: ref } = await client.rest.git.getRef({
+      ...identity,
+      ref: `heads/${context.pr.branch}`,
+    });
+    if (
+      pr.state !== 'open' ||
+      pr.merged ||
+      pr.head.ref !== context.pr.branch ||
+      pr.head.sha !== ref.object.sha
+    )
+      throw new SetupWriteError('setup_conflict');
+    return ref.object.sha;
+  };
+  const headSha = await currentHead();
+  if (headSha === attempt.baseHeadSha) return { unpublished: true as const };
+  const read = managedReader(setup, repository);
+  const recovered = await read(headSha);
+  const expectedIdentity = (identity: typeof recovered.commit.author) =>
+    identity.name === 'Fieldnote' &&
+    identity.email === 'fieldnote[bot]@users.noreply.github.com' &&
+    Math.floor(Date.parse(identity.date) / 1000) === Math.floor(attempt.createdAt.getTime() / 1000);
+  if (
+    recovered.commit.message !== repairCommitMessage(attempt.id) ||
+    recovered.commit.parents.length !== 1 ||
+    recovered.commit.parents[0].sha !== attempt.baseHeadSha ||
+    !recovered.commit.author ||
+    !recovered.commit.committer ||
+    !expectedIdentity(recovered.commit.author) ||
+    !expectedIdentity(recovered.commit.committer)
+  )
+    throw new SetupWriteError('setup_conflict');
+  const parent = await read(attempt.baseHeadSha);
+  const withoutLock = (files: ReadonlyMap<string, string>) =>
+    new Map([...files].filter(([path]) => path !== '.fieldnote/skills.lock.json'));
+  try {
+    validateRepairReplacement(withoutLock(parent.files), withoutLock(recovered.files));
+  } catch {
+    throw new SetupWriteError('setup_conflict');
+  }
+  const regenerated = renderInstallation({
+    release: setup.release,
+    setupRunId: setup.run.id,
+    agents: setup.plan.proposal!.confirmedAgents!,
+    configuration: setup.plan.files.map((file) => ({
+      path: file.path,
+      content: recovered.files.get(file.path)!,
+    })),
+  });
+  if ([...regenerated.files].some(([path, content]) => recovered.files.get(path) !== content))
+    throw new SetupWriteError('setup_conflict');
+  const outside = (tree: typeof parent.tree) =>
+    JSON.stringify(
+      tree.tree
+        .filter((entry) => entry.type !== 'tree' && !setup.installation.files.has(entry.path ?? ''))
+        .map((entry) => [entry.path, entry.mode, entry.type, entry.sha])
+        .sort(),
+    );
+  if (outside(parent.tree) !== outside(recovered.tree) || (await currentHead()) !== headSha)
+    throw new SetupWriteError('setup_conflict');
+  return { headSha };
+}
+export async function recoverPublishedPrRepair(authoredPrId: string, repairId: string) {
+  try {
+    const context = await loadAuthoredPrMonitor(authoredPrId);
+    const attempt = context?.repairs.find((repair) => repair.id === repairId);
+    if (!context || !attempt || !['queued', 'running'].includes(attempt.state)) return null;
+    const setup = await managed(context);
+    const repository = await repositoryClient(context.pr.repositoryId);
+    return await reconcilePrRepairFailure(authoredPrId, repairId, (fresh) =>
+      publishedRepairProof(fresh, repairId, setup, repository),
+    );
+  } catch (error) {
+    providerError(error);
+  }
 }
 export async function observeAuthoredPr(context: Context): Promise<Snapshot> {
   try {
@@ -180,81 +315,15 @@ export async function repairAuthoredPr(
       throw new SetupWriteError('setup_conflict');
     const { repo, client } = await repositoryClient(context.pr.repositoryId);
     const identity = { owner: repo.owner, repo: repo.name };
-    const readManaged = async (headSha: string) => {
-      const { data: commit } = await client.rest.git.getCommit({
-        ...identity,
-        commit_sha: headSha,
-      });
-      const { data: tree } = await client.rest.git.getTree({
-        ...identity,
-        tree_sha: commit.tree.sha,
-        recursive: '1',
-      });
-      if (tree.truncated) throw new SetupWriteError('setup_conflict');
-      const files = new Map<string, string>();
-      let bytes = 0;
-      for (const path of setup.installation.files.keys()) {
-        const entry = tree.tree.find((file) => file.path === path);
-        if (!entry?.sha || entry.mode !== '100644' || entry.type !== 'blob')
-          throw new SetupWriteError('setup_conflict');
-        const { data: blob } = await client.rest.git.getBlob({ ...identity, file_sha: entry.sha });
-        if (
-          blob.encoding !== 'base64' ||
-          blob.size === null ||
-          blob.size > 256 * 1024 ||
-          (bytes += blob.size) > 4 * 1024 * 1024
-        )
-          throw new SetupWriteError('invalid_installation');
-        const content = Buffer.from(blob.content, 'base64').toString('utf8');
-        files.set(path, content);
-      }
-      const lock = parseInstallationLock(files.get('.fieldnote/skills.lock.json')!);
-      if (
-        lock.setupRunId !== setup.run.id ||
-        verifyInstallation({ commitSha: headSha, files }, setup.release).state !== 'current'
-      )
-        throw new SetupWriteError('invalid_installation');
-      return { files, commit, tree };
-    };
+    const readManaged = managedReader(setup, { repo, client });
     // Recover a published commit before another model call. Prove its exact
     // parent, identity, managed-file diff and immutable release bytes first.
     if (snapshot.headSha !== attempt.baseHeadSha) {
-      const recovered = await readManaged(snapshot.headSha);
-      if (
-        recovered.commit.message !== repairCommitMessage(attempt.id) ||
-        recovered.commit.parents.length !== 1 ||
-        recovered.commit.parents[0].sha !== attempt.baseHeadSha
-      )
-        throw new SetupWriteError('setup_conflict');
-      const parent = await readManaged(attempt.baseHeadSha);
-      const withoutLock = (files: ReadonlyMap<string, string>) =>
-        new Map([...files].filter(([path]) => path !== '.fieldnote/skills.lock.json'));
-      validateRepairReplacement(withoutLock(parent.files), withoutLock(recovered.files));
-      const outside = (tree: typeof parent.tree) =>
-        JSON.stringify(
-          tree.tree
-            .filter(
-              (entry) => entry.type !== 'tree' && !setup.installation.files.has(entry.path ?? ''),
-            )
-            .map((entry) => [entry.path, entry.mode, entry.type, entry.sha])
-            .sort(),
-        );
-      if (outside(parent.tree) !== outside(recovered.tree))
-        throw new SetupWriteError('setup_conflict');
       await authorize(context);
       const recoveredResult = await publishPrRepair(authoredPrId, attempt.id, async (fresh) => {
-        const { data: latest } = await client.rest.pulls.get({
-          ...identity,
-          pull_number: fresh.pr.number,
-        });
-        if (
-          latest.state !== 'open' ||
-          latest.merged ||
-          latest.head.ref !== fresh.pr.branch ||
-          latest.head.sha !== snapshot.headSha
-        )
-          throw new SetupWriteError('setup_conflict');
-        return { headSha: snapshot.headSha };
+        const proof = await publishedRepairProof(fresh, repairId, setup, { repo, client });
+        if (!('headSha' in proof)) throw new SetupWriteError('setup_conflict');
+        return proof;
       });
       if (!recoveredResult) throw new SetupWriteError('repair_obsolete');
       return recoveredResult;

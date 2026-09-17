@@ -14,10 +14,12 @@ const deps = vi.hoisted(() => ({
   sandbox: vi.fn(),
   write: vi.fn(),
   publish: vi.fn(),
+  reconcile: vi.fn(),
 }));
 vi.mock('../db/queries/authored-pr-monitor', () => ({
   loadAuthoredPrMonitor: deps.load,
   publishPrRepair: deps.publish,
+  reconcilePrRepairFailure: deps.reconcile,
 }));
 vi.mock('../db/queries/authoring-runs', () => ({
   loadAuthoringRun: deps.run,
@@ -33,7 +35,11 @@ vi.mock('./repair-authored-pr', () => ({
   writePrRepair: deps.write,
   repairCommitMessage: (id: string) => `Repair Fieldnote setup\n\nFieldnote repair: ${id}`,
 }));
-import { observeAuthoredPr, repairAuthoredPr } from './monitor-authored-pr';
+import {
+  observeAuthoredPr,
+  repairAuthoredPr,
+  recoverPublishedPrRepair,
+} from './monitor-authored-pr';
 const head = 'a'.repeat(40);
 const release = {
   release: 'skills-v0.1.0',
@@ -114,20 +120,24 @@ function client() {
       getCombinedStatusForRef: vi.fn(async () => ({ data: { total_count: 0, statuses: [] } })),
     },
     git: {
+      getRef: vi.fn(async () => ({ data: { object: { sha: head } } })),
       getCommit: vi.fn(async () => ({
         data: { message: 'setup', parents: [{ sha: 'base' }], tree: { sha: 'tree' } },
       })),
-      getTree: vi.fn(async () => ({
-        data: {
-          truncated: false,
-          tree: [...files].map(([path], i) => ({
-            path,
-            mode: '100644',
-            type: 'blob',
-            sha: `blob-${i}`,
-          })),
-        },
-      })),
+      getTree: vi.fn(async (input?: unknown) => {
+        void input;
+        return {
+          data: {
+            truncated: false,
+            tree: [...files].map(([path], i) => ({
+              path,
+              mode: '100644',
+              type: 'blob',
+              sha: `blob-${i}`,
+            })),
+          },
+        };
+      }),
       getBlob: vi.fn(async ({ file_sha }: { file_sha: string }) => ({
         data: {
           encoding: 'base64',
@@ -145,6 +155,7 @@ beforeEach(() => {
   api = client();
   deps.load.mockResolvedValue(context);
   deps.publish.mockImplementation(async (_prId, _repairId, publish) => publish(context));
+  deps.reconcile.mockImplementation(async (_prId, _repairId, probe) => probe(context));
   deps.run.mockResolvedValue({
     id: 'execute',
     repositoryId: 'repo',
@@ -241,7 +252,7 @@ test('unsafe review and unknown head prevent automatic repair', async () => {
   await expect(repairAuthoredPr('pr', 'repair')).rejects.toMatchObject({ code: 'setup_conflict' });
   expect(deps.sandbox).not.toHaveBeenCalled();
 });
-test('a repair publication with a lost response is recovered before starting another sandbox', async () => {
+function publishedRepair() {
   const next = 'c'.repeat(40);
   const repaired = renderInstallation({
     release,
@@ -252,11 +263,22 @@ test('a repair publication with a lost response is recovered before starting ano
   api.pulls.get.mockResolvedValue({
     data: { state: 'open', merged: false, head: { sha: next, ref: pr.branch } },
   });
+  api.git.getRef.mockResolvedValue({ data: { object: { sha: next } } });
   api.git.getCommit.mockImplementation(async (input?: unknown) => {
     const current = (input as { commit_sha: string }).commit_sha === next;
     return {
       data: {
         message: current ? 'Repair Fieldnote setup\n\nFieldnote repair: repair' : 'setup',
+        author: {
+          name: 'Fieldnote',
+          email: 'fieldnote[bot]@users.noreply.github.com',
+          date: repair.createdAt.toISOString(),
+        },
+        committer: {
+          name: 'Fieldnote',
+          email: 'fieldnote[bot]@users.noreply.github.com',
+          date: repair.createdAt.toISOString(),
+        },
         parents: [{ sha: current ? head : 'base' }],
         tree: { sha: current ? 'repaired' : 'original' },
       },
@@ -287,10 +309,72 @@ test('a repair publication with a lost response is recovered before starting ano
       size: 10,
     },
   }));
-  expect(await repairAuthoredPr('pr', 'repair')).toEqual({ headSha: next });
+  return next;
+}
+test.each([repairAuthoredPr, recoverPublishedPrRepair])(
+  'lost publication recovers without another sandbox (%#)',
+  async (recover) => {
+    const next = publishedRepair();
+    expect(await recover('pr', 'repair')).toEqual({ headSha: next });
+    expect(deps.sandbox).not.toHaveBeenCalled();
+    expect(deps.write).not.toHaveBeenCalled();
+  },
+);
+test('exhaustion only declares unpublished after confirming the PR and ref remain at base', async () => {
+  expect(await recoverPublishedPrRepair('pr', 'repair')).toEqual({ unpublished: true });
   expect(deps.sandbox).not.toHaveBeenCalled();
   expect(deps.write).not.toHaveBeenCalled();
 });
+test('unavailable recovery evidence stays sanitized and does not terminalize', async () => {
+  api.git.getRef.mockRejectedValue(new Error('private provider details'));
+  await expect(recoverPublishedPrRepair('pr', 'repair')).rejects.toMatchObject({
+    code: 'github_unavailable',
+  });
+  expect(deps.sandbox).not.toHaveBeenCalled();
+});
+test.each(['identity', 'lock', 'outside', 'branch'])(
+  'recovery rejects a forged %s',
+  async (tamper) => {
+    publishedRepair();
+    if (tamper === 'identity')
+      api.git.getCommit.mockResolvedValueOnce({
+        data: {
+          message: 'Repair Fieldnote setup\n\nFieldnote repair: repair',
+          parents: [{ sha: head }],
+          tree: { sha: 'repaired' },
+        },
+      });
+    if (tamper === 'lock') {
+      const original = api.git.getBlob.getMockImplementation()!;
+      api.git.getBlob.mockImplementation(async (input) => {
+        const result = await original(input);
+        const content = Buffer.from(result.data.content, 'base64').toString('utf8');
+        if (input.file_sha.startsWith('new') && content.includes('setupRunId'))
+          result.data.content = Buffer.from(content + '\n').toString('base64');
+        return result;
+      });
+    }
+    if (tamper === 'outside') {
+      const original = api.git.getTree.getMockImplementation()!;
+      api.git.getTree.mockImplementation(async (input) => {
+        const result = await original(input);
+        result.data.tree.push({
+          path: 'src/customer.ts',
+          type: 'blob',
+          mode: '100644',
+          sha: JSON.stringify(input),
+        });
+        return result;
+      });
+    }
+    if (tamper === 'branch')
+      api.git.getRef.mockResolvedValue({ data: { object: { sha: 'foreign' } } });
+    await expect(recoverPublishedPrRepair('pr', 'repair')).rejects.toMatchObject({
+      code: 'setup_conflict',
+    });
+    expect(deps.sandbox).not.toHaveBeenCalled();
+  },
+);
 test('a malformed replacement is human-required and a pending check defers the reserved round', async () => {
   deps.sandbox.mockResolvedValueOnce({
     sandboxId: 'box',

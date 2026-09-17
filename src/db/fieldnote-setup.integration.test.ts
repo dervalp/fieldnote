@@ -9,8 +9,24 @@ import * as schema from './schema';
 import { authoredPrClient } from '../github/testing/authored-pr-client';
 import { writeAuthoredPullRequest } from '../github/write-authored-pr';
 import { writePrRepair } from '../github/repair-authored-pr';
+import { renderInstallation } from '../domain/fieldnote-skills/render';
+import { sha256 } from '../domain/fieldnote-skills/lock';
 
-const context = vi.hoisted(() => ({ repositoryId: '' }));
+const context = vi.hoisted(() => ({
+  repositoryId: '',
+  configs: [] as Array<{ onFailure?: (input: unknown) => Promise<unknown> }>,
+}));
+vi.mock('../inngest/client', () => ({
+  inngest: {
+    createFunction: (
+      config: { onFailure?: (input: unknown) => Promise<unknown> },
+      handler: unknown,
+    ) => {
+      context.configs.push(config);
+      return handler;
+    },
+  },
+}));
 vi.mock('../auth/session', () => ({ currentUser: async () => ({ id: 'unused' }) }));
 vi.mock('../lib/env', () => ({ env: () => ({ DEMO_MODE: 'false' }) }));
 vi.mock('../workspaces/access', () => ({
@@ -192,6 +208,269 @@ test('a failure finalized before publication prevents the provider mutation', as
   expect(remoteHead).toBe(sha);
   expect((await monitor.loadAuthoredPrMonitor(pr.id))?.pr.headSha).toBe(sha);
 });
+
+test.each(['lost response', 'database rollback'])(
+  'exhausted repair recovers remote publication after %s',
+  async (failure) => {
+    const { pr, repair, monitor } = await repairFixture();
+    let remoteHead = sha;
+    await expect(
+      monitor.publishPrRepair(pr.id, repair.id, async () => {
+        remoteHead = 'c'.repeat(40);
+        if (failure === 'database rollback')
+          // A genuine SQL failure after the remote side effect rolls the transaction back.
+          return { headSha: null as unknown as string };
+        throw new Error('private lost response');
+      }),
+    ).rejects.toThrow();
+    expect((await monitor.loadAuthoredPrMonitor(pr.id))?.repairs[0].state).toBe('queued');
+    const reconcile = vi.fn(async () => {
+      throw new Error('provider unavailable during retries');
+    });
+    for (let retry = 0; retry < 3; retry++)
+      await expect(monitor.reconcilePrRepairFailure(pr.id, repair.id, reconcile)).rejects.toThrow();
+    expect((await monitor.loadAuthoredPrMonitor(pr.id))?.pr.headSha).toBe(sha);
+    await monitor.reconcilePrRepairFailure(pr.id, repair.id, async () => ({ headSha: remoteHead }));
+    const stored = await monitor.loadAuthoredPrMonitor(pr.id);
+    expect(stored?.pr.headSha).toBe(remoteHead);
+    expect(stored?.repairs[0]).toMatchObject({
+      state: 'complete',
+      resultHeadSha: remoteHead,
+      errorCode: null,
+    });
+    const delayed = vi.fn();
+    await monitor.reconcilePrRepairFailure(pr.id, repair.id, delayed);
+    expect(delayed).not.toHaveBeenCalled();
+  },
+);
+
+test('confirmed unpublished exhaustion fails and prevents a later publication', async () => {
+  const { pr, repair, monitor } = await repairFixture();
+  await monitor.reconcilePrRepairFailure(pr.id, repair.id, async () => ({ unpublished: true }));
+  const write = vi.fn();
+  expect(await monitor.publishPrRepair(pr.id, repair.id, write)).toBeNull();
+  expect(write).not.toHaveBeenCalled();
+  const stored = await monitor.loadAuthoredPrMonitor(pr.id);
+  expect(stored?.repairs[0]).toMatchObject({ state: 'failed', errorCode: 'repair_failed' });
+  expect(stored?.pr.headSha).toBe(sha);
+});
+
+test.each(['lost response', 'database rollback', 'unpublished'])(
+  'actual onFailure reconciles exact Git publication after %s without authoring',
+  async (failure) => {
+    const { pr, repair, monitor } = await repairFixture();
+    const runs = await import('./queries/authoring-runs');
+    const plans = await import('./queries/fieldnote-setup');
+    const releases = await import('../fieldnote-skills/github-release');
+    const permissions = await import('../github/installation-permissions');
+    const repositoriesApi = await import('../github/repositories');
+    const sandbox = await import('../authoring/e2b-sandbox');
+    const execute = (await runs.loadAuthoringRun(pr.authoringRunId))!;
+    const plan = (await plans.loadSetupPlan(execute.planRunId!))!;
+    const release = {
+      release: 'skills-v0.1.0',
+      revision: 'b'.repeat(40),
+      releaseLockHash: sha256('lock'),
+      skills: [
+        {
+          name: 'fieldnote-testing',
+          version: '0.1.0',
+          files: [{ path: 'SKILL.md', content: 'generic', hash: sha256('generic') }],
+        },
+      ],
+    };
+    const render = (content: string) =>
+      renderInstallation({
+        release,
+        setupRunId: execute.id,
+        agents,
+        configuration: [{ path: '.fieldnote/profile.md', content }],
+      }).files;
+    const original = render('# Profile  \n');
+    const replacement = render('# Profile\n');
+    const github = authoredPrClient(sha);
+    github.refs.set(`heads/${pr.branch}`, sha);
+    const blobs = new Map<string, string>();
+    const originalCreateBlob = github.api.git.createBlob.getMockImplementation()!;
+    github.api.git.createBlob.mockImplementation(async (input) => {
+      const result = await originalCreateBlob(input);
+      blobs.set(result.data.sha, input.content);
+      return result;
+    });
+    for (const [path, content] of original) {
+      const { data } = await github.api.git.createBlob({ content });
+      github.trees.get('initial-tree')!.push({ path, mode: '100644', type: 'blob', sha: data.sha });
+    }
+    const originalCreateCommit = github.api.git.createCommit.getMockImplementation()!;
+    github.api.git.createCommit.mockImplementation(async (input) => {
+      const result = await originalCreateCommit(input);
+      Object.assign(github.commits.get(result.data.sha)!, {
+        author: input.author,
+        committer: input.committer,
+      });
+      return result;
+    });
+    const readPr = vi.fn(async () => ({
+      data: {
+        state: 'open',
+        merged: false,
+        head: { ref: pr.branch, sha: github.refs.get(`heads/${pr.branch}`)! },
+      },
+    }));
+    Object.assign(github.api.pulls, { get: readPr });
+    Object.assign(github.api.pulls, {
+      listReviews: async () => ({ data: [] }),
+      listReviewComments: async () => ({ data: [] }),
+    });
+    Object.assign(github.api, {
+      checks: { listForRef: async () => ({ data: { total_count: 0, check_runs: [] } }) },
+    });
+    Object.assign(github.api.repos, {
+      getCombinedStatusForRef: async () => ({ data: { total_count: 0, statuses: [] } }),
+    });
+    Object.assign(github.api.git, {
+      getBlob: async ({ file_sha }: { file_sha: string }) => ({
+        data: {
+          encoding: 'base64',
+          size: Buffer.byteLength(blobs.get(file_sha)!),
+          content: Buffer.from(blobs.get(file_sha)!).toString('base64'),
+        },
+      }),
+      updateRef: async ({
+        ref,
+        sha: head,
+        force,
+      }: {
+        ref: string;
+        sha: string;
+        force: boolean;
+      }) => {
+        if (force || github.commits.get(head)?.parents[0]?.sha !== github.refs.get(ref))
+          throw { status: 422 };
+        github.refs.set(ref, head);
+        if (failure === 'lost response') throw { status: 503, message: 'private lost response' };
+        return { data: {} };
+      },
+    });
+    const [repository] = await db()
+      .select()
+      .from(schema.repositories)
+      .where(eq(schema.repositories.id, pr.repositoryId));
+    const [installation] = await db()
+      .select()
+      .from(schema.installations)
+      .where(eq(schema.installations.id, repository.installationId));
+    vi.spyOn(runs, 'validateAuthoringRun').mockResolvedValue(undefined);
+    vi.spyOn(plans, 'loadSetupPlan').mockResolvedValue({
+      ...plan,
+      proposal: {
+        ...plan.proposal!,
+        skillsRelease: release.release,
+        skillsRevision: release.revision,
+        releaseLockHash: release.releaseLockHash,
+      },
+      files: [
+        {
+          ...plan.files[0],
+          path: '.fieldnote/profile.md',
+          body: '# Profile  \n',
+          hash: sha256('# Profile  \n'),
+        },
+      ],
+    });
+    vi.spyOn(releases, 'readSkillsRelease').mockResolvedValue(release);
+    vi.spyOn(permissions, 'fetchGrantedPermissions').mockResolvedValue({
+      contents: 'write',
+      pullRequests: 'write',
+    });
+    vi.spyOn(repositoriesApi, 'repositoryClient').mockResolvedValue({
+      repo: repository,
+      installation,
+      client: github.client,
+    });
+    const author = vi.spyOn(sandbox, 'e2bAuthoringSandbox').mockImplementation(() => {
+      throw new Error('Recovery must not invoke a model');
+    });
+    try {
+      const functions = await import('../inngest/functions/monitor-authored-pr');
+      if (failure !== 'unpublished') {
+        await expect(
+          writePrRepair(
+            {
+              owner: repository.owner,
+              repo: repository.name,
+              branch: pr.branch,
+              expectedHeadSha: sha,
+              repairId: repair.id,
+              commitDate: repair.createdAt.toISOString(),
+              files: replacement,
+              managedPaths: [...original.keys()],
+              authorize: async () => {},
+              publish: async (_headSha, write) => {
+                const result = await monitor.publishPrRepair(pr.id, repair.id, async () => {
+                  await write();
+                  // Trigger an actual database constraint failure after the ref mutation.
+                  return { headSha: null as unknown as string };
+                });
+                return result!;
+              },
+            },
+            github.client,
+          ),
+        ).rejects.toMatchObject({ code: 'github_unavailable' });
+        expect(github.refs.get(`heads/${pr.branch}`)).not.toBe(sha);
+      }
+      const onFailure = context.configs.find((config) => config.onFailure)!.onFailure!;
+      const event = {
+        event: { data: { event: { data: { authoredPrId: pr.id, repairId: repair.id } } } },
+      };
+      // Exhaust the normal delivery while provider state is unavailable. Neither
+      // retries nor a retrying failure callback may destroy the reservation.
+      const { repairAuthoredPr } = await import('../github/monitor-authored-pr');
+      for (let retry = 0; retry < 3; retry++) {
+        readPr.mockRejectedValueOnce(new Error('private provider outage'));
+        await expect(repairAuthoredPr(pr.id, repair.id)).rejects.toMatchObject({
+          code: 'github_unavailable',
+        });
+      }
+      readPr.mockRejectedValueOnce(new Error('private provider outage'));
+      await expect(onFailure(event)).rejects.toMatchObject({ code: 'github_unavailable' });
+      expect((await monitor.loadAuthoredPrMonitor(pr.id))?.repairs[0].state).toBe('queued');
+      if (failure === 'unpublished') await onFailure(event);
+      else {
+        // Reconciliation emits another monitor event immediately, without
+        // advancing time past the original repair event's deduplication window.
+        const delivered = new Set([`authored-pr-repair:${repair.id}`]);
+        const step = {
+          run: async (_name: string, work: () => Promise<unknown>) => work(),
+          sendEvent: async (_name: string, event: { id?: string; data: unknown }) => {
+            if (event.id && delivered.has(event.id)) return;
+            const run = functions.repairAuthoredPrFunction as unknown as (
+              input: unknown,
+            ) => Promise<unknown>;
+            await run({ event, step });
+          },
+        };
+        const run = functions.monitorAuthoredPrFunction as unknown as (
+          input: unknown,
+        ) => Promise<unknown>;
+        await run({ event: { data: { authoredPrId: pr.id } }, step });
+      }
+      const stored = await monitor.loadAuthoredPrMonitor(pr.id);
+      expect(stored?.pr.headSha).toBe(github.refs.get(`heads/${pr.branch}`));
+      expect(stored?.repairs[0]).toMatchObject(
+        failure === 'unpublished'
+          ? { state: 'failed', resultHeadSha: null, errorCode: 'repair_failed' }
+          : { state: 'complete', resultHeadSha: stored?.pr.headSha, errorCode: null },
+      );
+      expect(author).not.toHaveBeenCalled();
+      await onFailure(event);
+      expect((await monitor.loadAuthoredPrMonitor(pr.id))?.pr.headSha).toBe(stored?.pr.headSha);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  },
+);
 
 test('concurrent repair reservations reuse one ordinal, cap at three, and terminal outcomes never install', async () => {
   const q = await import('./queries/fieldnote-setup');
