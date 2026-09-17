@@ -52,7 +52,9 @@ export function emailEnv(input: Record<string, string | undefined> = process.env
 }
 
 /** Server-only GitHub credential for public Fieldnote Skills release capacity. */
-export function fieldnoteSkillsGithubToken(input: Record<string, string | undefined> = process.env) {
+export function fieldnoteSkillsGithubToken(
+  input: Record<string, string | undefined> = process.env,
+) {
   return z
     .object({
       FIELDNOTE_SKILLS_GITHUB_TOKEN: z.preprocess(
@@ -61,4 +63,19 @@ export function fieldnoteSkillsGithubToken(input: Record<string, string | undefi
       ),
     })
     .parse(input).FIELDNOTE_SKILLS_GITHUB_TOKEN;
+}
+
+/** Separate from database/GitHub config; never spread this environment into a sandbox. */
+export function authoringEnv(input: Record<string, string | undefined> = process.env) {
+  const config = z
+    .object({
+      E2B_API_KEY: z.string().trim().min(1),
+      ANTHROPIC_API_KEY: z.string().trim().min(1),
+      FIELDNOTE_AUTHORING_MODEL: z.string().trim().min(1).default('claude-sonnet-4-6'),
+    })
+    .safeParse(input);
+  if (config.success) return config.data;
+  if (input.NODE_ENV === 'production')
+    throw new Error('Production authoring requires E2B and Anthropic credentials.');
+  return null;
 }
