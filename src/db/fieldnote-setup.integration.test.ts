@@ -440,6 +440,160 @@ test('notes have a stable tie-break order and browser reads authorize the reposi
   expect(await getSetupPlan(value.repositoryId, randomUUID())).toBeNull();
 });
 
+test('setup collection and result retries persist one question, then concurrent answers consume it once', async () => {
+  const value = await plan();
+  const { saveSetupSnapshot, saveSetupResult, appendSetupAnswer, loadSetupPlan } =
+    await import('./queries/fieldnote-setup');
+  const identity = {
+    release: 'skills-v0.1.0',
+    revision: 'b'.repeat(40),
+    releaseLockHash: `sha256:${'c'.repeat(64)}` as const,
+  };
+  const snapshot = {
+    sha,
+    complete: true,
+    paths: ['AGENTS.md'],
+    documents: [],
+    candidates: [
+      {
+        agent: 'codex' as const,
+        label: 'Codex',
+        supported: true,
+        confirmed: false,
+        evidence: [{ source: 'path' as const, value: 'AGENTS.md' }],
+      },
+    ],
+  };
+  await saveSetupSnapshot(value.id, identity, snapshot);
+  await saveSetupSnapshot(value.id, identity, snapshot);
+  expect((await loadSetupPlan(value.id))?.proposal?.detectedAgents).toEqual(snapshot.candidates);
+  const result = {
+    state: 'awaiting-input' as const,
+    findings: ['Found Codex'],
+    confirmedFacts: [],
+    nextQuestion: { key: 'agents' as const, text: 'Confirm Codex?', evidence: ['AGENTS.md'] },
+    confirmedAgents: [],
+    files: [],
+    sandboxId: 'local',
+    model: 'local',
+  };
+  await Promise.all([
+    saveSetupResult(value.id, result, null),
+    saveSetupResult(value.id, result, null),
+  ]);
+  let stored = (await loadSetupPlan(value.id))!;
+  const question = stored.notes.filter((note) => note.kind === 'question');
+  expect(question).toHaveLength(1);
+  await Promise.all([
+    appendSetupAnswer(value.repositoryId, value.id, question[0].id, 'Yes', agents),
+    appendSetupAnswer(value.repositoryId, value.id, question[0].id, 'Yes', agents),
+  ]);
+  stored = (await loadSetupPlan(value.id))!;
+  expect(stored.notes.filter((note) => note.kind === 'answer')).toHaveLength(1);
+  expect(stored.proposal?.state).toBe('exploring');
+  expect(stored.proposal?.confirmedAgents).toEqual(agents);
+  const answerId = stored.notes.find((note) => note.kind === 'answer')!.id;
+  const next = {
+    ...result,
+    confirmedAgents: agents,
+    nextQuestion: {
+      key: 'Tracker.kind' as const,
+      text: 'Which tracker?',
+      evidence: ['No tracker'],
+    },
+  };
+  await Promise.all([
+    saveSetupResult(value.id, next, answerId),
+    saveSetupResult(value.id, next, answerId),
+  ]);
+  stored = (await loadSetupPlan(value.id))!;
+  expect(stored.notes.filter((note) => note.kind === 'question')).toHaveLength(2);
+  expect(stored.notes.filter((note) => note.kind === 'answer')).toHaveLength(1);
+  await expect(
+    appendSetupAnswer(value.repositoryId, value.id, question[0].id, 'stale', agents),
+  ).rejects.toThrow();
+});
+
+test('ready author output and linked execute are committed atomically, including concurrent retries', async () => {
+  const value = await plan();
+  await proposal(value.id);
+  await db()
+    .update(schema.fieldnoteSetupProposals)
+    .set({ state: 'exploring' })
+    .where(eq(schema.fieldnoteSetupProposals.authoringRunId, value.id));
+  const { saveSetupResult, loadSetupPlan } = await import('./queries/fieldnote-setup');
+  const result = {
+    state: 'ready' as const,
+    findings: [],
+    confirmedFacts: [],
+    nextQuestion: null,
+    confirmedAgents: agents,
+    files: [
+      {
+        path: '.fieldnote/profile.md',
+        content: '# Profile',
+        kind: 'profile' as const,
+        hash: `sha256:${'d'.repeat(64)}` as const,
+      },
+    ],
+    sandboxId: 'local',
+    model: 'local',
+  };
+  await Promise.all([
+    saveSetupResult(value.id, result, null),
+    saveSetupResult(value.id, result, null),
+  ]);
+  const stored = (await loadSetupPlan(value.id))!;
+  expect(stored.run.state).toBe('complete');
+  expect(stored.proposal?.state).toBe('ready');
+  expect(stored.files.find((file) => file.path === '.fieldnote/profile.md')?.body).toBe(
+    '# Profile',
+  );
+  expect(
+    await db()
+      .select()
+      .from(schema.authoringRuns)
+      .where(eq(schema.authoringRuns.planRunId, value.id)),
+  ).toHaveLength(1);
+});
+
+test('failed ready validation rolls back generated files, notes, and model provenance', async () => {
+  const value = await plan();
+  await proposal(value.id);
+  await db()
+    .update(schema.fieldnoteSetupProposals)
+    .set({ state: 'exploring' })
+    .where(eq(schema.fieldnoteSetupProposals.authoringRunId, value.id));
+  const { saveSetupResult, loadSetupPlan } = await import('./queries/fieldnote-setup');
+  await expect(
+    saveSetupResult(
+      value.id,
+      {
+        state: 'ready',
+        findings: ['new finding'],
+        confirmedFacts: [],
+        nextQuestion: null,
+        confirmedAgents: [],
+        files: [
+          {
+            path: '.fieldnote/profile.md',
+            content: 'profile',
+            kind: 'profile',
+            hash: `sha256:${'d'.repeat(64)}`,
+          },
+        ],
+        sandboxId: 'local',
+        model: 'local',
+      },
+      null,
+    ),
+  ).rejects.toThrow();
+  const stored = (await loadSetupPlan(value.id))!;
+  expect(stored.run).toMatchObject({ state: 'running', model: null });
+  expect(stored.notes).toEqual([]);
+  expect(stored.files.map((file) => file.path)).toEqual(['.fieldnote/profile.yaml']);
+});
+
 test('PR identity is unique per repository, repairs are bounded, and opening a PR does not install', async () => {
   const value = await plan();
   await proposal(value.id);

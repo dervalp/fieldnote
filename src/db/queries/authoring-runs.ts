@@ -23,6 +23,7 @@ export type Remedy = typeof authoringRemedies.$inferSelect;
 
 export async function requestPlan(
   repositoryId: string,
+  workflow: AuthoringRun['workflow'] = 'readiness-remediation',
 ): Promise<{ id: string; state: AuthoringRun['state'] }> {
   const repository = await requireRepository(repositoryId);
   const workspace = await requireWorkspace();
@@ -35,13 +36,16 @@ export async function requestPlan(
   // cannot complete must not quietly read as "unavailable".
   const [enabled, grade] = await Promise.all([
     actEnabled(repositoryId),
-    latestGrade(repositoryId, AGENT_READINESS),
+    workflow === 'readiness-remediation' ? latestGrade(repositoryId, AGENT_READINESS) : null,
   ]);
   const permissions = enabled ? await fetchGrantedPermissions(repositoryId) : nothingGranted;
   const availability = actAvailability({
     enabled,
     permissions,
-    failingCheckCount: grade?.checks.filter((check) => check.status === 'fail').length ?? 0,
+    failingCheckCount:
+      workflow === 'fieldnote-setup'
+        ? 1
+        : (grade?.checks.filter((check) => check.status === 'fail').length ?? 0),
   });
   if (!availability.available) throw new Error('Act unavailable');
 
@@ -86,7 +90,7 @@ export async function requestPlan(
         and(
           eq(runs.repositoryId, repositoryId),
           eq(runs.kind, 'plan'),
-          eq(runs.workflow, 'readiness-remediation'),
+          eq(runs.workflow, workflow),
         ),
       )
       .orderBy(desc(runs.createdAt), desc(runs.id))
@@ -97,12 +101,12 @@ export async function requestPlan(
         id: randomUUID(),
         repositoryId,
         kind: 'plan',
-        workflow: 'readiness-remediation',
+        workflow,
         requestedBy: user.id,
         requestedWorkspaceId: workspace.id,
         retryOf: latest?.state === 'failed' ? latest.id : null,
         state: 'queued',
-        authorVersion: floorAuthorVersion,
+        authorVersion: workflow === 'fieldnote-setup' ? 'fieldnote-setup-v1' : floorAuthorVersion,
       })
       .onConflictDoNothing()
       .returning();
@@ -123,7 +127,7 @@ export async function requestPlan(
           )
       )[0];
     if (!active) throw new Error('Plan request unavailable');
-    if (active.kind !== 'plan' || active.workflow !== 'readiness-remediation') {
+    if (active.kind !== 'plan' || active.workflow !== workflow) {
       throw new Error('Another authoring workflow is already active');
     }
     return { id: active.id, state: active.state };

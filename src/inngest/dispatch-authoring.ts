@@ -5,7 +5,7 @@ import { inngest } from './client';
 
 export type SendAuthoringEvent = (event: {
   id: string;
-  name: 'repository/authoring.plan.requested';
+  name: 'repository/authoring.plan.requested' | 'repository/fieldnote.setup.plan.requested';
   data: { runId: string };
 }) => Promise<unknown>;
 
@@ -14,7 +14,7 @@ export async function dispatchAuthoringPlan(
   send: SendAuthoringEvent = (event) => inngest.send(event),
 ): Promise<void> {
   const [run] = await db()
-    .select({ id: authoringRuns.id })
+    .select({ id: authoringRuns.id, workflow: authoringRuns.workflow })
     .from(authoringRuns)
     .where(
       and(
@@ -25,7 +25,14 @@ export async function dispatchAuthoringPlan(
       ),
     );
   if (!run) return;
-  await send({ id: runId, name: 'repository/authoring.plan.requested', data: { runId } });
+  await send({
+    id: runId,
+    name:
+      run.workflow === 'fieldnote-setup'
+        ? 'repository/fieldnote.setup.plan.requested'
+        : 'repository/authoring.plan.requested',
+    data: { runId },
+  });
   await db()
     .update(authoringRuns)
     .set({ dispatchedAt: new Date() })

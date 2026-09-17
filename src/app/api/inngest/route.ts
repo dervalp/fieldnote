@@ -2,6 +2,7 @@ import { gradeRepositoryFunction } from '../../../inngest/functions/grade-reposi
 import { reconcileGrades } from '../../../inngest/functions/reconcile-grades';
 import { scheduleGrades } from '../../../inngest/functions/schedule-grades';
 import { planRepositoryFunction } from '../../../inngest/functions/plan-repository';
+import { planFieldnoteSetupFunction } from '../../../inngest/functions/plan-fieldnote-setup';
 import { reconcileAuthoring } from '../../../inngest/functions/reconcile-authoring';
 import { sendInvitationFunction } from '../../../inngest/functions/send-invitation';
 import { reconcileInvitations } from '../../../inngest/functions/reconcile-invitations';
@@ -27,6 +28,7 @@ export const { GET, POST, PUT } = serve({
     reconcileGrades,
     scheduleGrades,
     planRepositoryFunction,
+    planFieldnoteSetupFunction,
     reconcileAuthoring,
     sendInvitationFunction,
     reconcileInvitations,
