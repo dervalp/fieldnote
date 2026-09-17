@@ -92,6 +92,172 @@ const readyInput = {
 };
 
 describe('setup author boundary', () => {
+  test('local author accepts a complete localized profile', async () => {
+    const localized = `${profile}\n## Localization\n- **canonicalLocale** — en\n- **locales** — en, fr\n- **catalogs** — messages/<locale>.json\n`;
+    const result = await authorSetupProfile(localAuthoringSandbox(), {
+      ...readyInput,
+      snapshot: {
+        ...readyInput.snapshot,
+        documents: [{ path: '.fieldnote/profile.md', blobSha: 'a', text: localized }],
+      },
+    });
+    expect(result.state).toBe('ready');
+    expect(result.nextQuestion).toBeNull();
+    expect(result.files[0].content).toBe(localized);
+    expect(
+      result.confirmedFacts
+        .filter((fact) => fact.key.startsWith('Localization.'))
+        .map((fact) => fact.key),
+    ).toEqual(['Localization.canonicalLocale', 'Localization.locales', 'Localization.catalogs']);
+  });
+  test('local author resolves missing Localization facts one question and answer at a time', async () => {
+    const partial: SetupAuthorInput = {
+      ...readyInput,
+      notes: [],
+      snapshot: {
+        ...readyInput.snapshot,
+        documents: [
+          {
+            path: '.fieldnote/profile.md',
+            blobSha: 'a',
+            text: `${profile}\n## Localization\n- **canonicalLocale** — en\n- **locales** — TODO\n`,
+          },
+        ],
+      },
+    };
+    const first = await authorSetupProfile(localAuthoringSandbox(), partial);
+    expect(first.state).toBe('awaiting-input');
+    expect(first.nextQuestion?.key).toBe('Localization.locales');
+    expect(first.files).toEqual([]);
+    partial.notes.push(
+      { speaker: 'agent', kind: 'question', body: first.nextQuestion!.text },
+      { speaker: 'human', kind: 'answer', body: 'en, fr' },
+    );
+    const second = await authorSetupProfile(localAuthoringSandbox(), partial);
+    expect(second.state).toBe('awaiting-input');
+    expect(second.nextQuestion?.key).toBe('Localization.catalogs');
+    expect(second.files).toEqual([]);
+    partial.notes.push(
+      { speaker: 'agent', kind: 'question', body: second.nextQuestion!.text },
+      { speaker: 'human', kind: 'answer', body: 'messages/<locale>.json' },
+    );
+    const ready = await authorSetupProfile(localAuthoringSandbox(), partial);
+    expect(ready.state).toBe('ready');
+    expect(ready.nextQuestion).toBeNull();
+    expect(ready.files[0].content).toContain('- **canonicalLocale** — en');
+    expect(ready.files[0].content).toContain('- **locales** — en, fr');
+    expect(ready.files[0].content).toContain('- **catalogs** — messages/<locale>.json');
+    expect(ready.files[0].content).not.toContain('TODO');
+  });
+  test.each([
+    [
+      'compose',
+      'services:\n  db:\n    environment:\n      POSTGRES_PASSWORD: literal-db-credential',
+    ],
+    ['json', '{"database":{"password":"literal-json-credential"}}'],
+    ['dotenv', 'export DATABASE_PASSWORD=literal-dotenv-credential'],
+    ['yaml block', 'client_secret: |-\n  literal-block-credential'],
+    ['yaml continued scalar', 'password:\n  literal-continued-credential'],
+    ['env list', '- name: POSTGRES_PASSWORD\n  value: literal-list-credential'],
+    ['json env list', '{"env":[{"name":"DB_PASSWORD","value":"literal-list-credential"}]}'],
+    ['github', 'The configured token is ghp_0123456789abcdefghijklmnopqrstuvwxyzABCD'],
+    ['anthropic', 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789'],
+    ['stripe', `sk_${'live'}_${'abcdefghijklmnopqrstuvwxyz0123456789'}`],
+    ['aws', 'AKIA0123456789ABCDEF'],
+    ['slack', ['xoxb', '1234567890', 'abcdefghijklmnop'].join('-')],
+    ['encryption key', 'TOKEN_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef'],
+    [
+      'private key',
+      '-----BEGIN RSA PRIVATE KEY-----\nfake-only-key-material\n-----END RSA PRIVATE KEY-----',
+    ],
+    ['credential URL', 'DATABASE_URL=postgres://user:literal-url-credential@localhost/app'],
+  ])(
+    'blocks literal credentials in %s before creating an external sandbox',
+    async (_name, content) => {
+      let created = false;
+      const sdk: AuthoringE2BSdk = {
+        async create() {
+          created = true;
+          throw new Error('External boundary reached');
+        },
+      };
+      const sandbox = e2bAuthoringSandbox(
+        { apiKey: 'fake-e2b', anthropicApiKey: 'fake-anthropic', model: 'model' },
+        sdk,
+      );
+      await expect(
+        sandbox.run({
+          files: new Map([['evidence/docker-compose.yml', content]]),
+          prompt: '{}',
+          mode: 'read-only',
+        }),
+      ).rejects.toThrow('Authoring input contains credential material.');
+      expect(created).toBe(false);
+    },
+  );
+  test.each(['skill', 'note', 'prompt'] as const)(
+    'blocks credentials in %s with a sanitized error before the authoring boundary',
+    async (surface) => {
+      let called = false;
+      const sandbox: AuthoringSandbox = {
+        async run() {
+          called = true;
+          throw new Error('Boundary reached');
+        },
+      };
+      const secret = 'literal-fixture-credential';
+      const request = structuredClone(input);
+      if (surface === 'skill') request.setupSkill.content = `ANTHROPIC_API_KEY=${secret}`;
+      if (surface === 'note')
+        request.notes.push({
+          speaker: 'human',
+          kind: 'answer',
+          body: JSON.stringify({ clientSecret: secret }),
+        });
+      if (surface === 'prompt')
+        request.snapshot.candidates[0].evidence[0].value = `password: ${secret}`;
+      await expect(authorSetupProfile(sandbox, request)).rejects.toThrow(
+        'Authoring input contains credential material.',
+      );
+      expect(called).toBe(false);
+    },
+  );
+  test('preserves environment references and ordinary credential-related prose', async () => {
+    let inspected = '';
+    const reference =
+      'environment:\n  POSTGRES_PASSWORD: ${DB_PASSWORD}\n  API_KEY: $API_KEY\n  client_secret: ${{ secrets.CLIENT_SECRET }}\nUse the password manager. Token rotation is documented.\n';
+    const sandbox: AuthoringSandbox = {
+      async run(request) {
+        inspected = request.files.get('evidence/docker-compose.yml')!;
+        return { sandboxId: 'fake', model: 'fake', output: waiting, files: new Map() };
+      },
+    };
+    await authorSetupProfile(sandbox, {
+      ...input,
+      snapshot: {
+        ...input.snapshot,
+        documents: [{ path: 'docker-compose.yml', blobSha: 'a', text: reference }],
+      },
+      notes: [
+        { speaker: 'human', kind: 'remark', body: 'Use ${DB_PASSWORD}; never paste the password.' },
+      ],
+    });
+    expect(inspected).toBe(reference);
+  });
+  test.each([
+    '{"password":"${DB_PASSWORD}","description":"Password rotation is required"}',
+    'environment: {PASSWORD: "${DB_PASSWORD}", PORT: 5432}',
+    'DATABASE_URL=postgres://user:${DB_PASSWORD}@localhost/app',
+  ])('preserves structured credential references without false positives: %s', async (text) => {
+    const result = await authorSetupProfile(resultSandbox(waiting), {
+      ...input,
+      snapshot: {
+        ...input.snapshot,
+        documents: [{ path: 'docker-compose.yml', blobSha: 'a', text }],
+      },
+    });
+    expect(result.state).toBe('awaiting-input');
+  });
   test('rejects schema-invalid and unknown model fields', async () => {
     await expect(
       authorSetupProfile(resultSandbox({ ...waiting, execute: 'curl' }), input),

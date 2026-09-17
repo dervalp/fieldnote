@@ -2,7 +2,7 @@ import type { AuthoringSandbox } from './sandbox';
 import { validateAuthoringInput } from './sandbox';
 import {
   profileValues,
-  requiredProfileFacts,
+  requiredFactsForProfile,
   unresolved,
   type SetupAuthorOutput,
   type SetupAuthorInput,
@@ -19,6 +19,7 @@ export function localAuthoringSandbox(): AuthoringSandbox {
       };
       let profile = input.files.get('evidence/.fieldnote/profile.md') ?? '# Fieldnote profile\n';
       const values = profileValues(profile);
+      const required = requiredFactsForProfile(values);
       // A human answer follows the question's explicit profile key. Never interpret commands.
       let questionKey: string | undefined;
       for (const note of request.notes ?? []) {
@@ -32,19 +33,17 @@ export function localAuthoringSandbox(): AuthoringSandbox {
           !unresolved(values.get(questionKey))
         )
           continue;
-        const key = requiredProfileFacts.find((key) => key === questionKey);
+        const key = required.find((key) => key === questionKey);
         if (!key) continue;
         values.set(key, note.body.trim());
       }
-      const confirmedFacts: SetupAuthorOutput['confirmedFacts'] = requiredProfileFacts.flatMap(
-        (key) => {
-          const value = values.get(key);
-          return unresolved(value)
-            ? []
-            : [{ key, value: value!, evidence: ['Existing profile or human answer.'] }];
-        },
-      );
-      const missing = requiredProfileFacts.find((key) => unresolved(values.get(key)));
+      const confirmedFacts: SetupAuthorOutput['confirmedFacts'] = required.flatMap((key) => {
+        const value = values.get(key);
+        return unresolved(value)
+          ? []
+          : [{ key, value: value!, evidence: ['Existing profile or human answer.'] }];
+      });
+      const missing = required.find((key) => unresolved(values.get(key)));
       const ready =
         !missing &&
         input.mode === 'write-generated' &&

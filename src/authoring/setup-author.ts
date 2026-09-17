@@ -32,12 +32,21 @@ export const requiredProfileFacts = [
   'Git.baseRemote',
   'Git.baseBranch',
 ] as const;
-const factKey = z.enum([
-  ...requiredProfileFacts,
+const localizationProfileFacts = [
   'Localization.canonicalLocale',
   'Localization.locales',
   'Localization.catalogs',
-]);
+] as const;
+const factKey = z.enum([...requiredProfileFacts, ...localizationProfileFacts]);
+
+export function requiredFactsForProfile(values: ReadonlyMap<string, string>) {
+  return [
+    ...requiredProfileFacts,
+    ...([...values.keys()].some((key) => key.startsWith('Localization.'))
+      ? localizationProfileFacts
+      : []),
+  ];
+}
 const text = z.string().trim().min(1).max(16_384);
 const evidence = z.array(text).min(1).max(40);
 export const setupAuthorOutputSchema = z.strictObject({
@@ -144,21 +153,11 @@ export function parseAuthoringOutput(output: unknown): SetupAuthorOutput {
     )?.content;
     const values = profileValues(profile ?? '');
     const facts = new Map(result.confirmedFacts.map((fact) => [fact.key, fact.value]));
-    const required: string[] = [...requiredProfileFacts];
-    if ([...values.keys()].some((key) => key.startsWith('Localization.')))
-      required.push(
-        'Localization.canonicalLocale',
-        'Localization.locales',
-        'Localization.catalogs',
-      );
+    const required = requiredFactsForProfile(values);
     if (
       !profile ||
       /\bTODO\b/i.test(profile) ||
-      required.some(
-        (key) =>
-          unresolved(values.get(key)) ||
-          facts.get(key as z.infer<typeof factKey>) !== values.get(key),
-      )
+      required.some((key) => unresolved(values.get(key)) || facts.get(key) !== values.get(key))
     )
       throw new Error('Profile contains unresolved required facts.');
   }
@@ -192,7 +191,9 @@ export async function authorSetupProfile(
     candidates: input.snapshot.candidates,
     notes: input.notes,
     confirmedAgents: agents,
-    requiredFacts: requiredProfileFacts,
+    requiredFacts: requiredFactsForProfile(
+      profileValues(files.get('evidence/.fieldnote/profile.md') ?? ''),
+    ),
     skillPath: '/workspace/skill/fieldnote-setup-profile/SKILL.md',
     skillRevision: input.setupSkill.revision,
   });
