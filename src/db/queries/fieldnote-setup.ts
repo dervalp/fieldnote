@@ -22,11 +22,13 @@ import type { SetupAuthorResult } from '../../authoring/setup-author';
 import { classifyInstallation } from '../../domain/fieldnote-skills/classify';
 import { installationCoversPullRequest } from './fieldnote-installations';
 import { assertCredentialFree } from '../../authoring/sandbox';
+import { monitorStopReason, type HumanReason } from '../../domain/act/pr-monitor';
 
 export interface SetupProgress {
   runId: string;
-  state: 'exploring' | 'awaiting-input' | 'preparing' | 'open' | 'verifying' | 'failed' | 'closed';
+  state: 'exploring' | 'awaiting-input' | 'preparing' | 'open' | 'stopped' | 'verifying' | 'failed' | 'closed';
   pullRequestUrl: string | null;
+  monitorReason?: HumanReason;
 }
 
 // Latest release is supplied by the server page. A provider outage must not
@@ -66,6 +68,7 @@ export async function getSetupSummary(
         url: pullRequests.url,
         outcome: pullRequests.outcome,
         verified: installationCoversPullRequest(),
+        monitorStop: notes.body,
       })
       .from(runs)
       .leftJoin(
@@ -73,6 +76,7 @@ export async function getSetupSummary(
         and(eq(pullRequests.authoringRunId, runs.id), eq(pullRequests.repositoryId, repositoryId)),
       )
       .leftJoin(installations, eq(installations.repositoryId, runs.repositoryId))
+      .leftJoin(notes, and(eq(notes.authoringRunId, runs.id), eq(notes.id, sql`'monitor:' || ${pullRequests.id} || ':human'`)))
       .where(
         and(
           eq(runs.planRunId, plan.id),
@@ -84,7 +88,7 @@ export async function getSetupSummary(
     let state: SetupProgress['state'] | null;
     if (execution?.outcome === 'merged') {
       state = execution.verified ? null : 'verifying';
-    } else if (execution?.outcome === 'open') state = 'open';
+    } else if (execution?.outcome === 'open') state = execution.monitorStop ? 'stopped' : 'open';
     else if (execution?.outcome === 'closed') state = 'closed';
     else if (plan.proposalState === 'awaiting-input' && plan.state === 'running')
       state = 'awaiting-input';
@@ -93,7 +97,10 @@ export async function getSetupSummary(
     else if (execution || plan.proposalState === 'ready') state = 'preparing';
     else if (plan.proposalState === 'awaiting-input') state = 'awaiting-input';
     else state = 'exploring';
-    if (state) progress = { runId: plan.id, state, pullRequestUrl: execution?.url ?? null };
+    if (state) progress = {
+      runId: plan.id, state, pullRequestUrl: execution?.url ?? null,
+      ...(state === 'stopped' && execution?.monitorStop ? { monitorReason: monitorStopReason(execution.monitorStop) } : {}),
+    };
   }
   const active = progress && progress.state !== 'failed' && progress.state !== 'closed';
   const installation = classifyInstallation({

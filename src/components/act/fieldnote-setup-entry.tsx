@@ -5,16 +5,33 @@ import { requestFieldnoteSetup } from '../../app/app/repos/[repoId]/grading/acti
 import type { InstallationState } from '../../domain/fieldnote-skills/types';
 import type { SetupProgress } from '../../db/queries/fieldnote-setup';
 import { actRunPath } from '../../lib/app-routes';
+import type { HumanReason } from '../../domain/act/pr-monitor';
 
 const progressCopy: Record<SetupProgress['state'], string> = {
   exploring: 'Exploring the repository',
   'awaiting-input': 'Waiting for your answer',
   preparing: 'Preparing the setup pull request',
   open: 'Monitoring the setup pull request',
+  stopped: 'Automatic setup repairs stopped. Human action is required.',
   verifying: 'Verifying the installation',
   failed: 'The setup could not finish. Resume the conversation to review its progress.',
   closed:
     'The setup pull request was closed without merging. Fieldnote has not been installed by this pull request.',
+};
+const stopCopy: Record<HumanReason, string> = {
+  ambiguous: 'Review the feedback and resolve it in the pull request.',
+  permission_loss: 'Restore GitHub App write access, then finish or close the pull request.',
+  repair_limit:
+    'Three automatic repair rounds have been used. Finish the remaining changes in the pull request.',
+  secret:
+    'The requested change needs credentials. Handle it outside the setup conversation and do not paste secrets here.',
+  destructive: 'The requested change needs a human decision. Review it in the pull request.',
+  head_changed:
+    'The pull request branch changed outside automatic repair. Review and finish the changes in the pull request.',
+  invalid_repair:
+    'Automatic repair could not validate a safe change. Review and finish the changes in the pull request.',
+  repair_failed:
+    'Automatic repair could not finish. Review the failure and finish the changes in the pull request.',
 };
 const version = (release: string) => release.replace(/^skills-/, '').replace(/^(?!v)/, 'v');
 
@@ -58,6 +75,9 @@ export function FieldnoteSetupEntry({
       {progress && (
         <>
           <p>{progressCopy[progress.state]}</p>
+          {progress.state === 'stopped' && (
+            <p>{stopCopy[progress.monitorReason ?? 'invalid_repair']}</p>
+          )}
           <p>
             <Link href={actRunPath(repositoryId, progress.runId)}>
               Resume the setup conversation

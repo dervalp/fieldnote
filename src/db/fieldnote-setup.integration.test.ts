@@ -12,6 +12,8 @@ import { writePrRepair } from '../github/repair-authored-pr';
 import { renderInstallation } from '../domain/fieldnote-skills/render';
 import { supportingConfigurationDefaults } from '../domain/fieldnote-skills/configuration';
 import { sha256 } from '../domain/fieldnote-skills/lock';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 
 const context = vi.hoisted(() => ({
   repositoryId: '',
@@ -56,6 +58,41 @@ const closedOutcome = {
   mergedAt: null,
   closedAt: '2026-01-01T10:00:00.000Z',
 };
+
+test.each([
+  ['ambiguous', 'Review the feedback and resolve it in the pull request.'],
+  ['permission_loss', 'Restore GitHub App write access, then finish or close the pull request.'],
+  [
+    'repair_limit',
+    'Three automatic repair rounds have been used. Finish the remaining changes in the pull request.',
+  ],
+] as const)(
+  'durable monitor stop %s is exposed by the authorized summary and server-rendered UI',
+  async (reason, copy) => {
+    const { pr, monitor } = await repairFixture();
+    const { getSetupSummary } = await import('./queries/fieldnote-setup');
+    const { FieldnoteSetupEntry } = await import('../components/act/fieldnote-setup-entry');
+    await monitor.recordMonitorHumanRequired(pr.id, reason);
+    const summary = await getSetupSummary(pr.repositoryId, 'skills-v0.1.0');
+    const html = renderToStaticMarkup(
+      createElement(FieldnoteSetupEntry, {
+        repositoryId: pr.repositoryId,
+        ...summary,
+        canStart: true,
+      }),
+    );
+    expect(html).toContain('Automatic setup repairs stopped');
+    expect(html).toContain(copy);
+    expect(html).toContain(`href="${pr.url}"`);
+    expect(html).not.toContain('Monitoring the setup pull request');
+    expect(summary.progress).toMatchObject({ state: 'stopped', monitorReason: reason });
+    expect((await getSetupSummary(pr.repositoryId, 'skills-v0.1.0')).progress).toEqual(
+      summary.progress,
+    );
+    context.repositoryId = 'other';
+    await expect(getSetupSummary(pr.repositoryId, 'skills-v0.1.0')).rejects.toThrow('not found');
+  },
+);
 
 test('invalid terminal timestamps are rejected before persistence', async () => {
   const { pr, monitor } = await repairFixture();

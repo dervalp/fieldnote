@@ -10,6 +10,7 @@ import {
 import { installationCoversPullRequest } from './fieldnote-installations';
 import {
   parseAuthoredPrOutcome,
+  monitorStopNote,
   type AuthoredPrOutcome,
   type Feedback,
   type HumanReason,
@@ -223,7 +224,7 @@ export async function recordMonitorHumanRequired(id: string, reason: HumanReason
         authoringRunId: pr.authoringRunId,
         speaker: 'agent',
         kind: 'remark',
-        body: `Setup pull request needs human action: ${reason}.`,
+        body: monitorStopNote(reason),
       })
       .onConflictDoNothing();
   });

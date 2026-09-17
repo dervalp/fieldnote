@@ -47,15 +47,22 @@ export interface MonitorInput {
   permissionLost?: boolean;
   headChanged?: boolean;
 }
-export type HumanReason =
-  | 'ambiguous'
-  | 'secret'
-  | 'destructive'
-  | 'permission_loss'
-  | 'head_changed'
-  | 'repair_limit'
-  | 'invalid_repair'
-  | 'repair_failed';
+export const humanReasons = [
+  'ambiguous',
+  'secret',
+  'destructive',
+  'permission_loss',
+  'head_changed',
+  'repair_limit',
+  'invalid_repair',
+  'repair_failed',
+] as const;
+export type HumanReason = (typeof humanReasons)[number];
+export const monitorStopNote = (reason: HumanReason) =>
+  `Setup pull request needs human action: ${reason}.`;
+export function monitorStopReason(body: string): HumanReason {
+  return humanReasons.find((reason) => body === monitorStopNote(reason)) ?? 'invalid_repair';
+}
 export type MonitorDecision =
   | { kind: 'verify' | 'closed' | 'wait' }
   | { kind: 'human-required'; reason: HumanReason }
