@@ -43,3 +43,39 @@ test('documented github sync CLI reaches usage validation without provider or da
   expect(result.stderr).toContain('Usage: pnpm github:sync repository:123');
   expect(result.stderr).not.toContain('server-only');
 });
+
+test.each([
+  {
+    reason: 'missing repository',
+    env: {},
+    message: 'Usage: pnpm github:sync repository:123',
+  },
+  {
+    reason: 'disabled integration',
+    env: { DEMO_MODE: 'true' },
+    message: 'GitHub integration is disabled in demo mode',
+  },
+])('github sync rejects $reason before loading operational clients', ({ env, message }) => {
+  const guard = `
+    import { registerHooks } from 'node:module';
+    registerHooks({ resolve(specifier, context, nextResolve) {
+      if (/^(?:drizzle-orm|postgres|inngest|octokit)(?:\\/|$)/.test(specifier))
+        throw new Error('Operational clients unavailable');
+      return nextResolve(specifier, context);
+    }});
+  `;
+  const result = spawnSync(
+    process.execPath,
+    [
+      '--import',
+      'tsx',
+      '--import',
+      `data:text/javascript,${encodeURIComponent(guard)}`,
+      'scripts/sync-repository.ts',
+    ],
+    { env: { ...syntheticEnv, ...env }, encoding: 'utf8', timeout: 10_000 },
+  );
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain(message);
+  expect(result.stderr).not.toContain('Operational clients unavailable');
+});
