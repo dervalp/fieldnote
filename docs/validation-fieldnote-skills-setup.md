@@ -1,7 +1,7 @@
 # Fieldnote Skills setup validation
 
 Validation date: 2026-09-17. Implementation baseline:
-`d1a45980acfa202bd187a8b0f839af309b6b3811` on
+`9dd877453b241554944240679a4339499b6b25c7` on
 `codex/fieldnote-skills-setup`. This report covers local automated validation
 and the outstanding rollout gates. It does **not** establish production
 readiness or claim a completed live end-to-end setup.
@@ -38,20 +38,21 @@ env -i PATH="$PATH" HOME="$HOME" TMPDIR="$TMPDIR" \
 | `docker compose up -d --wait` | Exit 0 after local socket permission; PostgreSQL healthy                                                                            |
 | `pnpm lint`                   | Exit 0                                                                                                                              |
 | `pnpm typecheck`              | Exit 0                                                                                                                              |
-| `pnpm test`                   | Exit 0; 173 files / 1,559 tests passed; 1 file / 3 tests skipped                                                                    |
+| `pnpm test`                   | Exit 0; 175 files / 1,603 tests passed; 1 file / 3 tests skipped                                                                    |
 | `pnpm test --reporter=dot`    | Exit 0; same unit counts, repeated to capture a compact summary                                                                     |
-| `pnpm test:integration`       | Exit 0 after configuration repair; all 39 files / 341 tests passed                                                                  |
+| `pnpm test:integration`       | Exit 0 after configuration repair; all 39 files / 353 tests passed                                                                  |
 | `pnpm build`                  | Exit 0 with synthetic production configuration; compiled and generated all 15 static pages; setup and Inngest routes remain dynamic |
 
-The final combined `pnpm check` also exited 0: lint, typecheck, 173 unit files /
-1,559 passing tests (3 skipped), 39 integration files / 341 passing tests, and
+The final combined `pnpm check` also exited 0: lint, typecheck, 175 unit files /
+1,603 passing tests (3 skipped), 39 integration files / 353 passing tests, and
 the production build all completed. It used the exact build command below with
 `NODE_ENV=production` omitted, the disposable `TEST_DATABASE_URL` above added,
 and `pnpm build` replaced by `pnpm check`. Vitest sets its test environment and
 Next.js sets production for its build. The parent build database remained
 unroutable; integration configuration changes `DATABASE_URL` only in the test
 process. No E2B, Anthropic, or release token was supplied. This combined check
-ran after the integration configuration commit.
+ran after the final review fixes, including the Node operator-CLI startup
+regression fix.
 
 Documentation checks passed: `git diff --check` exited 0;
 `pnpm exec prettier --check README.md docs/github-app.md docs/roadmap.md docs/validation-fieldnote-skills-setup.md`
