@@ -96,11 +96,14 @@ export const planFieldnoteSetupFunction = inngest.createFunction(
         const snapshot = await collectFieldnoteSetup(plan.run.repositoryId, sha);
         if (!(await validated(runId))) return;
         await saveSetupSnapshot(runId, release, snapshot);
+        const persisted = await validated(runId);
+        if (!persisted?.proposal) return;
         const result = await authorPinnedSetup(
           release,
-          snapshot,
-          plan.notes,
-          plan.proposal?.confirmedAgents ?? [],
+          { ...snapshot, candidates: persisted.proposal.detectedAgents },
+          persisted.notes,
+          persisted.proposal.confirmedAgents ?? [],
+          persisted.proposal.confirmedFacts,
         );
         if (!(await validated(runId))) return;
         await saveSetupResult(runId, result, null);

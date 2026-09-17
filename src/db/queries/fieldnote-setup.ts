@@ -200,6 +200,11 @@ export async function saveSetupResult(
       .update(proposals)
       .set({
         confirmedAgents: result.confirmedAgents,
+        confirmedFacts: [
+          ...new Map(
+            [...proposal.confirmedFacts, ...result.confirmedFacts].map((fact) => [fact.key, fact]),
+          ).values(),
+        ],
         state: result.state === 'ready' ? 'exploring' : 'awaiting-input',
         updatedAt: new Date(),
       })

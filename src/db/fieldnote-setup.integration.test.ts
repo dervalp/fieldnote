@@ -557,6 +557,72 @@ test('ready author output and linked execute are committed atomically, including
   ).toHaveLength(1);
 });
 
+test('nonempty confirmed facts round-trip and survive a subsequent output containing only new facts', async () => {
+  const value = await plan();
+  await proposal(value.id);
+  await db()
+    .update(schema.fieldnoteSetupProposals)
+    .set({ state: 'exploring' })
+    .where(eq(schema.fieldnoteSetupProposals.authoringRunId, value.id));
+  const { saveSetupResult, loadSetupPlan, appendSetupAnswer } =
+    await import('./queries/fieldnote-setup');
+  const confirmedFacts = [
+    { key: 'Commands.check' as const, value: 'pnpm test', evidence: ['package.json scripts.test'] },
+  ];
+  const first = {
+    state: 'awaiting-input' as const,
+    findings: [],
+    confirmedFacts,
+    nextQuestion: { key: 'Tracker.kind' as const, text: 'Which tracker?', evidence: ['Not found'] },
+    confirmedAgents: agents,
+    files: [],
+    sandboxId: 'local',
+    model: 'local',
+  };
+  await saveSetupResult(value.id, first, null);
+  let stored = (await loadSetupPlan(value.id))!;
+  expect(stored.proposal?.confirmedFacts).toEqual(confirmedFacts);
+  expect(stored.notes.map((note) => note.kind)).toEqual(['question']);
+  const answerId = await appendSetupAnswer(
+    value.repositoryId,
+    value.id,
+    stored.notes[0].id,
+    'github',
+    agents,
+  );
+  const nextFact = { key: 'Tracker.kind' as const, value: 'github', evidence: ['Human answer'] };
+  await saveSetupResult(
+    value.id,
+    {
+      ...first,
+      confirmedFacts: [nextFact],
+      nextQuestion: { key: 'Tracker.repo', text: 'Which repository?', evidence: ['Not found'] },
+    },
+    answerId,
+  );
+  stored = (await loadSetupPlan(value.id))!;
+  expect(stored.proposal?.confirmedFacts).toEqual([...confirmedFacts, nextFact]);
+});
+
+test('confirmed facts reject malformed JSON on write and on load', async () => {
+  const value = await plan();
+  await proposal(value.id);
+  const invalid = [
+    { key: 'Commands.check' as const, value: 'pnpm test', evidence: ['CI'], extra: 'untrusted' },
+  ];
+  await expect(
+    db()
+      .update(schema.fieldnoteSetupProposals)
+      .set({ confirmedFacts: invalid })
+      .where(eq(schema.fieldnoteSetupProposals.authoringRunId, value.id)),
+  ).rejects.toThrow();
+  await db().execute(
+    sql`update fieldnote_setup_proposals set confirmed_facts = '[{"key":"unknown","value":"anything","evidence":["CI"]}]'::jsonb where authoring_run_id = ${value.id}`,
+  );
+  const { loadSetupPlan } = await import('./queries/fieldnote-setup');
+  await expect(loadSetupPlan(value.id)).rejects.toThrow();
+});
+
 test('failed ready validation rolls back generated files, notes, and model provenance', async () => {
   const value = await plan();
   await proposal(value.id);

@@ -103,10 +103,12 @@ beforeEach(() => {
   });
   deps.collect.mockResolvedValue(snapshot);
   deps.saveSnapshot.mockImplementation(async () => {
+    if (plan.proposal) return;
     plan.proposal = {
       state: 'exploring',
       detectedAgents: snapshot.candidates,
       confirmedAgents: null,
+      confirmedFacts: [],
     };
   });
   deps.author.mockImplementation(async () => {
@@ -179,4 +181,54 @@ test('does not restart completed setup runs', async () => {
   await invoke();
   expect(deps.begin).not.toHaveBeenCalled();
   expect(deps.latest).not.toHaveBeenCalled();
+});
+
+test('a retried collection authors the confirmation question from the persisted candidates', async () => {
+  const cache = new Map<string, unknown>();
+  deps.author.mockRejectedValueOnce(new Error('author temporarily unavailable'));
+  await expect(invoke(cache)).rejects.toThrow('Setup collection failed');
+  expect(plan.proposal?.detectedAgents).toEqual(snapshot.candidates);
+  deps.collect.mockResolvedValue({
+    ...snapshot,
+    documents: [{ path: 'AGENTS.md', blobSha: sha, text: 'fresh pinned evidence' }],
+    candidates: [
+      ...snapshot.candidates,
+      {
+        agent: 'claude-code',
+        label: 'Claude Code',
+        supported: true,
+        confirmed: false,
+        evidence: [{ source: 'declared', value: 'new historical detection' }],
+      },
+    ],
+  });
+  const { authorSetupProfile } = await vi.importActual<
+    typeof import('../../authoring/setup-author')
+  >('../../authoring/setup-author');
+  deps.author.mockImplementationOnce(async (_sandbox, input) =>
+    authorSetupProfile(
+      {
+        run: async () => ({
+          sandboxId: 'test',
+          model: 'test',
+          output: {
+            state: 'awaiting-input',
+            findings: [],
+            nextQuestion: { key: 'agents', text: 'Confirm agents?', evidence: ['Detected agents'] },
+            confirmedFacts: [],
+            generatedFiles: [],
+          },
+          files: new Map(),
+        }),
+      },
+      input,
+    ),
+  );
+  await invoke(cache);
+  const passed = deps.author.mock.calls[1][1];
+  expect(passed.snapshot.candidates).toEqual(snapshot.candidates);
+  expect(passed.snapshot.documents[0].text).toBe('fresh pinned evidence');
+  const saved = deps.saveResult.mock.calls[0][1];
+  expect(saved.nextQuestion.text).toContain('Codex');
+  expect(saved.nextQuestion.text).not.toContain('Claude Code');
 });

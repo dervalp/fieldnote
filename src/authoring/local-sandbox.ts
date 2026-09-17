@@ -16,9 +16,13 @@ export function localAuthoringSandbox(): AuthoringSandbox {
       const request = JSON.parse(input.prompt) as {
         notes?: SetupAuthorInput['notes'];
         confirmedAgents?: SetupAuthorInput['confirmedAgents'];
+        confirmedFacts?: SetupAuthorInput['confirmedFacts'];
       };
       let profile = input.files.get('evidence/.fieldnote/profile.md') ?? '# Fieldnote profile\n';
       const values = profileValues(profile);
+      for (const fact of request.confirmedFacts ?? []) {
+        if (unresolved(values.get(fact.key))) values.set(fact.key, fact.value);
+      }
       const required = requiredFactsForProfile(values);
       // A human answer follows the question's explicit profile key. Never interpret commands.
       let questionKey: string | undefined;
@@ -41,14 +45,22 @@ export function localAuthoringSandbox(): AuthoringSandbox {
         const value = values.get(key);
         return unresolved(value)
           ? []
-          : [{ key, value: value!, evidence: ['Existing profile or human answer.'] }];
+          : [
+              {
+                key,
+                value: value!,
+                evidence: request.confirmedFacts?.find(
+                  (fact) => fact.key === key && fact.value === value,
+                )?.evidence ?? ['Existing profile or human answer.'],
+              },
+            ];
       });
       const missing = required.find((key) => unresolved(values.get(key)));
       const ready =
         !missing &&
         input.mode === 'write-generated' &&
         request.confirmedAgents?.some((agent) => agent.supported);
-      if (ready && (request.notes?.length ?? 0) > 0) {
+      if (ready) {
         // Preserve existing lines; replace only TODO/missing values.
         for (const [key, value] of values) {
           const [section, name] = key.split('.');

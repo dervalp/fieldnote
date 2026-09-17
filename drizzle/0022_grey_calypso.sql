@@ -1,0 +1,1 @@
+ALTER TABLE "fieldnote_setup_proposals" ADD COLUMN "confirmed_facts" jsonb DEFAULT '[]'::jsonb NOT NULL;

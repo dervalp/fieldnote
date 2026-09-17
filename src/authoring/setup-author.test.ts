@@ -35,6 +35,7 @@ const input: SetupAuthorInput = {
   setupSkill: { revision: 'c'.repeat(40), content: 'Read evidence and fill the profile.' },
   notes: [],
   confirmedAgents: [],
+  confirmedFacts: [],
 };
 const confirmed = [{ agent: 'codex' as const, supported: true, skillsRoot: '.agents/skills' }];
 const profile = `# Profile
@@ -92,6 +93,21 @@ const readyInput = {
 };
 
 describe('setup author boundary', () => {
+  test('the local author reuses structured facts without having to rediscover them in notes', async () => {
+    const result = await authorSetupProfile(localAuthoringSandbox(), {
+      ...input,
+      confirmedAgents: confirmed,
+      confirmedFacts: [
+        { key: 'Tracker.kind', value: 'github', evidence: ['Confirmed previous turn'] },
+      ],
+    });
+    expect(result.nextQuestion?.key).toBe('Tracker.repo');
+    expect(result.confirmedFacts).toContainEqual({
+      key: 'Tracker.kind',
+      value: 'github',
+      evidence: ['Confirmed previous turn'],
+    });
+  });
   test('local author accepts a complete localized profile', async () => {
     const localized = `${profile}\n## Localization\n- **canonicalLocale** — en\n- **locales** — en, fr\n- **catalogs** — messages/<locale>.json\n`;
     const result = await authorSetupProfile(localAuthoringSandbox(), {

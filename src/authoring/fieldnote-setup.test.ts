@@ -58,6 +58,7 @@ beforeEach(() => {
       releaseLockHash,
       detectedAgents: agents,
       confirmedAgents: null,
+      confirmedFacts: [],
     },
     notes: [
       { id: 'question', speaker: 'agent', kind: 'question', body: '[agents] Confirm Codex?' },
@@ -183,6 +184,22 @@ test('the same persisted answer can resume after an author outage', async () => 
   await answerSetupPlan('repo', 'run', form('Yes'));
   expect(plan.notes.filter((note) => note.kind === 'answer')).toHaveLength(1);
   expect(deps.save).toHaveBeenCalledTimes(1);
+});
+
+test('next-turn author input includes persisted facts and pinned candidates', async () => {
+  const facts = [
+    { key: 'Commands.check', value: 'pnpm test', evidence: ['package.json scripts.test'] },
+  ];
+  plan.proposal.confirmedFacts = facts;
+  deps.collect.mockResolvedValue({ sha, complete: true, paths: [], documents: [], candidates: [] });
+  await answerSetupPlan('repo', 'run', form('Yes'));
+  expect(deps.author).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.objectContaining({
+      confirmedFacts: facts,
+      snapshot: expect.objectContaining({ candidates: agents }),
+    }),
+  );
 });
 
 test('does not confirm every detected agent from a qualified yes', async () => {

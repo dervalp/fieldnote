@@ -25,6 +25,7 @@ import type {
 } from '../domain/pull-request/types';
 import type { ReviewEvent } from '../domain/dashboard/types';
 import { agentCandidateSchema, confirmedAgentSchema } from '../domain/fieldnote-skills/types';
+import { confirmedProfileFactsSchema } from '../domain/fieldnote-skills/profile-facts';
 import type { z } from 'zod';
 import type {
   AgentMarker,
@@ -933,6 +934,9 @@ export const fieldnoteSetupProposals = pgTable(
     releaseLockHash: text('release_lock_hash').notNull(),
     detectedAgents: validatedJsonb(agentCandidateSchema.array())('detected_agents').notNull(),
     confirmedAgents: validatedJsonb(confirmedAgentSchema.array())('confirmed_agents'),
+    confirmedFacts: validatedJsonb(confirmedProfileFactsSchema)('confirmed_facts')
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     state: text('state').$type<'exploring' | 'awaiting-input' | 'ready'>().notNull(),
     createdAt: created(),
     updatedAt: updated(),

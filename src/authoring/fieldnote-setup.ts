@@ -25,6 +25,7 @@ export async function authorPinnedSetup(
   snapshot: SetupRepositorySnapshot,
   notes: SetupAuthorInput['notes'],
   confirmedAgents: ConfirmedAgent[],
+  confirmedFacts: SetupAuthorInput['confirmedFacts'],
 ) {
   const release = await readSkillsRelease(identity.release);
   if (
@@ -48,6 +49,7 @@ export async function authorPinnedSetup(
     snapshot,
     notes,
     confirmedAgents,
+    confirmedFacts,
     setupSkill: { revision: release.revision, content },
   });
 }
@@ -136,9 +138,10 @@ export async function answerSetupPlan(
         revision: persisted.proposal.skillsRevision,
         releaseLockHash: persisted.proposal.releaseLockHash as `sha256:${string}`,
       },
-      snapshot,
+      { ...snapshot, candidates: persisted.proposal.detectedAgents },
       persisted.notes,
       persisted.proposal.confirmedAgents ?? [],
+      persisted.proposal.confirmedFacts,
     );
     await validateAuthoringRun(persisted.run);
     // Persists the result and, when ready, queues its execute in one transaction.

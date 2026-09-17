@@ -8,54 +8,31 @@ import {
 } from '../domain/fieldnote-skills/types';
 import { setupAdapters } from '../domain/fieldnote-skills/adapters';
 import { validateAuthoringInput, validateGeneratedPath, type AuthoringSandbox } from './sandbox';
-
-// Profile v0.1 vocabulary; requirements belong to the adapter, never the model.
-export const requiredProfileFacts = [
-  'Tracker.kind',
-  'Tracker.repo',
-  'Tracker.epicLink',
-  'Tracker.blockedBy',
-  'Labels.ready',
-  'Labels.needsPrd',
-  'Commands.check',
-  'Commands.preflight',
-  'Commands.mutation',
-  'Docs.definitionOfDone',
-  'Docs.pullRequest',
-  'Docs.testing',
-  'Docs.verification',
-  'Docs.ciTriage',
-  'Docs.plans',
-  'Parallelism.waveSize',
-  'MergePolicy.strictStatusChecks',
-  'MergePolicy.adminMerge',
-  'Git.baseRemote',
-  'Git.baseBranch',
-] as const;
-const localizationProfileFacts = [
-  'Localization.canonicalLocale',
-  'Localization.locales',
-  'Localization.catalogs',
-] as const;
-const factKey = z.enum([...requiredProfileFacts, ...localizationProfileFacts]);
-
-export function requiredFactsForProfile(values: ReadonlyMap<string, string>) {
-  return [
-    ...requiredProfileFacts,
-    ...([...values.keys()].some((key) => key.startsWith('Localization.'))
-      ? localizationProfileFacts
-      : []),
-  ];
-}
+import {
+  confirmedProfileFactsSchema,
+  profileFactKeySchema,
+  requiredFactsForProfile,
+  unresolved,
+  type ConfirmedProfileFact,
+} from '../domain/fieldnote-skills/profile-facts';
+export {
+  requiredProfileFacts,
+  requiredFactsForProfile,
+  unresolved,
+} from '../domain/fieldnote-skills/profile-facts';
 const text = z.string().trim().min(1).max(16_384);
 const evidence = z.array(text).min(1).max(40);
 export const setupAuthorOutputSchema = z.strictObject({
   state: z.enum(['awaiting-input', 'ready']),
   findings: z.array(text).max(100),
   nextQuestion: z
-    .strictObject({ key: z.union([z.literal('agents'), factKey]), text: text.max(2000), evidence })
+    .strictObject({
+      key: z.union([z.literal('agents'), profileFactKeySchema]),
+      text: text.max(2000),
+      evidence,
+    })
     .nullable(),
-  confirmedFacts: z.array(z.strictObject({ key: factKey, value: text, evidence })).max(100),
+  confirmedFacts: confirmedProfileFactsSchema,
   generatedFiles: z
     .array(
       z.strictObject({
@@ -78,6 +55,7 @@ export interface SetupAuthorInput {
     body: string;
   }>;
   confirmedAgents: ConfirmedAgent[];
+  confirmedFacts: ConfirmedProfileFact[];
 }
 export type SetupAuthorResult = Omit<SetupAuthorOutput, 'generatedFiles'> & {
   confirmedAgents: ConfirmedAgent[];
@@ -94,6 +72,7 @@ load project settings, or access secrets. Infer mechanical facts from manifests 
 Ask agent confirmation first; subsequent turns ask exactly one focused question about one unresolved fact,
 with evidence and why it matters. Never bundle questions, even if the skill requests a numbered list.
 Preserve existing explicit profile values and existing concern files. Only fill missing or TODO values.
+Reuse confirmedFacts from previous turns; include all resolved facts in the structured result.
 Use the exact profile format: ## Section and - **key** — value. MergePolicy uses ## Merge policy.
 Use (none) only for an explicit decision or observed absence, never to hide unknown facts.
 Ready requires all requiredFacts resolved and a complete .fieldnote/profile.md, no TODO or unknowns.
@@ -120,15 +99,8 @@ export function profileValues(content: string): Map<string, string> {
   }
   return values;
 }
-export const unresolved = (value: string | undefined) =>
-  !value || /\b(?:TODO|TBD|unknown|unresolved)\b/i.test(value) || value === '?';
-
 export function parseAuthoringOutput(output: unknown): SetupAuthorOutput {
   const result = setupAuthorOutputSchema.parse(output);
-  if (new Set(result.confirmedFacts.map((fact) => fact.key)).size !== result.confirmedFacts.length)
-    throw new Error('Duplicate confirmed fact.');
-  if (result.confirmedFacts.some((fact) => unresolved(fact.value)))
-    throw new Error('Unresolved confirmed fact.');
   if (
     result.nextQuestion &&
     (/\n/.test(result.nextQuestion.text) ||
@@ -171,6 +143,7 @@ export async function authorSetupProfile(
   if (!/^[a-f0-9]{40}$/.test(input.setupSkill.revision) || !input.setupSkill.content.trim())
     throw new Error('Pinned setup skill is required.');
   const agents = confirmedAgentSchema.array().parse(input.confirmedAgents);
+  const confirmedFacts = confirmedProfileFactsSchema.parse(input.confirmedFacts);
   for (const agent of agents) {
     const adapter = setupAdapters[agent.agent as keyof typeof setupAdapters];
     if (agent.supported !== Boolean(adapter) || agent.skillsRoot !== (adapter?.skillsRoot ?? null))
@@ -191,6 +164,7 @@ export async function authorSetupProfile(
     candidates: input.snapshot.candidates,
     notes: input.notes,
     confirmedAgents: agents,
+    confirmedFacts,
     requiredFacts: requiredFactsForProfile(
       profileValues(files.get('evidence/.fieldnote/profile.md') ?? ''),
     ),
