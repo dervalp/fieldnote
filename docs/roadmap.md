@@ -3,44 +3,50 @@
 fieldnote is a loop: **Monitor** what coding agents do, **Act** on what the
 evidence shows, **Train** the agents on their own record.
 
-Monitor is shipped. This document records what Act and Train are, what they
-reuse, and what they still need. Neither has a design document yet — each gets
-its own design and plan before it is built, the way every shipped feature here
-did.
+Monitor is shipped. Act's first authoring workflow, Fieldnote Skills setup,
+is implemented with automated coverage; live acceptance and production rollout
+remain pending. Train remains future work.
 
-## Act — opening readiness pull requests
+## Act — install, verify, then improve readiness
 
-**What it is.** When a repository's agent-readiness grade shows failing checks,
-fieldnote opens a pull request that fixes them: adding the missing `AGENTS.md`,
-the missing documented setup block, the missing documented test command.
+**Implemented.** **Set up Fieldnote** explores repository evidence, asks the
+user to confirm detected agents, and settles missing facts one question at a
+time. The persisted conversation resumes after navigation. A ready proposal
+opens a PR with every skill from one immutable published release, separate
+byte-identical copies in `.agents/skills/` for Codex and `.claude/skills/` for
+Claude Code, and repository-specific `.fieldnote/` configuration and lock.
+Unsupported agents such as Cursor are disclosed without counting as installed.
 
-**Why this and not something more aggressive.** Repository readiness is
-preventive and safe. It improves every future agent run in that repository, it
-needs no pull-request history to be useful, and a wrong suggestion costs a
-closed pull request rather than a broken build. Reverting an agent's harness
-edit is the more dramatic version of Act and is deliberately not first.
+The PR is the review surface. Monitoring follows CI and reviews and allows at
+most three bounded repairs; ambiguous or unsafe feedback requires a human.
+Fieldnote never merges. Opening a PR means proposed. Only a fresh default-branch
+scan after merge can establish a current installation; closing without merge
+leaves it uninstalled or outdated. A cached latest-release check offers
+**Update Fieldnote to vX** without opening unsolicited PRs. Updates preserve
+explicit profile values and surface modified managed skills as drift.
 
-**What it reuses.** `GradeResult.checks[]` in
-[`src/domain/grading/types.ts`](../src/domain/grading/types.ts) already carries,
-per failing check, the `status`, an `explanation`, the `paths` inspected, and
-`lineRanges` proving the finding. Grade runs, dispatch, and recovery already
-exist in [`src/db/queries/grade-runs.ts`](../src/db/queries/grade-runs.ts) and
-the Inngest functions.
+The typed authoring kernel shares authorization, durable dispatch, notes,
+sandbox boundaries, retry/recovery, authored PRs, and monitoring across
+`fieldnote-setup` and `readiness-remediation`. Existing readiness plan behavior
+is preserved. Monitor's deterministic ingestion and metrics remain independent
+of authoring and do not call a model.
 
-**What it still needs.**
+**What remains.**
 
-- Write scope on the GitHub App, which today is read-only. This is a permission
-  change every installation must accept, so it must be worth asking for.
-- Authoring per failed check: turning a check identifier into file content that
-  suits the repository rather than a fixed template.
-- Idempotency. A repository must never receive the same readiness pull request
-  twice, including after a closed-without-merge outcome.
-- Explicit opt-in per repository, and a bound on how often fieldnote may open a
-  pull request.
+- Authorize and complete the four live agent-shape acceptance runs, close,
+  update, repair, and post-merge verification scenarios in the
+  [validation report](validation-fieldnote-skills-setup.md).
+- Roll out Contents/Pull requests write permission, authoring credentials,
+  migrations, and Inngest workers using the [operator procedure](github-app.md#fieldnote-skills-setup-and-update).
+- Implement broader readiness-remediation execution after verified Skills
+  installation. Valid current or outdated installations expose the existing
+  readiness planning capability; missing, proposed, partial, or drifted installs
+  keep setup or repair primary.
 
-**Open question.** Whether the pull request body should carry the grade
-evidence (paths and line ranges) inline, or link back to the fieldnote grading
-page. Inline is self-contained; linking keeps the diff clean.
+The [approved Skills setup design](superpowers/specs/2026-09-16-fieldnote-skills-setup-design.md)
+and [implementation plan](superpowers/plans/2026-09-16-fieldnote-skills-setup.md)
+define the contract. Native adapters beyond Codex and Claude Code, automatic
+updates, and automatic merges are outside V1.
 
 ## Train — an MCP server for coding agents
 

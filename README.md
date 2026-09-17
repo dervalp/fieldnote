@@ -31,11 +31,14 @@ for provenance, normalized into queryable facts, and projected into metrics by
 a pure analyzer. Same facts plus same gate policy always produce the same
 numbers.
 
-**Act** — _scoring shipped, pull requests next._ Grade a repository on how
-workable it is for an agent: agent instructions, README, docs, documented setup,
-documented tests. Each failing check already records what is missing and the
-exact paths and line ranges that prove it. The next step is opening the pull
-request that fixes it.
+**Act** — _Fieldnote Skills setup implemented; live acceptance pending._ Grade
+a repository, then use **Set up Fieldnote** to confirm coding agents, settle
+repository facts in a resumable conversation, and open a PR containing the
+complete pinned Skills release and repository profile. Codex and Claude Code
+receive native repository copies. Fieldnote monitors CI and reviews, permits
+at most three automatic repairs, and waits for a human merge before verifying
+the default branch. Updates are user-initiated; Fieldnote never merges PRs.
+Broader readiness-remediation execution remains future work.
 
 **Train** — _designed._ Serve a repository's own record back to the coding
 agent over MCP, so the agent reads its history before it starts work rather
@@ -107,14 +110,15 @@ Full detail in [architecture.md](docs/architecture.md) and
 
 ## Status
 
-|                                         | State               |
-| --------------------------------------- | ------------------- |
-| PR and CI ingestion, backfill, recovery | Shipped             |
-| Deterministic metrics and dashboards    | Shipped             |
-| Team workspaces and invitations         | Shipped             |
-| Repository agent-readiness grading      | Shipped             |
-| Act — opening readiness pull requests   | Designed, not built |
-| Train — MCP server for coding agents    | Designed, not built |
+|                                         | State                                |
+| --------------------------------------- | ------------------------------------ |
+| PR and CI ingestion, backfill, recovery | Shipped                              |
+| Deterministic metrics and dashboards    | Shipped                              |
+| Team workspaces and invitations         | Shipped                              |
+| Repository agent-readiness grading      | Shipped                              |
+| Act — Fieldnote Skills setup and update | Implemented; live acceptance pending |
+| Act — broader readiness-remediation PRs | Future work                          |
+| Train — MCP server for coding agents    | Designed, not built                  |
 
 Known limits are recorded in [validation.md](docs/validation.md), and
 deliberately excluded work in [future.md](docs/future.md). Free access shows the
@@ -127,6 +131,7 @@ latest 100 pull requests per repository.
 - [Roadmap](docs/roadmap.md) — Act and Train
 - [Operations](docs/operations.md) — tests, CI, production config, operator commands
 - [GitHub App setup](docs/github-app.md) — running against real repositories
+- [Skills setup validation](docs/validation-fieldnote-skills-setup.md) — automated evidence and pending manual acceptance
 - [Validation and limitations](docs/validation.md) — what these numbers do not claim
 - [Deferred work](docs/future.md)
 
