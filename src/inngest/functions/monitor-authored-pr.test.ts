@@ -182,15 +182,24 @@ test('unavailable publication evidence keeps failure recovery retryable', async 
   ).rejects.toMatchObject({ code: 'github_unavailable' });
   expect(deps.finish).not.toHaveBeenCalled();
 });
-test('pending checks resume the same reservation without consuming another ordinal', async () => {
-  deps.repair.mockRejectedValueOnce(new SetupWriteError('repair_pending'));
+test('repeated pending reconciliation deliveries each observe once and return without pollers or new ordinals', async () => {
+  deps.load.mockResolvedValue({ pr, repairs: [{ id: 'repair', ordinal: 1, state: 'queued' }] });
+  deps.observe.mockResolvedValue({ ...snapshot, pending: true });
+  for (let tick = 0; tick < 5; tick++) {
+    deps.repair.mockRejectedValueOnce(new SetupWriteError('repair_pending'));
+    await handler(context);
+    expect(deps.repair).toHaveBeenCalledTimes(tick + 1);
+    expect(deps.observe).toHaveBeenCalledTimes(tick + 1);
+    expect(deps.finish).not.toHaveBeenCalled();
+    expect(deps.sleep).not.toHaveBeenCalled();
+    expect(deps.reserve).not.toHaveBeenCalled();
+  }
+  deps.observe.mockResolvedValue(snapshot);
   await handler(context);
-  expect(deps.sleep).toHaveBeenCalledWith('wait-for-checks-0', '1m');
-  expect(deps.repair.mock.calls).toEqual([
-    ['pr', 'repair'],
-    ['pr', 'repair'],
-  ]);
-  expect(deps.finish).toHaveBeenCalledOnce();
+  expect(deps.repair.mock.calls).toEqual(Array.from({ length: 6 }, () => ['pr', 'repair']));
+  expect(deps.finish.mock.calls).toEqual([['repair', { headSha: 'b'.repeat(40) }]]);
+  expect(deps.sleep).not.toHaveBeenCalled();
+  expect(deps.reserve).not.toHaveBeenCalled();
   expect(deps.human).not.toHaveBeenCalled();
 });
 test('delayed obsolete repair deliveries do not record a human stop', async () => {

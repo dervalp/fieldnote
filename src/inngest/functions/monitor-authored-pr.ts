@@ -89,38 +89,34 @@ export const repairAuthoredPrFunction = inngest.createFunction(
   },
   async ({ event, step }) => {
     const { authoredPrId, repairId } = authoredPrRepairData.parse(event.data);
-    for (let poll = 0; ; poll++) {
-      const result = await step.run(`repair-${poll}`, async () => {
-        try {
-          const result = await repairAuthoredPr(authoredPrId, repairId);
-          await finishPrRepair(repairId, result);
-          return result;
-        } catch (error) {
-          if (error instanceof SetupWriteError && error.code === 'repair_obsolete')
-            return { obsolete: true };
-          if (error instanceof SetupWriteError && error.code === 'repair_pending')
-            return { pending: true };
-          if (
-            error instanceof SetupWriteError &&
-            ['access_revoked', 'setup_conflict', 'invalid_installation'].includes(error.code)
-          ) {
-            const reason =
-              error.code === 'access_revoked'
-                ? 'permission_loss'
-                : error.code === 'setup_conflict'
-                  ? 'head_changed'
-                  : 'invalid_repair';
-            await finishPrRepair(repairId, { errorCode: reason });
-            await recordMonitorHumanRequired(authoredPrId, reason);
-            return { errorCode: reason };
-          }
-          throw new Error('Setup repair temporarily unavailable');
+    return step.run('repair-0', async () => {
+      try {
+        const result = await repairAuthoredPr(authoredPrId, repairId);
+        await finishPrRepair(repairId, result);
+        return result;
+      } catch (error) {
+        if (error instanceof SetupWriteError && error.code === 'repair_obsolete')
+          return { obsolete: true };
+        // Reconciliation redelivers the active reservation. A pending delivery
+        // must finish, not accumulate another sleeping poller on each tick.
+        if (error instanceof SetupWriteError && error.code === 'repair_pending')
+          return { pending: true };
+        if (
+          error instanceof SetupWriteError &&
+          ['access_revoked', 'setup_conflict', 'invalid_installation'].includes(error.code)
+        ) {
+          const reason =
+            error.code === 'access_revoked'
+              ? 'permission_loss'
+              : error.code === 'setup_conflict'
+                ? 'head_changed'
+                : 'invalid_repair';
+          await finishPrRepair(repairId, { errorCode: reason });
+          await recordMonitorHumanRequired(authoredPrId, reason);
+          return { errorCode: reason };
         }
-      });
-      if (!('pending' in result)) return result;
-      // Keep this delivery on the same ordinal while checks settle. Any later
-      // duplicate must still pass the transaction's attempt-state guard.
-      await step.sleep(`wait-for-checks-${poll}`, '1m');
-    }
+        throw new Error('Setup repair temporarily unavailable');
+      }
+    });
   },
 );
