@@ -63,6 +63,7 @@ export const monitorAuthoredPrFunction = inngest.createFunction(
     }
     if (decision?.kind === 'repair' && 'repairId' in decision) {
       await step.sendEvent('dispatch-repair', {
+        id: `authored-pr-repair:${decision.repairId}`,
         name: 'repository/authored-pr.repair.requested',
         data: { authoredPrId, repairId: decision.repairId },
       });
@@ -83,32 +84,38 @@ export const repairAuthoredPrFunction = inngest.createFunction(
   },
   async ({ event, step }) => {
     const { authoredPrId, repairId } = authoredPrRepairData.parse(event.data);
-    await step.run('repair', async () => {
-      try {
-        const result = await repairAuthoredPr(authoredPrId, repairId);
-        await finishPrRepair(repairId, result);
-        return result;
-      } catch (error) {
-        if (error instanceof SetupWriteError && error.code === 'repair_obsolete')
-          return { obsolete: true };
-        if (error instanceof SetupWriteError && error.code === 'repair_pending')
-          return { pending: true };
-        if (
-          error instanceof SetupWriteError &&
-          ['access_revoked', 'setup_conflict', 'invalid_installation'].includes(error.code)
-        ) {
-          const reason =
-            error.code === 'access_revoked'
-              ? 'permission_loss'
-              : error.code === 'setup_conflict'
-                ? 'head_changed'
-                : 'invalid_repair';
-          await finishPrRepair(repairId, { errorCode: reason });
-          await recordMonitorHumanRequired(authoredPrId, reason);
-          return { errorCode: reason };
+    for (let poll = 0; ; poll++) {
+      const result = await step.run(`repair-${poll}`, async () => {
+        try {
+          const result = await repairAuthoredPr(authoredPrId, repairId);
+          await finishPrRepair(repairId, result);
+          return result;
+        } catch (error) {
+          if (error instanceof SetupWriteError && error.code === 'repair_obsolete')
+            return { obsolete: true };
+          if (error instanceof SetupWriteError && error.code === 'repair_pending')
+            return { pending: true };
+          if (
+            error instanceof SetupWriteError &&
+            ['access_revoked', 'setup_conflict', 'invalid_installation'].includes(error.code)
+          ) {
+            const reason =
+              error.code === 'access_revoked'
+                ? 'permission_loss'
+                : error.code === 'setup_conflict'
+                  ? 'head_changed'
+                  : 'invalid_repair';
+            await finishPrRepair(repairId, { errorCode: reason });
+            await recordMonitorHumanRequired(authoredPrId, reason);
+            return { errorCode: reason };
+          }
+          throw new Error('Setup repair temporarily unavailable');
         }
-        throw new Error('Setup repair temporarily unavailable');
-      }
-    });
+      });
+      if (!('pending' in result)) return result;
+      // The event ID is stable, so a deferred attempt must keep its original
+      // delivery alive rather than finish and rely on a deduplicated redispatch.
+      await step.sleep(`wait-for-checks-${poll}`, '1m');
+    }
   },
 );

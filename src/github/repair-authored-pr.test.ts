@@ -91,3 +91,21 @@ test('a lost update response is adopted on retry and no extra commit is publishe
   await expect(writePrRepair(f.input, f.client)).resolves.toEqual({ headSha: head });
   expect(f.updateRef).toHaveBeenCalledTimes(1);
 });
+test('publication gate can reject an obsolete repair after Git objects exist without moving the branch', async () => {
+  const f = fixture();
+  const { SetupWriteError } = await import('./write-authored-pr');
+  await expect(
+    writePrRepair(
+      {
+        ...f.input,
+        publish: async () => {
+          throw new SetupWriteError('repair_obsolete');
+        },
+      },
+      f.client,
+    ),
+  ).rejects.toMatchObject({ code: 'repair_obsolete' });
+  expect(f.api.git.createCommit).toHaveBeenCalledOnce();
+  expect(f.updateRef).not.toHaveBeenCalled();
+  expect(f.refs.get('heads/fieldnote/setup')).toBe(sha);
+});

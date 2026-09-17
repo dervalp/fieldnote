@@ -27,14 +27,20 @@ export async function listMonitoredPrs() {
     .where(inArray(prs.outcome, ['open', 'merged']));
 }
 export async function loadAuthoredPrMonitor(id: string) {
-  const [pr] = await db().select().from(prs).where(eq(prs.id, id));
+  return db().transaction((tx) => lockedMonitorContext(tx, id));
+}
+type Transaction = Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0];
+async function lockedMonitorContext(tx: Transaction, id: string) {
+  // Finalization/reservation use this same lock first. The head and attempts
+  // must describe one committed generation, even under READ COMMITTED.
+  const [pr] = await tx.select().from(prs).where(eq(prs.id, id)).for('update');
   if (!pr) return null;
-  const attempts = await db()
+  const attempts = await tx
     .select()
     .from(repairs)
     .where(eq(repairs.authoredPullRequestId, id))
     .orderBy(asc(repairs.ordinal));
-  const [stopped] = await db()
+  const [stopped] = await tx
     .select({ id: notes.id })
     .from(notes)
     .where(eq(notes.id, `monitor:${id}:human`));
@@ -82,6 +88,42 @@ export async function reservePrRepair(id: string, headSha: string, trigger: Feed
         })
         .returning()
     )[0];
+  });
+}
+export async function publishPrRepair(
+  prId: string,
+  repairId: string,
+  publish: (
+    context: NonNullable<Awaited<ReturnType<typeof loadAuthoredPrMonitor>>>,
+  ) => Promise<{ headSha: string }>,
+) {
+  return db().transaction(async (tx) => {
+    const context = await lockedMonitorContext(tx, prId);
+    const attempt = context?.repairs.find((repair) => repair.id === repairId);
+    if (
+      !context ||
+      !attempt ||
+      context.humanRequired ||
+      context.pr.outcome !== 'open' ||
+      context.pr.headSha !== attempt.baseHeadSha ||
+      !['queued', 'running'].includes(attempt.state)
+    )
+      return null;
+    // Hold the PR lock through the ref mutation and durable completion. A
+    // separate onFailure invocation must wait, then observe complete; if it
+    // finalized first, the guard above forbids publishing anything.
+    const result = await publish(context);
+    await tx
+      .update(repairs)
+      .set({
+        state: 'complete',
+        resultHeadSha: result.headSha,
+        errorCode: null,
+        completedAt: new Date(),
+      })
+      .where(eq(repairs.id, repairId));
+    await tx.update(prs).set({ headSha: result.headSha }).where(eq(prs.id, prId));
+    return result;
   });
 }
 export async function finishPrRepair(
@@ -132,16 +174,18 @@ export async function recordPrOutcome(
     .where(eq(prs.id, id));
 }
 export async function recordMonitorHumanRequired(id: string, reason: HumanReason) {
-  const [pr] = await db().select().from(prs).where(eq(prs.id, id));
-  if (!pr) return;
-  await db()
-    .insert(notes)
-    .values({
-      id: `monitor:${id}:human`,
-      authoringRunId: pr.authoringRunId,
-      speaker: 'agent',
-      kind: 'remark',
-      body: `Setup pull request needs human action: ${reason}.`,
-    })
-    .onConflictDoNothing();
+  await db().transaction(async (tx) => {
+    const [pr] = await tx.select().from(prs).where(eq(prs.id, id)).for('update');
+    if (!pr) return;
+    await tx
+      .insert(notes)
+      .values({
+        id: `monitor:${id}:human`,
+        authoringRunId: pr.authoringRunId,
+        speaker: 'agent',
+        kind: 'remark',
+        body: `Setup pull request needs human action: ${reason}.`,
+      })
+      .onConflictDoNothing();
+  });
 }

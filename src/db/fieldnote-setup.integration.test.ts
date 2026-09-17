@@ -8,6 +8,7 @@ import { db, closeDb } from './index';
 import * as schema from './schema';
 import { authoredPrClient } from '../github/testing/authored-pr-client';
 import { writeAuthoredPullRequest } from '../github/write-authored-pr';
+import { writePrRepair } from '../github/repair-authored-pr';
 
 const context = vi.hoisted(() => ({ repositoryId: '' }));
 vi.mock('../auth/session', () => ({ currentUser: async () => ({ id: 'unused' }) }));
@@ -24,6 +25,173 @@ const workspace = randomUUID();
 const repositories: string[] = [];
 const sha = 'a'.repeat(40);
 const agents = [{ agent: 'codex' as const, supported: true, skillsRoot: '.agents/skills' }];
+
+test('confirmed missing authoring access has a distinct terminal error', async () => {
+  const value = await plan();
+  const { loadAuthoringRun, validateAuthoringRun } = await import('./queries/authoring-runs');
+  const run = (await loadAuthoringRun(value.id))!;
+  await expect(validateAuthoringRun(run)).rejects.toMatchObject({
+    name: 'AuthoringAccessRevokedError',
+  });
+});
+
+async function repairFixture() {
+  const q = await import('./queries/fieldnote-setup');
+  const monitor = await import('./queries/authored-pr-monitor');
+  const value = await plan();
+  await proposal(value.id);
+  const execute = await q.readySetupAndQueueExecute(value.id);
+  const pr = await q.recordAuthoredPullRequest({
+    authoringRunId: execute.id,
+    repositoryId: value.repositoryId,
+    number: 42,
+    branch: 'fieldnote/setup',
+    headSha: sha,
+    url: 'https://github.test/pr/42',
+    outcome: 'open',
+    openedAt: new Date(),
+  });
+  const repair = (await monitor.reservePrRepair(pr.id, sha, {
+    kind: 'ci',
+    reference: 'check:1',
+    disposition: 'actionable',
+    path: '.fieldnote/profile.md',
+    instruction: 'format',
+  }))!;
+  return { pr, repair, monitor };
+}
+
+test('monitor context cannot mix an old PR head with a concurrently finalized repair', async () => {
+  const { pr, repair, monitor } = await repairFixture();
+  const inspector = postgres(process.env.DATABASE_URL!, { max: 1 });
+  const ready = Promise.withResolvers<number>();
+  const release = Promise.withResolvers<void>();
+  const writer = db().transaction(async (tx) => {
+    const [{ pid }] = await tx.execute<{ pid: number }>(sql`select pg_backend_pid() as pid`);
+    await tx
+      .select()
+      .from(schema.authoredPullRequests)
+      .where(eq(schema.authoredPullRequests.id, pr.id))
+      .for('update');
+    // Block the old nontransactional reader at its second SELECT, after it has
+    // already read the old PR. A correct reader instead blocks at the PR lock.
+    await tx.execute(sql`lock table authored_pull_request_repairs in access exclusive mode`);
+    await tx
+      .update(schema.authoredPullRequests)
+      .set({ headSha: 'b'.repeat(40) })
+      .where(eq(schema.authoredPullRequests.id, pr.id));
+    await tx
+      .update(schema.authoredPullRequestRepairs)
+      .set({ state: 'complete', resultHeadSha: 'b'.repeat(40) })
+      .where(eq(schema.authoredPullRequestRepairs.id, repair.id));
+    ready.resolve(pid);
+    await release.promise;
+  });
+  const pid = await ready.promise;
+  const reading = monitor.loadAuthoredPrMonitor(pr.id);
+  try {
+    const deadline = Date.now() + 5000;
+    let blocked = false;
+    while (!blocked && Date.now() < deadline) {
+      const [row] =
+        await inspector`select exists(select 1 from pg_stat_activity where ${pid} = any(pg_blocking_pids(pid))) as blocked`;
+      blocked = row.blocked;
+      if (!blocked) await inspector`select pg_sleep(0.01)`;
+    }
+    expect(blocked).toBe(true);
+  } finally {
+    release.resolve();
+  }
+  await writer;
+  try {
+    const observed = await reading;
+    expect(observed?.repairs[0].state).toBe('complete');
+    expect(observed?.pr.headSha).toBe('b'.repeat(40));
+  } finally {
+    await inspector.end();
+  }
+});
+
+test('repair publication and a delayed failure callback serialize without a stale PR head', async () => {
+  const { pr, repair, monitor } = await repairFixture();
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const github = authoredPrClient(sha);
+  github.refs.set(`heads/${pr.branch}`, sha);
+  Object.assign(github.api.git, {
+    updateRef: async ({ ref, sha: head, force }: { ref: string; sha: string; force: boolean }) => {
+      if (force || github.commits.get(head)?.parents[0]?.sha !== github.refs.get(ref))
+        throw { status: 422 };
+      github.refs.set(ref, head);
+      return { data: {} };
+    },
+  });
+  const publication = writePrRepair(
+    {
+      owner: 'octo',
+      repo: 'repo',
+      branch: pr.branch,
+      expectedHeadSha: sha,
+      repairId: repair.id,
+      commitDate: repair.createdAt.toISOString(),
+      files: new Map([['.fieldnote/profile.md', 'profile']]),
+      managedPaths: ['.fieldnote/profile.md'],
+      authorize: async () => {},
+      publish: async (headSha, write) => {
+        const result = await monitor.publishPrRepair(pr.id, repair.id, async () => {
+          entered.resolve();
+          await release.promise;
+          await write();
+          return { headSha };
+        });
+        if (!result) throw new Error('Unexpected obsolete publication');
+        return result;
+      },
+    },
+    github.client,
+  );
+  await entered.promise;
+  const failure = monitor.finishPrRepair(repair.id, { errorCode: 'repair_failed' });
+  // Let the failure reach its lock, while publication remains in flight.
+  const inspector = postgres(process.env.DATABASE_URL!, { max: 1 });
+  let blocked = false;
+  try {
+    const deadline = Date.now() + 5000;
+    while (!blocked && Date.now() < deadline) {
+      const [row] =
+        await inspector`select exists(select 1 from pg_stat_activity where wait_event_type = 'Lock' and query like '%authored_pull_requests%') as blocked`;
+      blocked = row.blocked;
+      if (!blocked) await inspector`select pg_sleep(0.01)`;
+    }
+  } finally {
+    release.resolve();
+    await inspector.end();
+  }
+  await Promise.all([publication, failure]);
+  const stored = await monitor.loadAuthoredPrMonitor(pr.id);
+  expect(blocked).toBe(true);
+  const remoteHead = github.refs.get(`heads/${pr.branch}`)!;
+  expect(remoteHead).not.toBe(sha);
+  expect(stored?.pr.headSha).toBe(remoteHead);
+  expect(stored?.repairs[0]).toMatchObject({
+    state: 'complete',
+    resultHeadSha: remoteHead,
+    errorCode: null,
+  });
+});
+
+test('a failure finalized before publication prevents the provider mutation', async () => {
+  const { pr, repair, monitor } = await repairFixture();
+  await monitor.finishPrRepair(repair.id, { errorCode: 'repair_failed' });
+  let remoteHead = sha;
+  const result = await monitor.publishPrRepair(pr.id, repair.id, async () => {
+    remoteHead = 'b'.repeat(40);
+    return { headSha: remoteHead };
+  });
+  expect(result).toBeNull();
+  expect(remoteHead).toBe(sha);
+  expect((await monitor.loadAuthoredPrMonitor(pr.id))?.pr.headSha).toBe(sha);
+});
 
 test('concurrent repair reservations reuse one ordinal, cap at three, and terminal outcomes never install', async () => {
   const q = await import('./queries/fieldnote-setup');

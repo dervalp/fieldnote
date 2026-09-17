@@ -9,6 +9,7 @@ const deps = vi.hoisted(() => ({
   outcome: vi.fn(),
   human: vi.fn(),
   send: vi.fn(),
+  sleep: vi.fn(),
   configs: [] as Array<{ onFailure?: (input: unknown) => Promise<unknown> }>,
 }));
 vi.mock('../client', () => ({
@@ -60,6 +61,7 @@ const context = {
       return result;
     },
     sendEvent: deps.send,
+    sleep: deps.sleep,
   },
 };
 beforeEach(() => {
@@ -166,10 +168,15 @@ test('a delayed failure callback targets the event attempt, never a newer reserv
   });
   expect(deps.finish).toHaveBeenCalledWith('old-attempt', { errorCode: 'repair_failed' });
 });
-test('pending checks leave a reserved repair eligible for later reconciliation', async () => {
+test('pending checks keep the deduplicated delivery alive and resume the same reservation', async () => {
   deps.repair.mockRejectedValueOnce(new SetupWriteError('repair_pending'));
   await handler(context);
-  expect(deps.finish).not.toHaveBeenCalled();
+  expect(deps.sleep).toHaveBeenCalledWith('wait-for-checks-0', '1m');
+  expect(deps.repair.mock.calls).toEqual([
+    ['pr', 'repair'],
+    ['pr', 'repair'],
+  ]);
+  expect(deps.finish).toHaveBeenCalledOnce();
   expect(deps.human).not.toHaveBeenCalled();
 });
 test('delayed obsolete repair deliveries do not record a human stop', async () => {
@@ -177,4 +184,15 @@ test('delayed obsolete repair deliveries do not record a human stop', async () =
   await handler(context);
   expect(deps.finish).not.toHaveBeenCalled();
   expect(deps.human).not.toHaveBeenCalled();
+});
+test('reconciliation retries dispatch the same reserved repair event identity', async () => {
+  await handler(context);
+  await handler(context);
+  const repairs = deps.send.mock.calls.filter(
+    ([, event]) => event.name === 'repository/authored-pr.repair.requested',
+  );
+  expect(repairs.map(([, event]) => event.id)).toEqual([
+    'authored-pr-repair:repair',
+    'authored-pr-repair:repair',
+  ]);
 });

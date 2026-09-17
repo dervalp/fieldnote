@@ -14,6 +14,7 @@ export interface RepairWriteInput {
   files: ReadonlyMap<string, string>;
   managedPaths: string[];
   authorize: () => Promise<void>;
+  publish?: (headSha: string, write: () => Promise<void>) => Promise<{ headSha: string }>;
 }
 export const repairCommitMessage = (id: string) =>
   `Repair Fieldnote setup\n\nFieldnote repair: ${id}`;
@@ -124,15 +125,19 @@ export async function writePrRepair(
         committer: author,
       }),
     );
+    const write = async () => {
+      if ((await ref()) !== input.expectedHeadSha) throw new SetupWriteError('setup_conflict');
+      // The provider's fast-forward check also rejects concurrent divergent pushes.
+      await client.rest.git.updateRef({
+        ...identity,
+        ref: `heads/${input.branch}`,
+        sha: commit.sha,
+        force: false,
+      });
+    };
+    if (input.publish) return await input.publish(commit.sha, write);
     await input.authorize();
-    if ((await ref()) !== input.expectedHeadSha) throw new SetupWriteError('setup_conflict');
-    // The provider's fast-forward check also rejects concurrent divergent pushes.
-    await client.rest.git.updateRef({
-      ...identity,
-      ref: `heads/${input.branch}`,
-      sha: commit.sha,
-      force: false,
-    });
+    await write();
     return { headSha: commit.sha };
   } catch (error) {
     if (error instanceof SetupWriteError) throw error;

@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { loadAuthoredPrMonitor } from '../db/queries/authored-pr-monitor';
+import { AuthoringAccessRevokedError } from '../domain/act/authorization';
+import { loadAuthoredPrMonitor, publishPrRepair } from '../db/queries/authored-pr-monitor';
 import { loadAuthoringRun, validateAuthoringRun } from '../db/queries/authoring-runs';
 import { loadSetupPlan } from '../db/queries/fieldnote-setup';
 import { fetchGrantedPermissions } from './installation-permissions';
@@ -34,8 +35,9 @@ async function authorize(context: Context) {
     throw new SetupWriteError('access_revoked');
   try {
     await validateAuthoringRun(run);
-  } catch {
-    throw new SetupWriteError('access_revoked');
+  } catch (error) {
+    if (error instanceof AuthoringAccessRevokedError) throw new SetupWriteError('access_revoked');
+    throw error;
   }
   const permissions = await fetchGrantedPermissions(run.repositoryId);
   if (permissions.contents !== 'write' || permissions.pullRequests !== 'write')
@@ -239,7 +241,23 @@ export async function repairAuthoredPr(
         );
       if (outside(parent.tree) !== outside(recovered.tree))
         throw new SetupWriteError('setup_conflict');
-      return { headSha: snapshot.headSha };
+      await authorize(context);
+      const recoveredResult = await publishPrRepair(authoredPrId, attempt.id, async (fresh) => {
+        const { data: latest } = await client.rest.pulls.get({
+          ...identity,
+          pull_number: fresh.pr.number,
+        });
+        if (
+          latest.state !== 'open' ||
+          latest.merged ||
+          latest.head.ref !== fresh.pr.branch ||
+          latest.head.sha !== snapshot.headSha
+        )
+          throw new SetupWriteError('setup_conflict');
+        return { headSha: snapshot.headSha };
+      });
+      if (!recoveredResult) throw new SetupWriteError('repair_obsolete');
+      return recoveredResult;
     }
     const decision = monitorDecision({ ...snapshot, repairs: attempt.ordinal - 1 });
     if (decision.kind === 'wait') throw new SetupWriteError('repair_pending');
@@ -302,6 +320,34 @@ export async function repairAuthoredPr(
       ).state !== 'current'
     )
       throw new SetupWriteError('invalid_installation');
+    const checkBranch = async (fresh: Context) => {
+      const { data: pr } = await client.rest.pulls.get({
+        ...identity,
+        pull_number: fresh.pr.number,
+      });
+      if (
+        pr.state !== 'open' ||
+        pr.merged ||
+        pr.head.ref !== fresh.pr.branch ||
+        pr.head.sha !== attempt.baseHeadSha
+      )
+        throw new SetupWriteError('setup_conflict');
+    };
+    const authorizeMutation = async () => {
+      const fresh = await loadAuthoredPrMonitor(authoredPrId);
+      if (!fresh || fresh.humanRequired || fresh.pr.outcome !== 'open')
+        throw new SetupWriteError('access_revoked');
+      const freshAttempt = fresh.repairs.find((repair) => repair.id === attempt.id);
+      if (
+        !freshAttempt ||
+        !['queued', 'running'].includes(freshAttempt.state) ||
+        freshAttempt.baseHeadSha !== attempt.baseHeadSha ||
+        fresh.pr.headSha !== attempt.baseHeadSha
+      )
+        throw new SetupWriteError('repair_obsolete');
+      await authorize(fresh);
+      await checkBranch(fresh);
+    };
     return await writePrRepair(
       {
         ...identity,
@@ -311,22 +357,18 @@ export async function repairAuthoredPr(
         commitDate: attempt.createdAt.toISOString(),
         files: installation.files,
         managedPaths: [...setup.installation.files.keys()],
-        authorize: async () => {
-          const fresh = await loadAuthoredPrMonitor(authoredPrId);
-          if (!fresh || fresh.humanRequired || fresh.pr.outcome !== 'open')
-            throw new SetupWriteError('access_revoked');
-          await authorize(fresh);
-          const { data: pr } = await client.rest.pulls.get({
-            ...identity,
-            pull_number: fresh.pr.number,
+        authorize: authorizeMutation,
+        publish: async (headSha, write) => {
+          await authorizeMutation();
+          const published = await publishPrRepair(authoredPrId, attempt.id, async (fresh) => {
+            // No nested database acquisitions while holding the PR row lock:
+            // a waiting failure callback may occupy the other data-pool slot.
+            await checkBranch(fresh);
+            await write();
+            return { headSha };
           });
-          if (
-            pr.state !== 'open' ||
-            pr.merged ||
-            pr.head.ref !== fresh.pr.branch ||
-            pr.head.sha !== attempt.baseHeadSha
-          )
-            throw new SetupWriteError('setup_conflict');
+          if (!published) throw new SetupWriteError('repair_obsolete');
+          return published;
         },
       },
       client,

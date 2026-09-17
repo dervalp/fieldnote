@@ -1,6 +1,7 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { renderInstallation } from '../domain/fieldnote-skills/render';
 import { sha256 } from '../domain/fieldnote-skills/lock';
+import { AuthoringAccessRevokedError } from '../domain/act/authorization';
 const deps = vi.hoisted(() => ({
   load: vi.fn(),
   run: vi.fn(),
@@ -12,8 +13,12 @@ const deps = vi.hoisted(() => ({
   config: vi.fn(),
   sandbox: vi.fn(),
   write: vi.fn(),
+  publish: vi.fn(),
 }));
-vi.mock('../db/queries/authored-pr-monitor', () => ({ loadAuthoredPrMonitor: deps.load }));
+vi.mock('../db/queries/authored-pr-monitor', () => ({
+  loadAuthoredPrMonitor: deps.load,
+  publishPrRepair: deps.publish,
+}));
 vi.mock('../db/queries/authoring-runs', () => ({
   loadAuthoringRun: deps.run,
   validateAuthoringRun: deps.validate,
@@ -139,6 +144,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   api = client();
   deps.load.mockResolvedValue(context);
+  deps.publish.mockImplementation(async (_prId, _repairId, publish) => publish(context));
   deps.run.mockResolvedValue({
     id: 'execute',
     repositoryId: 'repo',
@@ -322,4 +328,38 @@ test('a delayed duplicate for a failed attempt is obsolete and cannot stop a new
   await expect(repairAuthoredPr('pr', 'repair')).rejects.toMatchObject({ code: 'repair_obsolete' });
   expect(deps.sandbox).not.toHaveBeenCalled();
   expect(deps.write).not.toHaveBeenCalled();
+});
+test('a transient validator outage stays sanitized and retryable, then recovers', async () => {
+  deps.validate.mockRejectedValueOnce(new Error('private database connection details'));
+  const failed = observeAuthoredPr(context);
+  await expect(failed).rejects.toMatchObject({ code: 'github_unavailable' });
+  await expect(failed).rejects.not.toThrow('private database');
+  await expect(observeAuthoredPr(context)).resolves.toMatchObject({
+    outcome: 'open',
+    headSha: head,
+  });
+});
+test('confirmed validator denial remains terminal before provider work', async () => {
+  deps.validate.mockRejectedValueOnce(new AuthoringAccessRevokedError());
+  await expect(observeAuthoredPr(context)).rejects.toMatchObject({ code: 'access_revoked' });
+  expect(deps.repository).not.toHaveBeenCalled();
+});
+test('every fresh mutation authorization rejects an attempt finalized while authoring', async () => {
+  deps.write.mockImplementationOnce(async (input) => {
+    deps.load.mockResolvedValue({ ...context, repairs: [{ ...repair, state: 'failed' }] });
+    await input.authorize();
+    throw new Error('mutation would run after attempt failed');
+  });
+  await expect(repairAuthoredPr('pr', 'repair')).rejects.toMatchObject({ code: 'repair_obsolete' });
+});
+test('service publishes through the database gate and refuses a failed attempt before ref mutation', async () => {
+  let published = false;
+  deps.publish.mockResolvedValueOnce(null);
+  deps.write.mockImplementationOnce(async (input) =>
+    input.publish('c'.repeat(40), async () => {
+      published = true;
+    }),
+  );
+  await expect(repairAuthoredPr('pr', 'repair')).rejects.toMatchObject({ code: 'repair_obsolete' });
+  expect(published).toBe(false);
 });

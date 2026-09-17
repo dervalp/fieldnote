@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { AuthoringAccessRevokedError } from '../../domain/act/authorization';
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db } from '../index';
 import {
@@ -180,7 +181,7 @@ export async function validateAuthoringRun(run: AuthoringRun): Promise<void> {
         eq(installations.active, true),
       ),
     );
-  if (!available || process.env.DEMO_MODE === 'true') throw new Error('Plan access revoked');
+  if (!available || process.env.DEMO_MODE === 'true') throw new AuthoringAccessRevokedError();
 }
 
 export async function beginAuthoring(runId: string): Promise<AuthoringRun | null> {
