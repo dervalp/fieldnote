@@ -1,4 +1,5 @@
-import { eq, and, isNotNull, notInArray } from 'drizzle-orm';
+import { eq, and, notInArray } from 'drizzle-orm';
+export { assertTrackedRepository } from '../db/queries/repository-imports';
 import { db } from '../db';
 import { installations, repositories } from '../db/schema';
 import { githubApp } from './app';
@@ -101,21 +102,4 @@ export async function repositoryInstallation(
     .innerJoin(installations, eq(installations.id, repositories.installationId))
     .where(eq(repositories.id, repositoryId));
   return record ?? null;
-}
-
-export async function assertTrackedRepository(repositoryId: string): Promise<void> {
-  const [record] = await db()
-    .select({ id: repositories.id })
-    .from(repositories)
-    .innerJoin(installations, eq(installations.id, repositories.installationId))
-    .where(
-      and(
-        eq(repositories.id, repositoryId),
-        eq(repositories.active, true),
-        eq(repositories.isDemo, false),
-        isNotNull(repositories.trackingStartedAt),
-        eq(installations.active, true),
-      ),
-    );
-  if (!record) throw new Error(`Repository is not tracked: ${repositoryId}`);
 }
