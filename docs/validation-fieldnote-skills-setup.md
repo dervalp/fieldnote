@@ -1,7 +1,7 @@
 # Fieldnote Skills setup validation
 
 Validation date: 2026-09-17. Implementation baseline:
-`9dd877453b241554944240679a4339499b6b25c7` on
+`7b56bc5150b6ed73adf01c9df912d139cc75ed93` on
 `codex/fieldnote-skills-setup`. This report covers local automated validation
 and the outstanding rollout gates. It does **not** establish production
 readiness or claim a completed live end-to-end setup.
