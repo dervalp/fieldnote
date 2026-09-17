@@ -6,6 +6,8 @@ import postgres from 'postgres';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db, closeDb } from './index';
 import * as schema from './schema';
+import { authoredPrClient } from '../github/testing/authored-pr-client';
+import { writeAuthoredPullRequest } from '../github/write-authored-pr';
 
 const context = vi.hoisted(() => ({ repositoryId: '' }));
 vi.mock('../auth/session', () => ({ currentUser: async () => ({ id: 'unused' }) }));
@@ -115,6 +117,68 @@ test('execute completion requires its recorded PR and recording retries update t
       .from(schema.repositoryFieldnoteInstallations)
       .where(eq(schema.repositoryFieldnoteInstallations.repositoryId, value.repositoryId)),
   ).toEqual([]);
+});
+
+test('the actual writer adopts and persists a lost-response PR after unrelated default movement', async () => {
+  const q = await import('./queries/fieldnote-setup');
+  const value = await plan();
+  await proposal(value.id);
+  const execute = await q.readySetupAndQueueExecute(value.id);
+  await db()
+    .update(schema.authoringRuns)
+    .set({ state: 'running' })
+    .where(eq(schema.authoringRuns.id, execute.id));
+  const github = authoredPrClient(sha);
+  const create = github.api.pulls.create.getMockImplementation()!;
+  github.api.pulls.create.mockImplementationOnce(async (input) => {
+    await create(input);
+    throw { status: 503, message: 'private response lost' };
+  });
+  const input = {
+    owner: 'octo',
+    repo: 'repo',
+    runId: execute.id,
+    commitDate: execute.createdAt.toISOString(),
+    proposalBaseSha: sha,
+    expectedBaseSha: sha,
+    release: 'skills-v0.1.0',
+    revision: 'c'.repeat(40),
+    files: new Map([['.fieldnote/profile.md', 'Complete profile']]),
+    agents,
+    evidenceCount: 1,
+    authorize: async () => {},
+  };
+  await expect(writeAuthoredPullRequest(input, github.client)).rejects.toMatchObject({
+    code: 'github_unavailable',
+  });
+  expect(
+    await db()
+      .select()
+      .from(schema.authoredPullRequests)
+      .where(eq(schema.authoredPullRequests.authoringRunId, execute.id)),
+  ).toEqual([]);
+  github.moveDefault('d'.repeat(40));
+  const recovered = await writeAuthoredPullRequest(input, github.client);
+  const stored = await q.recordAuthoredPullRequest({
+    authoringRunId: execute.id,
+    repositoryId: value.repositoryId,
+    ...recovered,
+    outcome: 'open',
+    openedAt: new Date(),
+  });
+  await q.completeSetupExecute(execute.id);
+  expect(stored).toMatchObject({
+    number: 42,
+    headSha: github.prs[0].head.sha,
+    branch: 'fieldnote/setup-skills-v0.1.0',
+  });
+  expect(
+    (
+      await db().select().from(schema.authoringRuns).where(eq(schema.authoringRuns.id, execute.id))
+    )[0].state,
+  ).toBe('complete');
+  expect(github.api.git.createCommit).toHaveBeenCalledTimes(1);
+  expect(github.api.pulls.create).toHaveBeenCalledTimes(1);
 });
 
 beforeAll(async () => {

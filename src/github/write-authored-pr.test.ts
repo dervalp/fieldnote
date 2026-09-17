@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto';
 import { beforeEach, expect, test, vi } from 'vitest';
-import { writeAuthoredPullRequest, type AuthoredPullRequestInput } from './write-authored-pr';
+import {
+  SetupWriteError,
+  writeAuthoredPullRequest,
+  type AuthoredPullRequestInput,
+} from './write-authored-pr';
 
 const blob = (content: string) =>
   createHash('sha1')
@@ -232,7 +236,7 @@ test('stops on a new default head, a foreign branch, or permission loss and sani
   await expect(call()).rejects.toMatchObject({ code: 'setup_conflict' });
   refs.delete('heads/fieldnote/setup-skills-v0.1.0');
   input.authorize = async () => {
-    throw new Error('private token');
+    throw new SetupWriteError('access_revoked');
   };
   await expect(call()).rejects.toMatchObject({ code: 'access_revoked' });
   expect(client.rest.git.createBlob).not.toHaveBeenCalled();
@@ -242,8 +246,99 @@ test('stops on a new default head, a foreign branch, or permission loss and sani
 });
 
 test('permission is rechecked immediately before each mutation', async () => {
-  input.authorize = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValue(new Error('secret'));
+  input.authorize = vi
+    .fn()
+    .mockResolvedValueOnce(undefined)
+    .mockRejectedValue(new SetupWriteError('access_revoked'));
   await expect(call()).rejects.toMatchObject({ code: 'access_revoked' });
   expect(client.rest.git.createBlob).toHaveBeenCalledTimes(1);
   expect(client.rest.git.createTree).not.toHaveBeenCalled();
+});
+
+test.each([
+  new Error('private permission lookup timeout'),
+  new SetupWriteError('github_unavailable'),
+])(
+  'temporary per-mutation authorization failure is sanitized and retryable: %s',
+  async (failure) => {
+    input.authorize = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValue(undefined);
+    await expect(call()).rejects.toMatchObject({
+      code: 'github_unavailable',
+      message: 'GitHub is temporarily unavailable.',
+    });
+    expect(client.rest.git.createBlob).toHaveBeenCalledTimes(1);
+    expect(client.rest.git.createTree).not.toHaveBeenCalled();
+    expect((await call()).number).toBe(42);
+    expect(client.rest.git.createCommit).toHaveBeenCalledTimes(1);
+  },
+);
+
+test('adopts a lost-response PR after unrelated default movement, including renewed proposal generation', async () => {
+  const create = client.rest.pulls.create.getMockImplementation()!;
+  client.rest.pulls.create.mockImplementationOnce(async (args) => {
+    await create(args);
+    throw { status: 503, message: 'private response' };
+  });
+  await expect(call()).rejects.toMatchObject({ code: 'github_unavailable' });
+  const moved = 'd'.repeat(40);
+  refs.set('heads/main', moved);
+  commits.set(moved, {
+    tree: { sha: 'moved-tree' },
+    message: 'unrelated',
+    parents: [{ sha: base }],
+  });
+  trees.set('moved-tree', [
+    ...structuredClone(trees.get('base-tree')!),
+    { path: 'src/new.ts', type: 'blob', mode: '100644', sha: 'new-source' },
+  ]);
+  expect((await call()).headSha).toBe(head);
+  const renewed = 'e'.repeat(40);
+  refs.set('heads/main', renewed);
+  commits.set(renewed, {
+    tree: { sha: 'renewed-tree' },
+    message: 'updated instructions',
+    parents: [{ sha: moved }],
+  });
+  trees.set('renewed-tree', [
+    ...structuredClone(trees.get('moved-tree')!),
+    { path: 'AGENTS.md', type: 'blob', mode: '100644', sha: 'new-instructions' },
+  ]);
+  // The renewed proposal confirms the same desired files against new evidence.
+  input.expectedBaseSha = renewed;
+  input.proposalBaseSha = renewed;
+  expect((await call()).number).toBe(42);
+  input.files = new Map([['.fieldnote/profile.md', 'changed desired profile']]);
+  await expect(call()).rejects.toMatchObject({ code: 'setup_conflict' });
+  expect(client.rest.git.createCommit).toHaveBeenCalledTimes(1);
+  expect(client.rest.git.createRef).toHaveBeenCalledTimes(1);
+  expect(client.rest.pulls.create).toHaveBeenCalledTimes(1);
+});
+
+test('default movement cannot bypass relevant destination conflict or modified-branch checks during recovery', async () => {
+  await call();
+  const moved = 'd'.repeat(40);
+  refs.set('heads/main', moved);
+  commits.set(moved, {
+    tree: { sha: 'moved-tree' },
+    message: 'changed destination',
+    parents: [{ sha: base }],
+  });
+  trees.set('moved-tree', [
+    ...structuredClone(trees.get('base-tree')!),
+    { path: '.fieldnote/profile.md', type: 'blob', mode: '100644', sha: 'human-change' },
+  ]);
+  await expect(call()).rejects.toMatchObject({ code: 'setup_conflict' });
+  // A renewed proposal must not erase the conflict against the authored parent.
+  input.proposalBaseSha = moved;
+  input.expectedBaseSha = moved;
+  await expect(call()).rejects.toMatchObject({ code: 'setup_conflict' });
+  trees.set('moved-tree', structuredClone(trees.get('base-tree')!));
+  trees.get('new-tree')!.find((entry) => entry.path === '.fieldnote/profile.md')!.sha =
+    'edited-branch';
+  await expect(call()).rejects.toMatchObject({ code: 'setup_conflict' });
+  expect(client.rest.pulls.create).toHaveBeenCalledTimes(1);
 });

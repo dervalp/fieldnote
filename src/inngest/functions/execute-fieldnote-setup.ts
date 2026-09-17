@@ -23,7 +23,7 @@ import { sha256 } from '../../domain/fieldnote-skills/lock';
 import { repositoryClient } from '../../github/repositories';
 import { SetupWriteError, writeAuthoredPullRequest } from '../../github/write-authored-pr';
 
-async function validated(runId: string, proposalUpdatedAt: string) {
+async function activeSetup(runId: string, proposalUpdatedAt: string) {
   const run = await loadAuthoringRun(runId);
   if (
     !run ||
@@ -41,16 +41,32 @@ async function validated(runId: string, proposalUpdatedAt: string) {
     plan.proposal.updatedAt.toISOString() !== proposalUpdatedAt
   )
     return null;
+  return { run, plan, proposal: plan.proposal };
+}
+
+async function validated(runId: string, proposalUpdatedAt: string) {
+  const context = await activeSetup(runId, proposalUpdatedAt);
+  if (!context) return null;
+  const { run } = context;
   try {
     await validateAuthoringRun(run);
-    const permissions = await fetchGrantedPermissions(run.repositoryId);
-    if (!actAvailability({ enabled: true, permissions, failingCheckCount: 1 }).available)
-      throw new Error('Denied');
   } catch {
     await failAuthoringRun(runId, 'access_revoked');
     throw new NonRetriableError('Setup unavailable');
   }
-  return { run, plan, proposal: plan.proposal };
+  let permissions;
+  try {
+    permissions = await fetchGrantedPermissions(run.repositoryId);
+  } catch {
+    // An unavailable lookup proves no denial. Leave this generation active so
+    // Inngest can retry; no provider details cross the worker boundary.
+    throw new SetupWriteError('github_unavailable');
+  }
+  if (!actAvailability({ enabled: true, permissions, failingCheckCount: 1 }).available) {
+    await failAuthoringRun(runId, 'access_revoked');
+    throw new NonRetriableError('Setup unavailable');
+  }
+  return context;
 }
 
 async function rendered(context: NonNullable<Awaited<ReturnType<typeof validated>>>) {
@@ -85,7 +101,7 @@ export const executeFieldnoteSetupFunction = inngest.createFunction(
     concurrency: { limit: 1, key: 'event.data.runId' },
     onFailure: async ({ event }) => {
       const data = fieldnoteSetupExecuteRequestedData.parse(event.data.event.data);
-      const context = await validated(data.runId, data.proposalUpdatedAt);
+      const context = await activeSetup(data.runId, data.proposalUpdatedAt);
       if (context) await failAuthoringRun(data.runId, 'setup_failed');
     },
   },
@@ -156,7 +172,12 @@ export const executeFieldnoteSetupFunction = inngest.createFunction(
             agents: context.proposal.confirmedAgents!,
             evidenceCount: refresh.evidenceCount,
             authorize: async () => {
-              if (!(await load())) throw new Error('Setup unavailable');
+              try {
+                if (!(await load())) throw new SetupWriteError('access_revoked');
+              } catch (error) {
+                if (error instanceof NonRetriableError) throw new SetupWriteError('access_revoked');
+                throw error;
+              }
             },
           },
           client,
@@ -189,6 +210,7 @@ export const executeFieldnoteSetupFunction = inngest.createFunction(
           await failAuthoringRun(runId, 'access_revoked');
           throw new NonRetriableError('Setup unavailable');
         }
+        if (error instanceof SetupWriteError && error.code === 'github_unavailable') throw error;
         throw new Error('Setup pull request failed');
       }
     });

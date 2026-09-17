@@ -1,5 +1,6 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { sha256 } from '../../domain/fieldnote-skills/lock';
+import { authoredPrClient } from '../../github/testing/authored-pr-client';
 
 const deps = vi.hoisted(() => ({
   loadRun: vi.fn(),
@@ -36,13 +37,9 @@ vi.mock('../../github/collect-files', () => ({ resolveHeadSha: deps.head }));
 vi.mock('../../github/collect-fieldnote-setup', () => ({ collectFieldnoteSetup: deps.collect }));
 vi.mock('../../github/repositories', () => ({ repositoryClient: deps.client }));
 vi.mock('../../fieldnote-skills/github-release', () => ({ readSkillsRelease: deps.release }));
-vi.mock('../../github/write-authored-pr', () => ({
+vi.mock('../../github/write-authored-pr', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../github/write-authored-pr')>()),
   writeAuthoredPullRequest: deps.write,
-  SetupWriteError: class extends Error {
-    constructor(public code: string) {
-      super(code);
-    }
-  },
 }));
 vi.mock('../client', () => ({
   inngest: { createFunction: (options: unknown, handler: unknown) => ({ options, handler }) },
@@ -270,4 +267,100 @@ test('renewed execution generations are queued by run identity rather than dropp
   };
   expect(options.singleton).toBeUndefined();
   expect(options.concurrency).toEqual({ limit: 1, key: 'event.data.runId' });
+});
+
+test('temporary permission lookup failure preserves the execute for retry', async () => {
+  deps.permissions.mockRejectedValueOnce(new Error('private provider timeout'));
+  const cache = new Map<string, unknown>();
+  await expect(invoke(cache)).rejects.toMatchObject({ code: 'github_unavailable' });
+  expect(deps.fail).not.toHaveBeenCalled();
+  expect(deps.write).not.toHaveBeenCalled();
+  expect(run.state).toBe('queued');
+  await invoke(cache);
+  expect(run.state).toBe('complete');
+  expect(deps.record).toHaveBeenCalledTimes(1);
+});
+
+test('a transient per-mutation permission lookup retries with the real writer and adopts its partial branch', async () => {
+  const { writeAuthoredPullRequest } = await vi.importActual<
+    typeof import('../../github/write-authored-pr')
+  >('../../github/write-authored-pr');
+  const github = authoredPrClient(sha);
+  deps.client.mockResolvedValue({ repo: { owner: 'octo', name: 'repo' }, client: github.client });
+  deps.write.mockImplementation(writeAuthoredPullRequest);
+  const createRef = github.api.git.createRef.getMockImplementation()!;
+  github.api.git.createRef.mockImplementationOnce(async (args) => {
+    const result = await createRef(args);
+    deps.permissions.mockRejectedValueOnce(new Error('private provider timeout'));
+    return result;
+  });
+  const cache = new Map<string, unknown>();
+  await expect(invoke(cache)).rejects.toMatchObject({ code: 'github_unavailable' });
+  expect(deps.fail).not.toHaveBeenCalled();
+  expect(run.state).toBe('running');
+  expect(github.api.pulls.create).not.toHaveBeenCalled();
+  await invoke(cache);
+  expect(run.state).toBe('complete');
+  expect(github.api.git.createCommit).toHaveBeenCalledTimes(1);
+  expect(github.api.git.createRef).toHaveBeenCalledTimes(1);
+  expect(github.api.pulls.create).toHaveBeenCalledTimes(1);
+  expect(deps.record).toHaveBeenCalledWith(
+    expect.objectContaining({ number: 42, headSha: github.prs[0].head.sha }),
+  );
+});
+
+test('the real writer recovers a PR after a persistence failure and default movement', async () => {
+  const { writeAuthoredPullRequest } = await vi.importActual<
+    typeof import('../../github/write-authored-pr')
+  >('../../github/write-authored-pr');
+  const github = authoredPrClient(sha);
+  deps.client.mockResolvedValue({ repo: { owner: 'octo', name: 'repo' }, client: github.client });
+  deps.write.mockImplementation(writeAuthoredPullRequest);
+  deps.record.mockRejectedValueOnce(new Error('private database outage'));
+  const cache = new Map<string, unknown>();
+  await expect(invoke(cache)).rejects.toThrow('Setup pull request failed');
+  const head = github.prs[0].head.sha;
+  github.moveDefault('d'.repeat(40));
+  await invoke(cache);
+  expect(deps.reopen).not.toHaveBeenCalled();
+  expect(deps.record).toHaveBeenLastCalledWith(
+    expect.objectContaining({ number: 42, headSha: head }),
+  );
+  expect(run.state).toBe('complete');
+  expect(github.api.git.createCommit).toHaveBeenCalledTimes(1);
+  expect(github.api.pulls.create).toHaveBeenCalledTimes(1);
+});
+
+test('confirmed write denial at the real writer mutation boundary remains terminal', async () => {
+  const { writeAuthoredPullRequest } = await vi.importActual<
+    typeof import('../../github/write-authored-pr')
+  >('../../github/write-authored-pr');
+  const github = authoredPrClient(sha);
+  deps.client.mockResolvedValue({ repo: { owner: 'octo', name: 'repo' }, client: github.client });
+  deps.write.mockImplementation(writeAuthoredPullRequest);
+  const createRef = github.api.git.createRef.getMockImplementation()!;
+  github.api.git.createRef.mockImplementationOnce(async (args) => {
+    const result = await createRef(args);
+    deps.permissions.mockResolvedValue({ contents: 'read', pullRequests: 'read' });
+    return result;
+  });
+  await expect(invoke()).rejects.toMatchObject({ name: 'NonRetriableError' });
+  expect(deps.fail).toHaveBeenCalledWith('execute', 'access_revoked');
+  expect(github.api.pulls.create).not.toHaveBeenCalled();
+});
+
+test('exhausted retries fail the matching generation without another unavailable permission lookup', async () => {
+  deps.permissions.mockRejectedValue(new Error('private provider outage'));
+  const { options } = executeFieldnoteSetupFunction as unknown as {
+    options: { onFailure: (context: unknown) => Promise<unknown> };
+  };
+  await options.onFailure({
+    event: {
+      data: {
+        event: { data: { runId: 'execute', proposalUpdatedAt: '2026-09-16T00:00:00.000Z' } },
+      },
+    },
+  });
+  expect(deps.fail).toHaveBeenCalledWith('execute', 'setup_failed');
+  expect(deps.permissions).not.toHaveBeenCalled();
 });

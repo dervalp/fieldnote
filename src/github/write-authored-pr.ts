@@ -83,7 +83,7 @@ export async function writeAuthoredPullRequest(
       }
     };
     const baseSha = await ref(repository.default_branch);
-    if (!baseSha || baseSha !== input.expectedBaseSha) throw new SetupWriteError('setup_conflict');
+    if (!baseSha) throw new SetupWriteError('setup_conflict');
     const tree = async (sha: string) => {
       const { data: commit } = await client.rest.git.getCommit({ ...identity, commit_sha: sha });
       const { data: result } = await client.rest.git.getTree({
@@ -101,45 +101,54 @@ export async function writeAuthoredPullRequest(
     const current = await tree(baseSha);
     const proposed =
       input.proposalBaseSha === baseSha ? current : await tree(input.proposalBaseSha);
-    for (const path of input.files.keys()) {
-      const existing = current.entries.get(path),
-        original = proposed.entries.get(path);
-      if (
-        existing?.sha !== original?.sha ||
-        existing?.mode !== original?.mode ||
-        (existing && (existing.type !== 'blob' || existing.mode !== '100644'))
-      )
-        throw new SetupWriteError('setup_conflict');
-      const segments = path.split('/');
-      for (let index = 1; index < segments.length; index++) {
-        const parent = current.entries.get(segments.slice(0, index).join('/'));
-        if (parent && parent.type !== 'tree') throw new SetupWriteError('setup_conflict');
+    const checkDestinations = (reference: typeof current) => {
+      for (const path of input.files.keys()) {
+        const existing = current.entries.get(path),
+          original = reference.entries.get(path);
+        if (
+          existing?.sha !== original?.sha ||
+          existing?.mode !== original?.mode ||
+          (existing && (existing.type !== 'blob' || existing.mode !== '100644'))
+        )
+          throw new SetupWriteError('setup_conflict');
+        const segments = path.split('/');
+        for (let index = 1; index < segments.length; index++) {
+          const parent = current.entries.get(segments.slice(0, index).join('/'));
+          if (parent && parent.type !== 'tree') throw new SetupWriteError('setup_conflict');
+        }
+        if ([...input.files.keys()].some((other) => other.startsWith(`${path}/`)))
+          throw new SetupWriteError('invalid_installation');
       }
-      if ([...input.files.keys()].some((other) => other.startsWith(`${path}/`)))
-        throw new SetupWriteError('invalid_installation');
-    }
-    const fingerprint = sha256(
-      JSON.stringify([
-        input.runId,
-        baseSha,
-        [...input.files].sort(([a], [b]) => a.localeCompare(b)),
-      ]),
-    );
-    const message = `${title}\n\nFieldnote setup: ${fingerprint}`;
-    const expected = new Map(
-      [...current.entries]
-        .filter(([, entry]) => entry.type !== 'tree')
-        .map(([path, entry]) => [path, `${entry.mode}:${entry.type}:${entry.sha}`]),
-    );
-    for (const [path, content] of input.files)
-      expected.set(path, `100644:blob:${blobSha(content)}`);
+    };
+    checkDestinations(proposed);
+    const commitMessage = (parentSha: string) => {
+      const fingerprint = sha256(
+        JSON.stringify([
+          input.runId,
+          parentSha,
+          [...input.files].sort(([a], [b]) => a.localeCompare(b)),
+        ]),
+      );
+      return `${title}\n\nFieldnote setup: ${fingerprint}`;
+    };
     const verifyHead = async (sha: string) => {
       const result = await tree(sha);
+      if (result.commit.parents.length !== 1) throw new SetupWriteError('setup_conflict');
+      const parentSha = result.commit.parents[0].sha;
+      const parent = parentSha === baseSha ? current : await tree(parentSha);
+      // Recovery validates the original commit against its own parent, even
+      // after a renewed proposal. Current destination drift still blocks adoption.
+      checkDestinations(parent);
+      const expected = new Map(
+        [...parent.entries]
+          .filter(([, entry]) => entry.type !== 'tree')
+          .map(([path, entry]) => [path, `${entry.mode}:${entry.type}:${entry.sha}`]),
+      );
+      for (const [path, content] of input.files)
+        expected.set(path, `100644:blob:${blobSha(content)}`);
       const actual = [...result.entries].filter(([, entry]) => entry.type !== 'tree');
       if (
-        result.commit.message !== message ||
-        result.commit.parents.length !== 1 ||
-        result.commit.parents[0].sha !== baseSha ||
+        result.commit.message !== commitMessage(parentSha) ||
         actual.length !== expected.size ||
         actual.some(
           ([path, entry]) => expected.get(path) !== `${entry.mode}:${entry.type}:${entry.sha}`,
@@ -150,14 +159,16 @@ export async function writeAuthoredPullRequest(
     const mutate = async <T>(work: () => Promise<T>): Promise<T> => {
       try {
         await input.authorize();
-      } catch {
-        throw new SetupWriteError('access_revoked');
+      } catch (error) {
+        if (error instanceof SetupWriteError) throw error;
+        throw new SetupWriteError('github_unavailable');
       }
       return work();
     };
     let headSha = await ref(branch);
     if (headSha) await verifyHead(headSha);
     else {
+      if (baseSha !== input.expectedBaseSha) throw new SetupWriteError('setup_conflict');
       const entries: Array<{ path: string; mode: '100644'; type: 'blob'; sha: string }> = [];
       for (const [path, content] of input.files) {
         const { data } = await mutate(() =>
@@ -180,7 +191,7 @@ export async function writeAuthoredPullRequest(
       const { data: commit } = await mutate(() =>
         client.rest.git.createCommit({
           ...identity,
-          message,
+          message: commitMessage(baseSha),
           tree: newTree.sha,
           parents: [baseSha],
           author,
@@ -224,6 +235,7 @@ export async function writeAuthoredPullRequest(
       | undefined = found.find((item) => item.state === 'open');
     if (!pr && found.length) throw new SetupWriteError('setup_conflict');
     if (!pr) {
+      if (baseSha !== input.expectedBaseSha) throw new SetupWriteError('setup_conflict');
       const body = [
         `Installs Fieldnote Skills v${version}.`,
         `Release: ${input.release}\nRevision: ${input.revision}`,
