@@ -135,6 +135,30 @@ export async function writeAuthoredPullRequest(
       const result = await tree(sha);
       if (result.commit.parents.length !== 1) throw new SetupWriteError('setup_conflict');
       const parentSha = result.commit.parents[0].sha;
+      if (parentSha !== baseSha) {
+        // Comparing immutable SHAs proves that recovering this branch cannot
+        // bring abandoned default-branch history into the effective PR diff.
+        let comparison;
+        try {
+          comparison = (
+            await client.rest.repos.compareCommitsWithBasehead({
+              ...identity,
+              basehead: `${parentSha}...${baseSha}`,
+              per_page: 1,
+            })
+          ).data;
+        } catch (error) {
+          throw new SetupWriteError(
+            errorStatus(error) === 401 ? 'access_revoked' : 'github_unavailable',
+          );
+        }
+        if (
+          comparison.status !== 'ahead' ||
+          comparison.base_commit.sha !== parentSha ||
+          comparison.merge_base_commit.sha !== parentSha
+        )
+          throw new SetupWriteError('setup_conflict');
+      }
       const parent = parentSha === baseSha ? current : await tree(parentSha);
       // Recovery validates the original commit against its own parent, even
       // after a renewed proposal. Current destination drift still blocks adoption.

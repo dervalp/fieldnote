@@ -13,6 +13,44 @@ type PullRequest = {
 };
 const hash = (value: string) => createHash('sha1').update(value).digest('hex');
 
+/** Model the compare API from commit ancestry, not from tree equality. */
+export function compareCommitHistory(
+  commits: ReadonlyMap<string, Pick<Commit, 'parents'>>,
+  basehead: string,
+) {
+  const [base, head] = basehead.split('...');
+  const ancestors = (sha: string) => {
+    const found = new Set<string>();
+    const queue = [sha];
+    for (const current of queue) {
+      if (found.has(current)) continue;
+      const commit = commits.get(current);
+      if (!commit) throw { status: 404 };
+      found.add(current);
+      queue.push(...commit.parents.map((parent) => parent.sha));
+    }
+    return found;
+  };
+  const fromBase = ancestors(base),
+    fromHead = ancestors(head);
+  const mergeBase = [...fromBase].find((sha) => fromHead.has(sha));
+  if (!mergeBase) throw { status: 404 };
+  return {
+    data: {
+      status:
+        base === head
+          ? 'identical'
+          : fromHead.has(base)
+            ? 'ahead'
+            : fromBase.has(head)
+              ? 'behind'
+              : 'diverged',
+      base_commit: { sha: base },
+      merge_base_commit: { sha: mergeBase },
+    },
+  };
+}
+
 /** Stateful Git data/PR boundary for tests that keep the real writer and workflow. */
 export function authoredPrClient(baseSha: string) {
   const refs = new Map([['heads/main', baseSha]]);
@@ -24,7 +62,12 @@ export function authoredPrClient(baseSha: string) {
   ]);
   const prs: PullRequest[] = [];
   const api = {
-    repos: { get: vi.fn(async () => ({ data: { default_branch: 'main' } })) },
+    repos: {
+      get: vi.fn(async () => ({ data: { default_branch: 'main' } })),
+      compareCommitsWithBasehead: vi.fn(async ({ basehead }: { basehead: string }) =>
+        compareCommitHistory(commits, basehead),
+      ),
+    },
     git: {
       getRef: vi.fn(async ({ ref }: { ref: string }) => {
         if (!refs.has(ref)) throw { status: 404 };

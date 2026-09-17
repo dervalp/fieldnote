@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { beforeEach, expect, test, vi } from 'vitest';
+import { authoredPrClient, compareCommitHistory } from './testing/authored-pr-client';
 import {
   SetupWriteError,
   writeAuthoredPullRequest,
@@ -31,7 +32,12 @@ let client: ReturnType<typeof fakeClient>;
 function fakeClient() {
   return {
     rest: {
-      repos: { get: vi.fn(async () => ({ data: { default_branch: 'main' } })) },
+      repos: {
+        get: vi.fn(async () => ({ data: { default_branch: 'main' } })),
+        compareCommitsWithBasehead: vi.fn(async ({ basehead }: { basehead: string }) =>
+          compareCommitHistory(commits, basehead),
+        ),
+      },
       git: {
         getRef: vi.fn(async ({ ref }: { ref: string }) => {
           if (!refs.has(ref)) throw { status: 404 };
@@ -341,4 +347,75 @@ test('default movement cannot bypass relevant destination conflict or modified-b
     'edited-branch';
   await expect(call()).rejects.toMatchObject({ code: 'setup_conflict' });
   expect(client.rest.pulls.create).toHaveBeenCalledTimes(1);
+});
+
+test('recovery proves the authored parent is in forward-moving default history using pinned commit comparison', async () => {
+  const github = authoredPrClient(base);
+  const first = await writeAuthoredPullRequest(input, github.client);
+  const moved = 'd'.repeat(40);
+  github.moveDefault(moved);
+  expect(await writeAuthoredPullRequest(input, github.client)).toEqual(first);
+  expect(github.api.repos.compareCommitsWithBasehead).toHaveBeenCalledWith(
+    expect.objectContaining({ owner: 'octo', repo: 'repo', basehead: `${base}...${moved}` }),
+  );
+  expect(github.api.git.createCommit).toHaveBeenCalledTimes(1);
+});
+
+test.each(['rewind', 'divergence'])(
+  'lost-response recovery rejects default %s that would reintroduce abandoned-history files',
+  async (movement) => {
+    const github = authoredPrClient(base);
+    const root = '0'.repeat(40),
+      rewritten = 'd'.repeat(40);
+    github.trees.set('root-tree', structuredClone(github.trees.get('initial-tree')!));
+    github.commits.set(root, { tree: { sha: 'root-tree' }, message: 'root', parents: [] });
+    github.commits.get(base)!.parents = [{ sha: root }];
+    github.trees
+      .get('initial-tree')!
+      .push({ path: 'src/abandoned.ts', mode: '100644', type: 'blob', sha: 'abandoned-source' });
+    const create = github.api.pulls.create.getMockImplementation()!;
+    github.api.pulls.create.mockImplementationOnce(async (args) => {
+      await create(args);
+      throw { status: 503 };
+    });
+    await expect(writeAuthoredPullRequest(input, github.client)).rejects.toMatchObject({
+      code: 'github_unavailable',
+    });
+    github.commits.set(rewritten, {
+      tree: { sha: 'root-tree' },
+      message: 'new history',
+      parents: [{ sha: root }],
+    });
+    const current = movement === 'rewind' ? root : rewritten;
+    github.refs.set('heads/main', current);
+    // Even a refreshed proposal cannot authorize adoption of abandoned history.
+    input.expectedBaseSha = current;
+    input.proposalBaseSha = current;
+    await expect(writeAuthoredPullRequest(input, github.client)).rejects.toMatchObject({
+      code: 'setup_conflict',
+    });
+    await expect(
+      github.api.repos.compareCommitsWithBasehead.mock.results[0].value,
+    ).resolves.toMatchObject({ data: { status: movement === 'rewind' ? 'behind' : 'diverged' } });
+    expect(github.api.git.createCommit).toHaveBeenCalledTimes(1);
+    expect(github.api.pulls.create).toHaveBeenCalledTimes(1);
+  },
+);
+
+test.each([
+  { status: 503, message: 'private response' },
+  { status: 429, message: 'private rate limit' },
+  new Error('private timeout'),
+])('compare unavailability remains sanitized and retryable: %s', async (failure) => {
+  const github = authoredPrClient(base);
+  const first = await writeAuthoredPullRequest(input, github.client);
+  github.moveDefault('d'.repeat(40));
+  github.api.repos.compareCommitsWithBasehead.mockRejectedValueOnce(failure);
+  await expect(writeAuthoredPullRequest(input, github.client)).rejects.toMatchObject({
+    code: 'github_unavailable',
+    message: 'GitHub is temporarily unavailable.',
+  });
+  expect(await writeAuthoredPullRequest(input, github.client)).toEqual(first);
+  expect(github.api.git.createCommit).toHaveBeenCalledTimes(1);
+  expect(github.api.pulls.create).toHaveBeenCalledTimes(1);
 });
