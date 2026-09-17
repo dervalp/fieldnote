@@ -119,6 +119,37 @@ test('records the human confirmation and resumes with persisted notes and pinned
   );
 });
 
+test.each([
+  ['provider token', () => `ghp_${'a'.repeat(36)}`],
+  [
+    'private key',
+    () => '-----BEGIN RSA PRIVATE KEY-----\nsynthetic\n-----END RSA PRIVATE KEY-----',
+  ],
+  ['assignment', () => 'API_KEY=synthetic-secret'],
+  ['name/value', () => '- name: DB_PASSWORD\n  value: synthetic-secret'],
+  [
+    'nested object',
+    () => JSON.stringify({ database: { password: { value: 'synthetic-secret' } } }),
+  ],
+] as const)(
+  'rejects credential answer (%s) before persistence and accepts a correction',
+  async (_label, content) => {
+    const submission = form(content());
+    submission.append('agents', 'codex');
+    await expect(answerSetupPlan('repo', 'run', submission)).rejects.toThrow(
+      'Authoring input contains credential material.',
+    );
+    // Booleans deliberately keep rejected input out of assertion diagnostics.
+    expect(deps.load.mock.calls.length === 0).toBe(true);
+    expect(deps.append.mock.calls.length === 0).toBe(true);
+    expect(deps.author.mock.calls.length === 0).toBe(true);
+    await answerSetupPlan('repo', 'run', form('Yes'));
+    expect(plan.notes.filter((note) => note.kind === 'answer').map((note) => note.body)).toEqual([
+      'Yes',
+    ]);
+  },
+);
+
 test('passes a ready result to the transactional result-and-execute persistence boundary', async () => {
   deps.author.mockResolvedValue({
     state: 'ready',

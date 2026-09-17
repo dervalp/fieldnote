@@ -21,6 +21,7 @@ import { requestPlan } from './authoring-runs';
 import type { SetupAuthorResult } from '../../authoring/setup-author';
 import { classifyInstallation } from '../../domain/fieldnote-skills/classify';
 import { installationCoversPullRequest } from './fieldnote-installations';
+import { assertCredentialFree } from '../../authoring/sandbox';
 
 export interface SetupProgress {
   runId: string;
@@ -286,6 +287,7 @@ export async function appendSetupAnswer(
   answer: string,
   confirmedAgents: ConfirmedAgent[],
 ): Promise<string> {
+  assertCredentialFree(answer);
   return db().transaction(async (tx) => {
     const run = await lockPlan(tx, runId);
     if (run.repositoryId !== repositoryId || run.state !== 'running')

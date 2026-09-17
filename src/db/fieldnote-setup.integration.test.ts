@@ -1546,6 +1546,37 @@ test('setup collection and result retries persist one question, then concurrent 
   ).rejects.toThrow();
 });
 
+test('credential rejection leaves durable answer, notes, and proposal untouched for correction', async () => {
+  const value = await plan();
+  await proposal(value.id);
+  const q = await import('./queries/fieldnote-setup');
+  const questionId = randomUUID();
+  await db().insert(schema.authoringNotes).values({
+    id: questionId,
+    authoringRunId: value.id,
+    speaker: 'agent',
+    kind: 'question',
+    body: '[agents] Confirm the coding agents?',
+  });
+  const before = await q.loadSetupPlan(value.id);
+  await expect(
+    q.appendSetupAnswer(
+      value.repositoryId,
+      value.id,
+      questionId,
+      JSON.stringify({ env: [{ value: { nested: 'synthetic-secret' }, name: 'DB_PASSWORD' }] }),
+      agents,
+    ),
+  ).rejects.toThrow('Authoring input contains credential material.');
+  expect(await q.loadSetupPlan(value.id)).toEqual(before);
+  await q.appendSetupAnswer(value.repositoryId, value.id, questionId, 'Yes', agents);
+  const corrected = (await q.loadSetupPlan(value.id))!;
+  expect(corrected.notes.filter((note) => note.kind === 'answer').map((note) => note.body)).toEqual(
+    ['Yes'],
+  );
+  expect(corrected.proposal?.state).toBe('exploring');
+});
+
 test('ready author output and linked execute are committed atomically, including concurrent retries', async () => {
   const value = await plan();
   await proposal(value.id);

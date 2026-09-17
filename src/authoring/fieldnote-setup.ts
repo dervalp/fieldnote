@@ -19,6 +19,7 @@ import { authorSetupProfile, type SetupAuthorInput } from './setup-author';
 import { localAuthoringSandbox } from './local-sandbox';
 import { e2bAuthoringSandbox } from './e2b-sandbox';
 import { authoringEnv } from '../lib/env';
+import { assertCredentialFree } from './sandbox';
 
 export async function authorPinnedSetup(
   identity: SetupReleaseIdentity,
@@ -94,6 +95,7 @@ export async function answerSetupPlan(
   formData: FormData,
 ): Promise<void> {
   const answer = z.string().trim().min(1).max(16_384).parse(formData.get('answer'));
+  assertCredentialFree(answer);
   const plan = await loadSetupPlan(runId);
   if (
     !plan ||

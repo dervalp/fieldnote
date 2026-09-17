@@ -56,7 +56,7 @@ function literalCredential(value: unknown): boolean {
 
 /** Reject high-confidence credential material without including input in errors.
  * This detects literals, not every possible encoding; it never rewrites evidence. */
-function assertCredentialFree(content: string): void {
+export function assertCredentialFree(content: string): void {
   const reject = () => {
     throw new Error('Authoring input contains credential material.');
   };
