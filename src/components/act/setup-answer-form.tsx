@@ -17,7 +17,7 @@ export function SetupAnswerForm({
   runId: string;
   questionId: string;
   question?: string;
-  agents: Pick<AgentCandidate, 'agent' | 'label'>[];
+  agents: ReadonlyArray<Pick<AgentCandidate, 'agent' | 'label' | 'supported'>>;
   savedAnswer?: string;
 }) {
   const router = useRouter();
@@ -47,6 +47,12 @@ export function SetupAnswerForm({
           {agents.map((agent) => (
             <label key={agent.agent}>
               <input type="checkbox" name="agents" value={agent.agent} /> {agent.label}
+              {!agent.supported && (
+                <span className="muted">
+                  {' '}
+                  — No native adapter will be installed for {agent.label}.
+                </span>
+              )}
             </label>
           ))}
         </fieldset>

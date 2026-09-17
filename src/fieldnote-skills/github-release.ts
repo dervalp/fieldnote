@@ -168,14 +168,20 @@ function assertMatchingMetadata(
   }
 }
 
-export async function latestSkillsRelease(fetcher: typeof fetch = fetch): Promise<SkillsRelease> {
+// Presentation needs only the cached moving tag. Commit and content validation
+// still runs at authoring boundaries through latestSkillsRelease/readSkillsRelease.
+export async function latestSkillsReleaseTag(fetcher: typeof fetch = fetch): Promise<string> {
   const value = await responseJson(fetcher, `${repository}/releases/latest`, {
     ...requestOptions(),
     next: { revalidate: 300 },
   });
   const latest = latestReleaseSchema.safeParse(value);
   if (!latest.success) invalid();
-  return readSkillsRelease(latest.data.tag_name, fetcher);
+  return latest.data.tag_name;
+}
+
+export async function latestSkillsRelease(fetcher: typeof fetch = fetch): Promise<SkillsRelease> {
+  return readSkillsRelease(await latestSkillsReleaseTag(fetcher), fetcher);
 }
 
 export async function readSkillsRelease(

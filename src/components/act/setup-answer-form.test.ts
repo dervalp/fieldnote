@@ -28,7 +28,10 @@ const render = () =>
       runId: 'run',
       questionId: 'question',
       question: 'Which agents?',
-      agents: [{ agent: 'codex', label: 'Codex' }],
+      agents: [
+        { agent: 'codex', label: 'Codex', supported: true },
+        { agent: 'cursor', label: 'Cursor', supported: false },
+      ],
     }),
   );
 beforeEach(() => {
@@ -42,10 +45,10 @@ test('submits the bound repository/run and original question, answer, and repeat
   data.set('questionId', 'question');
   data.set('answer', 'Use both.');
   data.append('agents', 'codex');
-  data.append('agents', 'claude-code');
+  data.append('agents', 'cursor');
   await deps.submit!({}, data);
   expect(deps.answer).toHaveBeenCalledWith('repo', 'run', data);
-  expect(data.getAll('agents')).toEqual(['codex', 'claude-code']);
+  expect(data.getAll('agents')).toEqual(['codex', 'cursor']);
   expect(deps.refresh).toHaveBeenCalledOnce();
 });
 test('pending disables submission and errors are safe actionable feedback', async () => {

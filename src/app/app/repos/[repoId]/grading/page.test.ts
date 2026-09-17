@@ -15,6 +15,7 @@ const deps = vi.hoisted(() => ({
   installedGraders: vi.fn(),
   setup: vi.fn(),
   release: vi.fn(),
+  fullRelease: vi.fn(),
 }));
 vi.mock('../../../../../workspaces/access', () => ({
   requireRepository: deps.authorize,
@@ -36,7 +37,8 @@ vi.mock('../../../../../db/queries/authoring-runs', () => ({ latestPlan: deps.la
 vi.mock('../../../../../db/queries/grade-schedules', () => ({ gradeSchedules: deps.schedules }));
 vi.mock('../../../../../db/queries/fieldnote-setup', () => ({ getSetupSummary: deps.setup }));
 vi.mock('../../../../../fieldnote-skills/github-release', () => ({
-  latestSkillsRelease: deps.release,
+  latestSkillsReleaseTag: deps.release,
+  latestSkillsRelease: deps.fullRelease,
 }));
 vi.mock('./actions', () => ({ requestPlanRun: vi.fn(), requestFieldnoteSetup: vi.fn() }));
 vi.mock('../../../../../components/grading/report', () => ({
@@ -141,7 +143,10 @@ beforeEach(() => {
     progress: null,
     latestAvailable: true,
   });
-  deps.release.mockResolvedValue({ release: 'skills-v0.1.0' });
+  deps.release.mockResolvedValue('skills-v0.1.0');
+  deps.fullRelease.mockRejectedValue(
+    new Error('Full release bytes must not be loaded for presentation'),
+  );
 });
 test('a workspace with nothing installed sees one empty-state surface, not a crash', async () => {
   deps.installedGraders.mockResolvedValue([]);
@@ -282,6 +287,17 @@ test('a release outage preserves the stored installation and explains freshness 
   const html = renderToStaticMarkup(await call());
   expect(html).toContain('Fieldnote Skills v0.1.0 installed');
   expect(html).toContain('Unable to check for a newer Fieldnote Skills release');
+});
+test('uses the lightweight latest-tag boundary to present an update without loading release bytes', async () => {
+  deps.release.mockResolvedValue('skills-v0.2.0');
+  deps.setup.mockImplementation(async (_repositoryId, latest) => ({
+    installation: { kind: 'outdated', installed: 'skills-v0.1.0', latest: latest ?? '' },
+    progress: null,
+    latestAvailable: latest !== null,
+  }));
+  const html = renderToStaticMarkup(await call());
+  expect(html).toContain('Update Fieldnote to v0.2.0');
+  expect(deps.fullRelease).not.toHaveBeenCalled();
 });
 
 test('Agent Readiness renders before Delivery Health, in installedGraders() order', async () => {

@@ -222,6 +222,25 @@ test('accepts explicit supported agents even when no agent was detected', async 
     { agent: 'codex', supported: true, skillsRoot: '.agents/skills' },
   ]);
 });
+test('confirms an undetected unsupported agent alongside Codex without promising a native adapter', async () => {
+  const data = form('Use Codex and Cursor');
+  data.append('agents', 'codex');
+  data.append('agents', 'cursor');
+  await answerSetupPlan('repo', 'run', data);
+  expect(deps.append).toHaveBeenCalledWith('repo', 'run', 'question', 'Use Codex and Cursor', [
+    { agent: 'codex', supported: true, skillsRoot: '.agents/skills' },
+    { agent: 'cursor', supported: false, skillsRoot: null },
+  ]);
+  expect(deps.author).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.objectContaining({
+      confirmedAgents: [
+        { agent: 'codex', supported: true, skillsRoot: '.agents/skills' },
+        { agent: 'cursor', supported: false, skillsRoot: null },
+      ],
+    }),
+  );
+});
 
 test('an agent clarification can replace an unsupported-only confirmation', async () => {
   plan.proposal.confirmedAgents = [{ agent: 'cursor', supported: false, skillsRoot: null }];

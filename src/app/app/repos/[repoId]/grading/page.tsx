@@ -25,7 +25,7 @@ import { gradeSchedules } from '../../../../../db/queries/grade-schedules';
 import { ScheduleToggle } from '../../../../../components/grading/schedule-toggle';
 import { FieldnoteSetupEntry } from '../../../../../components/act/fieldnote-setup-entry';
 import { getSetupSummary } from '../../../../../db/queries/fieldnote-setup';
-import { latestSkillsRelease } from '../../../../../fieldnote-skills/github-release';
+import { latestSkillsReleaseTag } from '../../../../../fieldnote-skills/github-release';
 export const dynamic = 'force-dynamic';
 
 // A row of cards, one per installed grader, whether or not it has ever run —
@@ -100,11 +100,7 @@ export default async function Grading({
   const setup = isReadiness
     ? await getSetupSummary(
         repoId,
-        repo.isDemo
-          ? null
-          : await latestSkillsRelease()
-              .then((release) => release.release)
-              .catch(() => null),
+        repo.isDemo ? null : await latestSkillsReleaseTag().catch(() => null),
       )
     : null;
   // An unscored current run outranks an older completed one: it is the

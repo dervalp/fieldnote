@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { latestSkillsRelease, readSkillsRelease } from './github-release';
+import { latestSkillsRelease, latestSkillsReleaseTag, readSkillsRelease } from './github-release';
 
 const repository = 'https://api.github.com/repos/dervalp/fieldnote-skills';
 const digest = (value: string | Buffer) =>
@@ -180,6 +180,25 @@ function fakeFetch(options: FakeOptions = {}) {
 }
 
 describe('published Fieldnote Skills releases', () => {
+  it('reads only the latest tag with a five-minute cache for presentation', async () => {
+    const source = fakeFetch({ latestTag: 'skills-v0.2.0' });
+    await expect(latestSkillsReleaseTag(source.fetcher)).resolves.toBe('skills-v0.2.0');
+    expect(source.calls).toEqual([{
+      url: 'https://api.github.com/repos/dervalp/fieldnote-skills/releases/latest',
+      init: expect.objectContaining({ next: { revalidate: 300 } }),
+    }]);
+  });
+  it('validates the presentation tag before exposing it to the page', async () => {
+    const source = fakeFetch({ latestTag: 'main' });
+    await expect(latestSkillsReleaseTag(source.fetcher)).rejects.toMatchObject({ code: 'release_invalid', retryable: false });
+    expect(source.calls).toHaveLength(1);
+  });
+  it('keeps presentation lookup failures safe and retryable', async () => {
+    const source = fakeFetch({ responseStatus: { endpoint: '/repos/dervalp/fieldnote-skills/releases/latest', status: 503, message: 'private provider response' } });
+    const error = await latestSkillsReleaseTag(source.fetcher).catch((failure: unknown) => failure);
+    expect(error).toMatchObject({ code: 'release_unavailable', retryable: true });
+    expect(String(error)).not.toContain('private provider response');
+  });
   it('resolves the latest immutable release and only revalidates moving metadata', async () => {
     const source = fakeFetch();
 

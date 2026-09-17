@@ -1,5 +1,5 @@
 import { catalogue } from '../ai-involvement/catalogue';
-import type { AgentId, Detection } from '../ai-involvement/types';
+import { agentIds, type AgentId, type Detection } from '../ai-involvement/types';
 import type { AgentCandidate, SupportedSetupAgent } from './types';
 
 export const setupAdapters = {
@@ -28,6 +28,16 @@ function isSupported(agent: AgentId): agent is SupportedSetupAgent {
 function labelFor(agent: AgentId): string {
   return catalogue.find((entry) => entry.agent === agent)?.label ?? agent;
 }
+
+// Selection is independent of detection: a human may add any known agent.
+// Schema validation and these choices share the closed IDs, not Zod internals.
+export const setupAgentChoices: ReadonlyArray<
+  Pick<AgentCandidate, 'agent' | 'label' | 'supported'>
+> = agentIds.map((agent) => ({
+  agent,
+  label: agent === 'unidentified' ? 'Unidentified agent' : labelFor(agent),
+  supported: isSupported(agent),
+}));
 
 function addEvidence(
   candidates: Map<AgentId, CandidateEvidence[]>,

@@ -1,17 +1,9 @@
-import type { AgentId } from '../ai-involvement/types';
+import { agentIds, type AgentId } from '../ai-involvement/types';
 import { z } from 'zod';
 
 export type SupportedSetupAgent = 'codex' | 'claude-code';
 
-const agentIdSchema = z.enum([
-  'claude-code',
-  'codex',
-  'copilot',
-  'cursor',
-  'devin',
-  'gemini',
-  'unidentified',
-]) satisfies z.ZodType<AgentId>;
+const agentIdSchema = z.enum(agentIds) satisfies z.ZodType<AgentId>;
 
 export const agentCandidateSchema = z.strictObject({
   agent: agentIdSchema,

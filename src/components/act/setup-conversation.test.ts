@@ -81,6 +81,28 @@ test('a repository without detections can explicitly select a supported agent', 
   expect(html).toContain('name="agents" value="claude-code"');
   expect(html).not.toContain('Detected agents');
 });
+test('offers every known agent once, including undetected unsupported agents, without inventing evidence', () => {
+  const html = render({ candidates: [props.candidates[0]] });
+  for (const agent of [
+    'claude-code',
+    'codex',
+    'copilot',
+    'cursor',
+    'devin',
+    'gemini',
+    'unidentified',
+  ]) {
+    expect(html.match(new RegExp(`name="agents" value="${agent}"`, 'g'))).toHaveLength(1);
+  }
+  expect(html).toContain('No native adapter will be installed for Cursor.');
+  expect(html).toContain('AGENTS.md');
+  expect(html).not.toContain('.cursor/rules');
+});
+test('detected agents are not duplicated in the complete selection list', () => {
+  const html = render();
+  expect(html.match(/name="agents" value="codex"/g)).toHaveLength(1);
+  expect(html.match(/name="agents" value="cursor"/g)).toHaveLength(1);
+});
 test('completed conversation does not claim it is still preparing a PR', () => {
   const html = render({ state: 'ready' });
   expect(html).not.toContain('Preparing the setup pull request');

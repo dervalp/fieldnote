@@ -1,5 +1,13 @@
-export type AgentId =
-  'claude-code' | 'codex' | 'copilot' | 'cursor' | 'devin' | 'gemini' | 'unidentified';
+export const agentIds = [
+  'claude-code',
+  'codex',
+  'copilot',
+  'cursor',
+  'devin',
+  'gemini',
+  'unidentified',
+] as const;
+export type AgentId = (typeof agentIds)[number];
 
 export type DetectionKind = 'coding-agent' | 'llm-in-ci';
 

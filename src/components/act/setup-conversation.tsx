@@ -1,8 +1,7 @@
 import { Surface } from '@fieldnote/design-system';
 import type { AgentCandidate } from '../../domain/fieldnote-skills/types';
 import { SetupAnswerForm } from './setup-answer-form';
-import { setupAdapters } from '../../domain/fieldnote-skills/adapters';
-import type { SupportedSetupAgent } from '../../domain/fieldnote-skills/types';
+import { setupAgentChoices } from '../../domain/fieldnote-skills/adapters';
 
 export function SetupConversation({
   repositoryId,
@@ -30,12 +29,6 @@ export function SetupConversation({
     state === 'exploring' && lastTurn?.kind === 'answer' && previousTurn?.kind === 'question'
       ? { questionId: previousTurn.id, answer: lastTurn.body }
       : null;
-  const choices = [
-    ...candidates.map(({ agent, label }) => ({ agent, label })),
-    ...(Object.keys(setupAdapters) as SupportedSetupAgent[])
-      .filter((agent) => !candidates.some((candidate) => candidate.agent === agent))
-      .map((agent) => ({ agent, label: setupAdapters[agent].label })),
-  ];
   return (
     <Surface>
       <h3>Setup conversation</h3>
@@ -72,7 +65,7 @@ export function SetupConversation({
                 runId={runId}
                 questionId={question.id}
                 question={question.body}
-                agents={question.body.startsWith('[agents]') ? choices : []}
+                agents={question.body.startsWith('[agents]') ? setupAgentChoices : []}
               />
             ) : (
               <p style={{ whiteSpace: 'pre-wrap' }}>{note.body}</p>
